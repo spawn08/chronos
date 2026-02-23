@@ -3,9 +3,11 @@ package chronosos
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 
 	"github.com/chronos-ai/chronos/engine/stream"
 	"github.com/chronos-ai/chronos/os/approval"
@@ -53,14 +55,42 @@ func (s *Server) routes() {
 }
 
 func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
-	// TODO: implement with query params
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintln(w, `{"sessions":[]}`)
+	agentID := r.URL.Query().Get("agent_id")
+	limit := 50
+	offset := 0
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if v := r.URL.Query().Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+	sessions, err := s.Store.ListSessions(r.Context(), agentID, limit, offset)
+	if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"sessions": sessions})
 }
 
 func (s *Server) handleListTraces(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintln(w, `{"traces":[]}`)
+	sessionID := r.URL.Query().Get("session_id")
+	if sessionID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintln(w, `{"traces":[],"error":"session_id query parameter is required"}`)
+		return
+	}
+	traces, err := s.Store.ListTraces(r.Context(), sessionID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"traces": traces})
 }
 
 // Start begins serving the control plane.

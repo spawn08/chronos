@@ -14,6 +14,9 @@ spec:
       labels:
         app: chronos-os
     spec:
+      {{- if .Values.serviceAccount.create }}
+      serviceAccountName: {{ .Values.serviceAccount.name | default "chronos-os" }}
+      {{- end }}
       containers:
         - name: chronos-os
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"

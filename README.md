@@ -7,10 +7,11 @@
   </p>
   <p align="center">
     <a href="#quickstart">Quickstart</a> &middot;
+    <a href="#agent-configuration-yaml">YAML Config</a> &middot;
     <a href="#architecture">Architecture</a> &middot;
     <a href="#model-providers">Providers</a> &middot;
+    <a href="#cli">CLI</a> &middot;
     <a href="#multi-agent-protocol">Protocol</a> &middot;
-    <a href="#examples">Examples</a> &middot;
     <a href="#deployment">Deployment</a>
   </p>
 </p>
@@ -34,23 +35,23 @@ Chronos provides the full stack for building this kind of software in Go:
 
 ## Features
 
-- **Multi-Provider LLM Support** — OpenAI, Anthropic, Google Gemini, Mistral, Ollama, Azure OpenAI, and any OpenAI-compatible endpoint (vLLM, Together, Groq, DeepSeek, OpenRouter, Fireworks, and more)
-- **Agent Communication Protocol** — Agents communicate like human developers: delegate tasks, share results, ask questions, broadcast updates, and hand off conversations
-- **Durable Execution** — StateGraph runtime with checkpointing, interrupt nodes, and resume-from-checkpoint for time-travel debugging
-- **Function Calling** — Automatic tool-call loop: model requests a tool → agent executes → results sent back to the model
+- **YAML-First Configuration** — Define agents, models, and storage in `.chronos/agents.yaml` with `${ENV_VAR}` expansion and defaults inheritance
+- **Multi-Provider LLM Support** — OpenAI, Anthropic, Google Gemini, Mistral, Ollama, Azure OpenAI, and any OpenAI-compatible endpoint (Together, Groq, DeepSeek, OpenRouter, Fireworks, and more)
+- **Embedding Providers** — OpenAI and Ollama embeddings for RAG pipelines, with a caching layer
+- **Agent Communication Protocol** — Agents delegate tasks, share results, ask questions, broadcast updates, and hand off conversations via a typed message bus
+- **Durable Execution** — StateGraph runtime with checkpointing, interrupt nodes, and resume-from-checkpoint
+- **Function Calling** — Automatic tool-call loop with before/after hooks on every tool and model call
 - **Multi-Agent Teams** — Sequential, parallel, router, and coordinator strategies with shared context
 - **Human-in-the-Loop** — Interrupt nodes and approval API for high-risk tool calls
 - **Pluggable Storage** — Single interface with adapters for SQLite, PostgreSQL, Redis, MongoDB, DynamoDB
 - **Vector Stores** — Qdrant, Pinecone, Weaviate, Milvus, Redis Vector adapters
-- **Guardrails** — Input/output validation with blocklist, max-length, and custom guardrail support
-- **Hooks & Middleware** — Before/after middleware chain for logging, metrics, and custom logic
-- **Knowledge (RAG)** — Vector-backed retrieval with embeddings caching
-- **Memory** — Short-term and long-term memory with LLM-powered summarization
+- **Guardrails** — Input and output validation with blocklist, max-length, and custom guardrail support
+- **Knowledge (RAG)** — Vector-backed retrieval automatically injected into agent context
+- **Memory** — Short-term and long-term memory with LLM-powered extraction, injected into every conversation
 - **Observability** — Full tracing of node transitions, tool calls, and model responses; SSE streaming
-- **Skill System** — Versioned skill manifests with tool bundles
-- **Sandbox** — Process-level isolation for untrusted code execution
-- **CLI** — Interactive REPL with slash commands, session management, and headless batch mode
-- **Production Ready** — Docker, Helm chart, horizontal scaling, per-session isolation
+- **CLI** — Interactive REPL with agent chat, shell escape, slash commands, session/memory management, and headless batch mode
+- **Sandbox** — Process-level and Docker container isolation with resource limits
+- **Production Ready** — Docker, Helm chart (with HPA, Ingress, Secrets), horizontal scaling
 
 ---
 
@@ -62,7 +63,50 @@ Chronos provides the full stack for building this kind of software in Go:
 go get github.com/chronos-ai/chronos
 ```
 
-### Hello World
+### Option A: YAML Config (recommended)
+
+Create `.chronos/agents.yaml` in your project:
+
+```yaml
+defaults:
+  model:
+    provider: openai
+    api_key: ${OPENAI_API_KEY}
+  storage:
+    backend: sqlite
+    dsn: chronos.db
+
+agents:
+  - id: dev
+    name: Dev Agent
+    model:
+      model: gpt-4o
+    system_prompt: You are a senior software engineer. Be concise.
+```
+
+Then use the CLI:
+
+```bash
+# Chat interactively
+go run ./cli/main.go repl
+
+# One-shot query
+go run ./cli/main.go run "explain Go interfaces"
+
+# List configured agents
+go run ./cli/main.go agent list
+```
+
+Or load from Go code:
+
+```go
+fc, _ := agent.LoadFile("")  // auto-discovers .chronos/agents.yaml
+cfg, _ := fc.FindAgent("dev")
+a, _ := agent.BuildAgent(ctx, cfg)
+resp, _ := a.Chat(ctx, "What is the capital of France?")
+```
+
+### Option B: Go Builder API
 
 ```go
 package main
@@ -70,53 +114,45 @@ package main
 import (
     "context"
     "fmt"
-    "log"
+    "os"
 
-    "github.com/chronos-ai/chronos/engine/graph"
+    "github.com/chronos-ai/chronos/engine/model"
     "github.com/chronos-ai/chronos/sdk/agent"
-    "github.com/chronos-ai/chronos/storage/adapters/sqlite"
 )
 
 func main() {
-    ctx := context.Background()
-
-    store, _ := sqlite.New("myagent.db")
-    defer store.Close()
-    store.Migrate(ctx)
-
-    g := graph.New("hello").
-        AddNode("greet", func(_ context.Context, s graph.State) (graph.State, error) {
-            s["message"] = fmt.Sprintf("Hello, %s!", s["user"])
-            return s, nil
-        }).
-        SetEntryPoint("greet").
-        SetFinishPoint("greet")
-
-    a, err := agent.New("hello-agent", "Hello Agent").
-        WithStorage(store).
-        WithGraph(g).
+    a, _ := agent.New("chat-agent", "Chat Agent").
+        WithModel(model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))).
+        WithSystemPrompt("You are a helpful assistant.").
         Build()
-    if err != nil {
-        log.Fatal(err)
-    }
 
-    result, _ := a.Run(ctx, map[string]any{"user": "World"})
-    fmt.Println(result.State["message"]) // Hello, World!
+    resp, _ := a.Chat(context.Background(), "What is the capital of France?")
+    fmt.Println(resp.Content)
 }
 ```
 
-### Chat with an LLM
+### Graph-Based Agent
 
 ```go
-import "github.com/chronos-ai/chronos/engine/model"
+store, _ := sqlite.New("myagent.db")
+defer store.Close()
+store.Migrate(ctx)
 
-a, _ := agent.New("chat-agent", "Chat Agent").
-    WithModel(model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))).
-    WithSystemPrompt("You are a helpful assistant.").
+g := graph.New("hello").
+    AddNode("greet", func(_ context.Context, s graph.State) (graph.State, error) {
+        s["message"] = fmt.Sprintf("Hello, %s!", s["user"])
+        return s, nil
+    }).
+    SetEntryPoint("greet").
+    SetFinishPoint("greet")
+
+a, _ := agent.New("hello-agent", "Hello Agent").
+    WithStorage(store).
+    WithGraph(g).
     Build()
 
-resp, _ := a.Chat(ctx, "What is the capital of France?")
-fmt.Println(resp.Content)
+result, _ := a.Run(ctx, map[string]any{"user": "World"})
+fmt.Println(result.State["message"]) // Hello, World!
 ```
 
 ---
@@ -153,9 +189,6 @@ fmt.Println(resp.Content)
 chronos/
 ├── engine/                    # Runtime layer
 │   ├── graph/                 # StateGraph: nodes, edges, checkpoints, resume
-│   │   ├── graph.go           # Graph builder and compiler
-│   │   ├── runner.go          # Durable execution with checkpointing
-│   │   └── types.go           # State, Node, Edge, RunState, StreamEvent
 │   ├── model/                 # LLM provider implementations
 │   │   ├── provider.go        # Provider interface and shared types
 │   │   ├── openai.go          # OpenAI (GPT-4o, o1, o3)
@@ -165,14 +198,18 @@ chronos/
 │   │   ├── ollama.go          # Ollama (local models)
 │   │   ├── azure.go           # Azure OpenAI
 │   │   ├── compatible.go      # Any OpenAI-compatible API
-│   │   ├── embeddings.go      # EmbeddingsProvider + caching
+│   │   ├── openai_embeddings.go  # OpenAI embeddings provider
+│   │   ├── ollama_embeddings.go  # Ollama embeddings provider
+│   │   ├── embeddings.go      # EmbeddingsProvider interface + caching
 │   │   └── httpclient.go      # Shared HTTP transport
 │   ├── tool/                  # Tool registry with permissions
 │   ├── guardrails/            # Input/output validation
 │   ├── hooks/                 # Before/after middleware chain
 │   └── stream/                # SSE event broker
 ├── sdk/                       # User-facing API layer
-│   ├── agent/                 # Agent definition and fluent builder
+│   ├── agent/
+│   │   ├── agent.go           # Agent definition and fluent builder
+│   │   └── config.go          # YAML config parser and agent loader
 │   ├── team/                  # Multi-agent orchestration strategies
 │   ├── protocol/              # Agent-to-agent communication bus
 │   ├── skill/                 # Skill metadata and registry
@@ -185,9 +222,10 @@ chronos/
 │       ├── sqlite/            # SQLite (dev/test)
 │       ├── postgres/          # PostgreSQL (production)
 │       ├── qdrant/            # Qdrant vector store
-│       ├── redis/             # Redis
-│       ├── mongo/             # MongoDB
-│       ├── dynamo/            # DynamoDB
+│       ├── redis/             # Redis key-value storage
+│       ├── redisvector/       # Redis vector store (RediSearch)
+│       ├── mongo/             # MongoDB document storage
+│       ├── dynamo/            # DynamoDB serverless storage
 │       ├── pinecone/          # Pinecone vector store
 │       ├── weaviate/          # Weaviate vector store
 │       └── milvus/            # Milvus vector store
@@ -198,18 +236,91 @@ chronos/
 │   └── approval/              # Human-in-the-loop approval service
 ├── cli/                       # Command-line interface
 │   ├── main.go                # Entry point
-│   ├── cmd/                   # CLI commands (repl, serve, run)
-│   └── repl/                  # Interactive REPL with slash commands
-├── sandbox/                   # Process-level isolation
-├── examples/                  # Example applications
-│   ├── quickstart/            # Minimal agent with SQLite
-│   ├── multi_provider/        # Connect to multiple LLM providers
-│   └── multi_agent/           # Team of agents communicating via protocol
+│   ├── cmd/                   # CLI commands (repl, serve, run, agent, sessions, memory, db, config)
+│   └── repl/                  # Interactive REPL with agent chat and slash commands
+├── sandbox/
+│   ├── sandbox.go             # Sandbox interface + ProcessSandbox
+│   └── container.go           # ContainerSandbox (Docker API)
+├── .chronos/
+│   └── agents.yaml            # Example agent configuration
+├── examples/
 ├── deploy/
-│   ├── docker/                # Dockerfile
-│   └── helm/chronos/          # Helm chart for Kubernetes
+│   ├── docker/
+│   └── helm/chronos/          # Helm chart (Deployment, Service, Secret, Ingress, HPA, ServiceAccount)
 ├── go.mod
 └── README.md
+```
+
+---
+
+## Agent Configuration (YAML)
+
+Chronos agents can be defined entirely in YAML — no Go code required for basic setups. The CLI auto-discovers config files in this order:
+
+1. `.chronos/agents.yaml` (project-level)
+2. `agents.yaml` (current directory)
+3. `~/.chronos/agents.yaml` (global)
+
+Override with `CHRONOS_CONFIG=/path/to/config.yaml`.
+
+```yaml
+defaults:
+  model:
+    provider: openai
+    api_key: ${OPENAI_API_KEY}      # Environment variable expansion
+  storage:
+    backend: sqlite
+    dsn: chronos.db
+
+agents:
+  - id: dev
+    name: Dev Agent
+    description: General-purpose coding assistant
+    model:
+      model: gpt-4o
+    system_prompt: |
+      You are a senior software engineer. Be concise.
+    instructions:
+      - Always use context.Context as the first parameter.
+    capabilities: [code, review]
+
+  - id: researcher
+    name: Research Agent
+    model:
+      provider: anthropic                # Override the default provider
+      model: claude-sonnet-4-6
+      api_key: ${ANTHROPIC_API_KEY}
+    system_prompt: You are a research analyst.
+
+  - id: local
+    name: Local Agent
+    model:
+      provider: ollama
+      model: llama3.3
+    storage:
+      backend: sqlite
+      dsn: local.db
+
+  - id: coordinator
+    name: Team Lead
+    model:
+      model: gpt-4o
+    sub_agents: [dev, researcher]        # Wires sub-agent references
+```
+
+### Supported Providers in YAML
+
+`openai`, `anthropic`, `gemini`, `mistral`, `ollama`, `azure`, `groq`, `together`, `deepseek`, `openrouter`, `fireworks`, `perplexity`, `anyscale`, `compatible`
+
+### Loading from Go
+
+```go
+fc, _ := agent.LoadFile("")                    // auto-discover
+cfg, _ := fc.FindAgent("dev")                  // lookup by ID or name
+a, _ := agent.BuildAgent(ctx, cfg)             // fully wired agent
+
+agents, _ := agent.BuildAll(ctx, fc)           // build all, wire sub-agents
+coordinator := agents["coordinator"]
 ```
 
 ---
@@ -274,6 +385,26 @@ a, _ := agent.New("a5", "Agent").
         TimeoutSec: 60,
     })).
     Build()
+```
+
+### Embedding Providers
+
+Used for RAG pipelines and knowledge base search.
+
+```go
+// OpenAI embeddings
+emb := model.NewOpenAIEmbeddings(os.Getenv("OPENAI_API_KEY"))
+
+// Ollama local embeddings
+emb := model.NewOllamaEmbeddings("http://localhost:11434", "nomic-embed-text")
+
+// With caching
+emb := model.NewCachedEmbeddings(model.NewOpenAIEmbeddings(key))
+
+resp, _ := emb.Embed(ctx, &model.EmbeddingRequest{
+    Input: []string{"Hello world", "Goodbye world"},
+})
+// resp.Embeddings contains [][]float32
 ```
 
 ### Streaming
@@ -473,12 +604,13 @@ vectors.CreateCollection(ctx, "docs", 1536)
 | SQLite | Storage | Production-ready |
 | PostgreSQL | Storage | Production-ready |
 | Qdrant | VectorStore | Production-ready |
-| Redis | Storage | Planned |
-| MongoDB | Storage | Planned |
-| DynamoDB | Storage | Planned |
-| Pinecone | VectorStore | Planned |
-| Weaviate | VectorStore | Planned |
-| Milvus | VectorStore | Planned |
+| Redis | Storage | Available |
+| Redis Vector | VectorStore | Available (RediSearch) |
+| MongoDB | Storage | Available |
+| DynamoDB | Storage | Available |
+| Pinecone | VectorStore | Available |
+| Weaviate | VectorStore | Available |
+| Milvus | VectorStore | Available |
 
 ---
 
@@ -500,29 +632,52 @@ agent.New("safe", "Safe Agent").
 
 ## CLI
 
+The CLI auto-loads agents from `.chronos/agents.yaml` when available.
+
 ```bash
-# Interactive REPL
-go run ./cli/main.go repl
+# Interactive REPL (loads default agent from config)
+chronos repl
 
-# Serve the HTTP API
-go run ./cli/main.go serve :8420
+# Chat with a specific agent
+chronos agent chat dev
 
-# Run a command
-go run ./cli/main.go run --agent quickstart --input '{"user":"World"}'
+# One-shot message (headless)
+chronos run "explain Go interfaces"
+chronos run --agent researcher "compare React vs Svelte"
 
-# Help
-go run ./cli/main.go help
+# Agent management
+chronos agent list                   # List all configured agents
+chronos agent show dev               # Show agent details
+
+# Session management
+chronos sessions list                # List past sessions
+chronos sessions export <id>        # Export session as markdown
+
+# Memory, storage, config
+chronos memory list <agent_id>       # Show stored memories
+chronos db init                      # Initialize database
+chronos db status                    # Show database info
+chronos config show                  # Show config and loaded agents
+
+# Control plane server
+chronos serve :8420
 ```
 
-REPL slash commands:
+### REPL Commands
 
 ```
-chronos> /help           — show available commands
-chronos> /sessions       — list all sessions
-chronos> /checkpoints ID — show checkpoints for a session
-chronos> /resume ID      — resume a paused session
-chronos> /quit           — exit
+dev> /help           Show available commands
+dev> /agent          Show current agent info
+dev> /model          Show current model info
+dev> /sessions       List recent sessions
+dev> /memory         List memories for current agent
+dev> /history        Show conversation history
+dev> /clear          Clear conversation history
+dev> /quit           Exit
+dev> ! ls -la        Run a shell command
 ```
+
+Non-command input is sent directly to the loaded agent for chat.
 
 ---
 
@@ -547,11 +702,30 @@ docker run -p 8420:8420 chronos
 
 ### Kubernetes (Helm)
 
+The Helm chart includes Deployment, Service, Secret, Ingress, HPA, and ServiceAccount templates.
+
 ```bash
 helm install chronos deploy/helm/chronos/ \
   --set image.tag=latest \
-  --set storage.backend=postgres \
-  --set storage.dsn="postgres://user:pass@db:5432/chronos"
+  --set secrets.storageDSN="postgres://user:pass@db:5432/chronos" \
+  --set ingress.enabled=true \
+  --set autoscaling.enabled=true
+```
+
+### Container Sandbox
+
+For isolated execution of untrusted code, Chronos provides a Docker-based sandbox with resource limits:
+
+```go
+sandbox := sandbox.NewContainerSandbox(sandbox.ContainerConfig{
+    Image:       "python:3.12-slim",
+    MemoryBytes: 256 * 1024 * 1024,  // 256 MiB
+    CPUQuota:    50000,               // 50% of one core
+    NetworkMode: "none",              // no network access
+})
+
+result, _ := sandbox.Execute(ctx, "python", []string{"-c", "print('hello')"}, 30*time.Second)
+fmt.Println(result.Stdout) // hello
 ```
 
 ---
@@ -643,28 +817,39 @@ type Provider interface {
     Model() string
 }
 
-// Persistent storage
+// Embedding provider for RAG
+type EmbeddingsProvider interface {
+    Embed(ctx context.Context, req *EmbeddingRequest) (*EmbeddingResponse, error)
+}
+
+// Persistent storage (18 methods total)
 type Storage interface {
     CreateSession(ctx, *Session) error
     GetSession(ctx, id) (*Session, error)
     SaveCheckpoint(ctx, *Checkpoint) error
-    // ... 18 methods total
+    // ... sessions, memory, audit logs, traces, events, checkpoints
     Migrate(ctx) error
     Close() error
 }
 
 // Vector store for RAG
 type VectorStore interface {
-    Upsert(ctx, collection string, docs []Document) error
-    Search(ctx, collection, query string, k int) ([]Document, error)
+    Upsert(ctx, collection string, embeddings []Embedding) error
+    Search(ctx, collection string, query []float32, topK int) ([]SearchResult, error)
     Delete(ctx, collection string, ids []string) error
-    CreateCollection(ctx, name string, dim int) error
+    CreateCollection(ctx, name string, dimension int) error
     Close() error
 }
 
 // Guardrail for input/output validation
 type Guardrail interface {
     Check(ctx context.Context, content string) *Result
+}
+
+// Sandbox for isolated execution
+type Sandbox interface {
+    Execute(ctx context.Context, command string, args []string, timeout time.Duration) (*Result, error)
+    Close() error
 }
 ```
 

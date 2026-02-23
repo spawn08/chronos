@@ -1,0 +1,109 @@
+# Chronos Agent Configuration
+# Place this file at .chronos/agents.yaml (project-level) or ~/.chronos/agents.yaml (global).
+# All string values support ${ENV_VAR} expansion.
+
+# Defaults are applied to every agent unless overridden.
+defaults:
+  model:
+    provider: openai
+    api_key: ${CHRONOS_API_KEY}
+  storage:
+    backend: sqlite
+    dsn: chronos.db
+
+# Define your agents here.
+agents:
+  # --- General-purpose dev agent ---
+  - id: dev
+    name: Dev Agent
+    description: General-purpose coding assistant
+    model:
+      provider: openai
+      model: gpt-4o
+      api_key: ${OPENAI_API_KEY}
+    system_prompt: |
+      You are a senior software engineer. You write clean, well-tested code.
+      Be concise. Prefer showing code over explaining.
+    instructions:
+      - Always use context.Context as the first parameter in Go functions.
+      - Wrap errors with fmt.Errorf and %w.
+    capabilities:
+      - code
+      - review
+      - debug
+
+  # --- Research agent using Anthropic ---
+  - id: researcher
+    name: Research Agent
+    description: Deep research and analysis agent
+    model:
+      provider: anthropic
+      model: claude-sonnet-4-6
+      api_key: ${ANTHROPIC_API_KEY}
+    system_prompt: |
+      You are a thorough research analyst. Provide well-sourced,
+      detailed analysis with clear reasoning chains.
+    capabilities:
+      - research
+      - analysis
+
+  # --- Local Ollama agent (no API key needed) ---
+  - id: local
+    name: Local Agent
+    description: Runs on local Ollama instance
+    model:
+      provider: ollama
+      model: llama3.3
+      base_url: http://localhost:11434
+    storage:
+      backend: sqlite
+      dsn: local_agent.db
+    system_prompt: You are a helpful assistant running locally.
+
+  # --- Team coordinator ---
+  - id: coordinator
+    name: Coordinator
+    description: Orchestrates dev and researcher agents
+    model:
+      provider: openai
+      model: gpt-4o
+      api_key: ${OPENAI_API_KEY}
+    system_prompt: |
+      You are a team coordinator. Break complex tasks into sub-tasks
+      and delegate to the appropriate specialist agent.
+    sub_agents:
+      - dev
+      - researcher
+    capabilities:
+      - planning
+      - delegation
+
+  # --- Groq for ultra-fast responses ---
+  - id: fast
+    name: Fast Agent
+    description: Ultra-low latency via Groq
+    model:
+      provider: groq
+      model: llama-3.3-70b-versatile
+      api_key: ${GROQ_API_KEY}
+    system_prompt: You are a fast, concise assistant.
+
+  # --- Azure OpenAI for enterprise ---
+  # - id: enterprise
+  #   name: Enterprise Agent
+  #   description: Azure OpenAI deployment
+  #   model:
+  #     provider: azure
+  #     endpoint: ${AZURE_OPENAI_ENDPOINT}
+  #     api_key: ${AZURE_OPENAI_KEY}
+  #     deployment: gpt-4o
+  #     api_version: "2024-06-01"
+
+  # --- Custom OpenAI-compatible provider ---
+  # - id: custom
+  #   name: Custom Provider Agent
+  #   model:
+  #     provider: compatible
+  #     base_url: https://my-llm-proxy.internal/v1
+  #     api_key: ${CUSTOM_API_KEY}
+  #     model: my-custom-model

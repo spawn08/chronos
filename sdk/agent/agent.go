@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/chronos-ai/chronos/engine/graph"
@@ -148,13 +149,35 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 		return nil, fmt.Errorf("agent %q has no model", a.ID)
 	}
 
-	messages := make([]model.Message, 0, 4)
+	messages := make([]model.Message, 0, 8)
 	if a.SystemPrompt != "" {
 		messages = append(messages, model.Message{Role: model.RoleSystem, Content: a.SystemPrompt})
 	}
 	for _, inst := range a.Instructions {
 		messages = append(messages, model.Message{Role: model.RoleSystem, Content: inst})
 	}
+
+	// Inject long-term user memories into context
+	if a.MemoryManager != nil {
+		if memCtx, err := a.MemoryManager.GetUserMemories(ctx); err == nil && memCtx != "" {
+			messages = append(messages, model.Message{Role: model.RoleSystem, Content: memCtx})
+		}
+	}
+
+	// Inject relevant knowledge via RAG
+	if a.Knowledge != nil {
+		if docs, err := a.Knowledge.Search(ctx, userMessage, 5); err == nil && len(docs) > 0 {
+			var kb strings.Builder
+			kb.WriteString("Relevant knowledge:\n")
+			for _, d := range docs {
+				kb.WriteString("- ")
+				kb.WriteString(d.Content)
+				kb.WriteString("\n")
+			}
+			messages = append(messages, model.Message{Role: model.RoleSystem, Content: kb.String()})
+		}
+	}
+
 	messages = append(messages, model.Message{Role: model.RoleUser, Content: userMessage})
 
 	// Check input guardrails
@@ -164,6 +187,11 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 
 	req := &model.ChatRequest{
 		Messages: messages,
+	}
+
+	// Apply output schema for structured output
+	if a.OutputSchema != nil {
+		req.ResponseFormat = "json_object"
 	}
 
 	// Add tool definitions if any are registered
@@ -181,14 +209,41 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 		}
 	}
 
+	// Fire model call hooks
+	modelEvt := &hooks.Event{Type: hooks.EventModelCallBefore, Name: a.Model.Name(), Input: req}
+	if err := a.Hooks.Before(ctx, modelEvt); err != nil {
+		return nil, fmt.Errorf("hook before model call: %w", err)
+	}
+
 	resp, err := a.Model.Chat(ctx, req)
+
+	modelEvt.Type = hooks.EventModelCallAfter
+	modelEvt.Output = resp
+	modelEvt.Error = err
+	_ = a.Hooks.After(ctx, modelEvt)
+
 	if err != nil {
 		return nil, fmt.Errorf("agent %q chat: %w", a.ID, err)
 	}
 
 	// Handle tool calls if the model wants to use tools
 	if resp.StopReason == model.StopReasonToolCall && len(resp.ToolCalls) > 0 {
-		return a.handleToolCalls(ctx, messages, resp)
+		resp, err = a.handleToolCalls(ctx, messages, resp)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Check output guardrails
+	if resp != nil && resp.Content != "" {
+		if result := a.Guardrails.CheckOutput(ctx, resp.Content); result != nil {
+			return nil, fmt.Errorf("output guardrail failed: %s", result.Reason)
+		}
+	}
+
+	// Extract memories from conversation
+	if a.MemoryManager != nil {
+		_ = a.MemoryManager.ExtractMemories(ctx, messages)
 	}
 
 	return resp, nil
@@ -196,19 +251,28 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 
 // handleToolCalls executes tool calls and sends results back to the model.
 func (a *Agent) handleToolCalls(ctx context.Context, messages []model.Message, resp *model.ChatResponse) (*model.ChatResponse, error) {
-	// Add assistant message with tool calls
 	messages = append(messages, model.Message{
 		Role:      model.RoleAssistant,
 		Content:   resp.Content,
 		ToolCalls: resp.ToolCalls,
 	})
 
-	// Execute each tool call
 	for _, tc := range resp.ToolCalls {
 		var args map[string]any
 		_ = json.Unmarshal([]byte(tc.Arguments), &args)
 
+		// Fire tool call hooks
+		toolEvt := &hooks.Event{Type: hooks.EventToolCallBefore, Name: tc.Name, Input: args}
+		if err := a.Hooks.Before(ctx, toolEvt); err != nil {
+			return nil, fmt.Errorf("hook before tool %q: %w", tc.Name, err)
+		}
+
 		result, err := a.Tools.Execute(ctx, tc.Name, args)
+
+		toolEvt.Type = hooks.EventToolCallAfter
+		toolEvt.Output = result
+		toolEvt.Error = err
+		_ = a.Hooks.After(ctx, toolEvt)
 
 		var content string
 		if err != nil {
@@ -270,6 +334,19 @@ func (a *Agent) Run(ctx context.Context, input map[string]any) (*graph.RunState,
 	evt.Output = result
 	if hookErr := a.Hooks.After(ctx, evt); hookErr != nil && err == nil {
 		err = hookErr
+	}
+
+	// Post-run memory extraction
+	if a.MemoryManager != nil && err == nil {
+		if inputMsg, ok := input["message"].(string); ok {
+			msgs := []model.Message{{Role: model.RoleUser, Content: inputMsg}}
+			if result != nil {
+				if resp, ok := result.State["response"].(string); ok {
+					msgs = append(msgs, model.Message{Role: model.RoleAssistant, Content: resp})
+				}
+			}
+			_ = a.MemoryManager.ExtractMemories(ctx, msgs)
+		}
 	}
 
 	return result, err
