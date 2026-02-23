@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/chronos-ai/chronos/cli/cmd"
+	"github.com/spawn08/chronos/cli/cmd"
 )
 
 func main() {

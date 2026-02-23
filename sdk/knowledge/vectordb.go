@@ -5,8 +5,8 @@ import (
 	"crypto/sha256"
 	"fmt"
 
-	"github.com/chronos-ai/chronos/engine/model"
-	"github.com/chronos-ai/chronos/storage"
+	"github.com/spawn08/chronos/engine/model"
+	"github.com/spawn08/chronos/storage"
 )
 
 // VectorKnowledge implements Knowledge backed by a VectorStore and EmbeddingsProvider.

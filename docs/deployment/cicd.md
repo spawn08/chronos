@@ -66,9 +66,9 @@ This triggers the full release pipeline. The resulting artifacts:
 
 | Artifact | Location |
 |----------|----------|
-| Go module | `pkg.go.dev/github.com/chronos-ai/chronos` |
+| Go module | `pkg.go.dev/github.com/spawn08/chronos` |
 | CLI binaries | GitHub Release assets |
-| Docker image | `ghcr.io/chronos-ai/chronos:v0.2.0` |
+| Docker image | `ghcr.io/spawn08/chronos:v0.2.0` |
 | Checksums | `checksums.txt` in release assets |
 
 ### Supported Platforms

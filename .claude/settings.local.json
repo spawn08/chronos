@@ -1,7 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(go mod init github.com/chronos-ai/chronos)",
+      "Bash(go mod init github.com/spawn08/chronos)",
       "Bash(go mod tidy 2>&1)",
       "Bash(go build ./... 2>&1)",
       "Bash(go run ./examples/quickstart/main.go 2>&1)",

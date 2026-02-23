@@ -21,7 +21,7 @@ classes: wide
     </a>
   </div>
   <div class="install-command">
-    <span class="prompt">$ </span>go get github.com/chronos-ai/chronos
+    <span class="prompt">$ </span>go get github.com/spawn08/chronos
   </div>
 </div>
 
@@ -144,8 +144,8 @@ import (
     "fmt"
     "os"
 
-    "github.com/chronos-ai/chronos/engine/model"
-    "github.com/chronos-ai/chronos/sdk/agent"
+    "github.com/spawn08/chronos/engine/model"
+    "github.com/spawn08/chronos/sdk/agent"
 )
 
 func main() {

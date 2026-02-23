@@ -2,7 +2,7 @@
 package examples
 
 import (
-	"github.com/chronos-ai/chronos/sdk/skill"
+	"github.com/spawn08/chronos/sdk/skill"
 )
 
 // WebSearchSkill is an example skill for web search.

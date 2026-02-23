@@ -146,9 +146,9 @@ import (
     "fmt"
     "regexp"
 
-    "github.com/chronos-ai/chronos/engine/guardrails"
-    "github.com/chronos-ai/chronos/engine/model"
-    "github.com/chronos-ai/chronos/sdk/agent"
+    "github.com/spawn08/chronos/engine/guardrails"
+    "github.com/spawn08/chronos/engine/model"
+    "github.com/spawn08/chronos/sdk/agent"
 )
 
 type PIIGuardrail struct {

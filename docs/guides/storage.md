@@ -70,7 +70,7 @@ type Storage interface {
 The default adapter for development and testing. Data is stored in a single file.
 
 ```go
-import "github.com/chronos-ai/chronos/storage/adapters/sqlite"
+import "github.com/spawn08/chronos/storage/adapters/sqlite"
 
 store, err := sqlite.New("chronos.db")
 if err != nil {
@@ -94,7 +94,7 @@ store, _ := sqlite.New(":memory:")
 The recommended adapter for production deployments.
 
 ```go
-import "github.com/chronos-ai/chronos/storage/adapters/postgres"
+import "github.com/spawn08/chronos/storage/adapters/postgres"
 
 store, err := postgres.New("postgres://user:pass@host:5432/chronos?sslmode=require")
 if err != nil {
@@ -124,7 +124,7 @@ type VectorStore interface {
 ### Qdrant Example
 
 ```go
-import "github.com/chronos-ai/chronos/storage/adapters/qdrant"
+import "github.com/spawn08/chronos/storage/adapters/qdrant"
 
 vectors := qdrant.New("http://localhost:6333")
 defer vectors.Close()
@@ -176,7 +176,7 @@ package myadapter
 
 import (
     "context"
-    "github.com/chronos-ai/chronos/storage"
+    "github.com/spawn08/chronos/storage"
 )
 
 type Store struct {

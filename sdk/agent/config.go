@@ -9,9 +9,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/chronos-ai/chronos/engine/model"
-	"github.com/chronos-ai/chronos/storage"
-	"github.com/chronos-ai/chronos/storage/adapters/sqlite"
+	"github.com/spawn08/chronos/engine/model"
+	"github.com/spawn08/chronos/storage"
+	"github.com/spawn08/chronos/storage/adapters/sqlite"
 )
 
 // AgentConfig is the YAML-serializable definition of a single agent.

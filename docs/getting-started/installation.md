@@ -17,13 +17,13 @@ toc_sticky: true
 Add Chronos to your Go module:
 
 ```bash
-go get github.com/chronos-ai/chronos
+go get github.com/spawn08/chronos
 ```
 
-The module path is `github.com/chronos-ai/chronos`. Import it in your code:
+The module path is `github.com/spawn08/chronos`. Import it in your code:
 
 ```go
-import "github.com/chronos-ai/chronos/sdk/agent"
+import "github.com/spawn08/chronos/sdk/agent"
 ```
 
 ## Build from source

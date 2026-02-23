@@ -5,7 +5,7 @@ alwaysApply: true
 
 # Chronos Go Framework
 
-Chronos is a Go-based agentic framework. Module: `github.com/chronos-ai/chronos`.
+Chronos is a Go-based agentic framework. Module: `github.com/spawn08/chronos`.
 
 ## Package Map
 - **sdk/agent/** — Agent builder: `agent.New().WithModel().WithStorage().Build()`

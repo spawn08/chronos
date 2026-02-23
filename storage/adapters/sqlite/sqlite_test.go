@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chronos-ai/chronos/storage"
+	"github.com/spawn08/chronos/storage"
 )
 
 func newTestStore(t *testing.T) *Store {
