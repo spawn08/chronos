@@ -1,0 +1,52 @@
+# Build output
+bin/
+dist/
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+
+# Coverage
+*.out
+coverage.html
+
+# SQLite databases
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Chronos runtime
+.chronos/config.yaml
+.chronos/history
+.chronos/traces/
+
+# Dependencies (vendored)
+vendor/
+
+# Temporary
+tmp/
+*.tmp
+*.log
