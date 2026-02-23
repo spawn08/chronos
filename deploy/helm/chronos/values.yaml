@@ -1,0 +1,9 @@
+replicaCount: 2
+
+image:
+  repository: ghcr.io/chronos-ai/chronos
+  tag: "0.1.0"
+
+storage:
+  backend: postgres
+  # DSN is read from chronos-secrets Secret

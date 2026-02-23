@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chronos-os
+  labels:
+    app: chronos-os
+spec:
+  replicas: {{ .Values.replicaCount | default 2 }}
+  selector:
+    matchLabels:
+      app: chronos-os
+  template:
+    metadata:
+      labels:
+        app: chronos-os
+    spec:
+      containers:
+        - name: chronos-os
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          ports:
+            - containerPort: 8420
+          env:
+            - name: CHRONOS_STORAGE_BACKEND
+              value: "{{ .Values.storage.backend }}"
+            - name: CHRONOS_STORAGE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: chronos-secrets
+                  key: storage-dsn
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chronos-os
+spec:
+  selector:
+    app: chronos-os
+  ports:
+    - port: 8420
+      targetPort: 8420
+  type: ClusterIP
