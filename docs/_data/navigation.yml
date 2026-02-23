@@ -1,0 +1,62 @@
+docs:
+  - title: "Getting Started"
+    children:
+      - title: "Introduction"
+        url: /
+      - title: "Installation"
+        url: /getting-started/installation/
+      - title: "Quickstart"
+        url: /getting-started/quickstart/
+      - title: "Configuration"
+        url: /getting-started/configuration/
+
+  - title: "Core Concepts"
+    children:
+      - title: "Agents"
+        url: /guides/agents/
+      - title: "Model Providers"
+        url: /guides/models/
+      - title: "Tools & Function Calling"
+        url: /guides/tools/
+      - title: "Memory & Knowledge"
+        url: /guides/memory/
+      - title: "Context Management"
+        url: /guides/context-management/
+      - title: "Multi-Agent Teams"
+        url: /guides/teams/
+      - title: "StateGraph Runtime"
+        url: /guides/stategraph/
+
+  - title: "Middleware"
+    children:
+      - title: "Overview"
+        url: /guides/middleware/
+      - title: "Guardrails"
+        url: /guides/guardrails/
+      - title: "Cost Tracking"
+        url: /guides/cost-tracking/
+
+  - title: "Infrastructure"
+    children:
+      - title: "Storage Adapters"
+        url: /guides/storage/
+      - title: "Streaming & SSE"
+        url: /guides/streaming/
+
+  - title: "Deployment"
+    children:
+      - title: "Docker"
+        url: /deployment/docker/
+      - title: "Kubernetes & Helm"
+        url: /deployment/kubernetes/
+      - title: "CI/CD"
+        url: /deployment/cicd/
+
+  - title: "API Reference"
+    children:
+      - title: "Interfaces"
+        url: /api/interfaces/
+      - title: "Agent Builder"
+        url: /api/agent-builder/
+      - title: "CLI Reference"
+        url: /api/cli/
