@@ -3,6 +3,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -32,7 +33,7 @@ type Agent struct {
 	Storage storage.Storage
 	Graph   *graph.CompiledGraph
 
-	// Agno-inspired enhancements
+	// Enhancements
 	Knowledge      knowledge.Knowledge
 	MemoryManager  *memory.Manager
 	Hooks          hooks.Chain
@@ -41,9 +42,14 @@ type Agent struct {
 	OutputSchema   map[string]any // JSON Schema for structured output
 	NumHistoryRuns int            // number of past runs to inject into context
 
+	// System prompt and instructions
+	SystemPrompt string
+	Instructions []string
+
 	// Multi-agent
 	SubAgents              []*Agent
 	MaxConcurrentSubAgents int
+	Capabilities           []string // advertised capabilities for the protocol bus
 }
 
 // Builder provides a fluent API for constructing agents.
@@ -67,15 +73,26 @@ func New(id, name string) *Builder {
 	}
 }
 
-func (b *Builder) Description(d string) *Builder            { b.agent.Description = d; return b }
-func (b *Builder) WithUserID(id string) *Builder             { b.agent.UserID = id; return b }
-func (b *Builder) WithModel(p model.Provider) *Builder       { b.agent.Model = p; return b }
-func (b *Builder) WithStorage(s storage.Storage) *Builder    { b.agent.Storage = s; return b }
-func (b *Builder) WithMemory(m *memory.Store) *Builder       { b.agent.Memory = m; return b }
+func (b *Builder) Description(d string) *Builder              { b.agent.Description = d; return b }
+func (b *Builder) WithUserID(id string) *Builder               { b.agent.UserID = id; return b }
+func (b *Builder) WithModel(p model.Provider) *Builder         { b.agent.Model = p; return b }
+func (b *Builder) WithStorage(s storage.Storage) *Builder      { b.agent.Storage = s; return b }
+func (b *Builder) WithMemory(m *memory.Store) *Builder         { b.agent.Memory = m; return b }
 func (b *Builder) WithKnowledge(k knowledge.Knowledge) *Builder { b.agent.Knowledge = k; return b }
 func (b *Builder) WithMemoryManager(m *memory.Manager) *Builder { b.agent.MemoryManager = m; return b }
-func (b *Builder) WithOutputSchema(s map[string]any) *Builder { b.agent.OutputSchema = s; return b }
-func (b *Builder) WithHistoryRuns(n int) *Builder             { b.agent.NumHistoryRuns = n; return b }
+func (b *Builder) WithOutputSchema(s map[string]any) *Builder   { b.agent.OutputSchema = s; return b }
+func (b *Builder) WithHistoryRuns(n int) *Builder               { b.agent.NumHistoryRuns = n; return b }
+func (b *Builder) WithSystemPrompt(prompt string) *Builder      { b.agent.SystemPrompt = prompt; return b }
+
+func (b *Builder) AddInstruction(instruction string) *Builder {
+	b.agent.Instructions = append(b.agent.Instructions, instruction)
+	return b
+}
+
+func (b *Builder) AddCapability(capability string) *Builder {
+	b.agent.Capabilities = append(b.agent.Capabilities, capability)
+	return b
+}
 
 func (b *Builder) AddTool(def *tool.Definition) *Builder {
 	b.agent.Tools.Register(def)
@@ -122,6 +139,94 @@ func (b *Builder) Build() (*Agent, error) {
 		b.agent.Graph = compiled
 	}
 	return b.agent, nil
+}
+
+// Chat sends a single user message to the agent's model and returns the response.
+// This is a convenience method for agents that have a model but no graph.
+func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatResponse, error) {
+	if a.Model == nil {
+		return nil, fmt.Errorf("agent %q has no model", a.ID)
+	}
+
+	messages := make([]model.Message, 0, 4)
+	if a.SystemPrompt != "" {
+		messages = append(messages, model.Message{Role: model.RoleSystem, Content: a.SystemPrompt})
+	}
+	for _, inst := range a.Instructions {
+		messages = append(messages, model.Message{Role: model.RoleSystem, Content: inst})
+	}
+	messages = append(messages, model.Message{Role: model.RoleUser, Content: userMessage})
+
+	// Check input guardrails
+	if result := a.Guardrails.CheckInput(ctx, userMessage); result != nil {
+		return nil, fmt.Errorf("input guardrail failed: %s", result.Reason)
+	}
+
+	req := &model.ChatRequest{
+		Messages: messages,
+	}
+
+	// Add tool definitions if any are registered
+	tools := a.Tools.List()
+	if len(tools) > 0 {
+		for _, t := range tools {
+			req.Tools = append(req.Tools, model.ToolDefinition{
+				Type: "function",
+				Function: model.FunctionDef{
+					Name:        t.Name,
+					Description: t.Description,
+					Parameters:  t.Parameters,
+				},
+			})
+		}
+	}
+
+	resp, err := a.Model.Chat(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("agent %q chat: %w", a.ID, err)
+	}
+
+	// Handle tool calls if the model wants to use tools
+	if resp.StopReason == model.StopReasonToolCall && len(resp.ToolCalls) > 0 {
+		return a.handleToolCalls(ctx, messages, resp)
+	}
+
+	return resp, nil
+}
+
+// handleToolCalls executes tool calls and sends results back to the model.
+func (a *Agent) handleToolCalls(ctx context.Context, messages []model.Message, resp *model.ChatResponse) (*model.ChatResponse, error) {
+	// Add assistant message with tool calls
+	messages = append(messages, model.Message{
+		Role:      model.RoleAssistant,
+		Content:   resp.Content,
+		ToolCalls: resp.ToolCalls,
+	})
+
+	// Execute each tool call
+	for _, tc := range resp.ToolCalls {
+		var args map[string]any
+		_ = json.Unmarshal([]byte(tc.Arguments), &args)
+
+		result, err := a.Tools.Execute(ctx, tc.Name, args)
+
+		var content string
+		if err != nil {
+			content = fmt.Sprintf("Error: %s", err.Error())
+		} else {
+			resultJSON, _ := json.Marshal(result)
+			content = string(resultJSON)
+		}
+
+		messages = append(messages, model.Message{
+			Role:       model.RoleTool,
+			Content:    content,
+			ToolCallID: tc.ID,
+			Name:       tc.Name,
+		})
+	}
+
+	return a.Model.Chat(ctx, &model.ChatRequest{Messages: messages})
 }
 
 // Run starts a new execution session for this agent.
