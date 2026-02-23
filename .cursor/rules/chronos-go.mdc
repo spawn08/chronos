@@ -1,0 +1,30 @@
+---
+description: Core Chronos Go conventions and package map
+alwaysApply: true
+---
+
+# Chronos Go Framework
+
+Chronos is a Go-based agentic framework. Module: `github.com/chronos-ai/chronos`.
+
+## Package Map
+- **sdk/agent/** — Agent builder: `agent.New().WithModel().WithStorage().Build()`
+- **sdk/skill/**, **sdk/memory/**, **sdk/knowledge/**, **sdk/team/** — SDK features
+- **engine/graph/** — StateGraph (nodes, edges, checkpoints, resume)
+- **engine/model/** — `Provider`, `EmbeddingsProvider`
+- **engine/tool/**, **engine/hooks/**, **engine/guardrails/**, **engine/stream/** — Runtime
+- **storage/** — `Storage` and `VectorStore` interfaces; adapters in **storage/adapters/<name>/**
+- **os/** — ChronosOS control plane; **cli/** — REPL and commands
+
+## Conventions
+- **Errors**: Always wrap: `fmt.Errorf("context: %w", err)`.
+- **Constructors**: `New(...)` returns `(*T, error)` or `*T` if infallible.
+- **I/O**: First parameter is `context.Context`.
+- **No** `init()`; no global state; no `os` in library packages.
+- **Naming**: Interfaces = noun (Storage, Provider); no `I` prefix. Files = lowercase matching type.
+
+## Do NOT
+- Add `init()` or package-level mutable state.
+- Skip error wrapping.
+- Use panic for recoverable errors.
+- Add dependencies without checking stdlib first.

@@ -1,0 +1,23 @@
+---
+description: CLI command and REPL development patterns
+globs: cli/**/*.go
+alwaysApply: false
+---
+
+# Chronos CLI Rules
+
+CLI entry: `cli/main.go` calls `cmd.Execute()`. Commands are dispatched in `cli/cmd/root.go` via `os.Args[1]`.
+
+## Adding a command
+- Add a new case in the switch (or subcommand tree) in `root.go`, or add a dedicated `runXxx()` and call it.
+- For subcommands (e.g. `chronos sessions list`), parse `os.Args[2]` and delegate to a handler; consider a subpackage under `cli/cmd/` per domain (sessions, skills, kb, memory, mcp, config, db, monitor).
+- Use `context.Context` for cancellation; avoid global state.
+
+## REPL (`cli/repl/repl.go`)
+- Slash commands: prefix `/` (e.g. `/help`, `/sessions`, `/quit`). Register in the REPL command map.
+- Non-command input: intended to be sent to the agent (currently may echo); when wiring agent, pass line to agent and stream response.
+- Store-backed commands use the `storage.Storage` passed into `repl.New(store)`.
+
+## Output
+- Use `fmt` for simple output. For richer TUI (panels, tables), use a minimal approach or introduce a small terminal library; avoid heavy UI deps unless specified.
+- Errors: log or print with clear messages; return errors from `Execute()` so main can exit non-zero.

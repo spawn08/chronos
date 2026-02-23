@@ -1,0 +1,29 @@
+---
+description: Storage and VectorStore adapter implementation contract
+globs: storage/adapters/**/*.go
+alwaysApply: false
+---
+
+# Storage Adapter Rules
+
+When implementing a storage adapter, follow the interfaces in `storage/storage.go` and `storage/vector.go`.
+
+## Storage (relational/session state)
+Implement **all 18 methods**:
+- Sessions: CreateSession, GetSession, UpdateSession, ListSessions
+- Memory: PutMemory, GetMemory, ListMemory, DeleteMemory
+- Audit: AppendAuditLog, ListAuditLogs
+- Traces: InsertTrace, GetTrace, ListTraces
+- Events: AppendEvent, ListEvents
+- Checkpoints: SaveCheckpoint, GetCheckpoint, GetLatestCheckpoint, ListCheckpoints
+- Lifecycle: Migrate(ctx), Close()
+
+Use types from `storage` package (Session, MemoryRecord, AuditLog, Trace, Event, Checkpoint). Marshal map/any with `encoding/json`. SQL adapters: `?` for SQLite, `$N` for Postgres.
+
+## VectorStore (embeddings)
+Implement: Upsert, Search, Delete, CreateCollection, Close. Use `storage.Embedding`, `storage.SearchResult`. Reference: `storage/adapters/qdrant/qdrant.go`.
+
+## Required
+- One file per adapter: `storage/adapters/<name>/<name>.go`.
+- Package name = adapter name. Constructor: `New(dsn string) (*Store, error)` (or equivalent).
+- Always implement `Migrate(ctx)` for schema/collection creation and `Close()`.

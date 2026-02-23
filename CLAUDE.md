@@ -124,6 +124,20 @@ go mod tidy
 1. Write a `graph.NodeFunc`: `func(ctx context.Context, state graph.State) (graph.State, error)`
 2. Register: `graph.New("id").AddNode("name", fn)` or `.AddInterruptNode("name", fn)` for human-in-the-loop
 
+## Gap Analysis (Current State)
+
+- **Working:** Agent builder, Chat, Run, Resume; StateGraph with checkpoints; team orchestration (sequential, parallel, router, coordinator); memory Store + Manager; VectorKnowledge; model providers (OpenAI, Anthropic, Gemini, Mistral, Ollama, Azure, Compatible); SQLite + Postgres Storage; Qdrant VectorStore; tool registry + approval; guardrails + hooks; stream Broker; ProcessSandbox; ChronosOS server + approval API; protocol bus.
+- **Not wired in agent:** Knowledge.Search, MemoryManager.GetUserMemories/ExtractMemories, OutputSchema, NumHistoryRuns, output guardrails, and tool/model hooks are stored on the agent but not used in Chat or Run. Fix in Tier 1 (see DEVELOPMENT.md).
+- **Stubs or missing:** Storage adapters (dynamo, mongo, redis, redisvector, pinecone, weaviate, milvus); concrete EmbeddingsProvider (none yet); CLI `run` and most subcommands (sessions, skills, kb, memory, mcp, config, db, monitor); ChronosOS sessions/traces APIs (return empty); auth (always allows); Runner→Broker publishing; trace collector during execution; container sandbox; Helm secrets/Ingress/HPA; migration framework; MCP client; evals; built-in skill tool implementations; tests.
+
+Re-run a full gap report with the **gap-analysis** slash command (see below).
+
+## Development Workflow
+
+- **Roadmap:** See [DEVELOPMENT.md](DEVELOPMENT.md) for the seven-tier implementation plan, acceptance criteria, and dependency order (Tier 1 → 4 → 2 → 5 → 3 → 6 → 7).
+- **Slash commands** (in `.claude/commands/`): Use **implement-tier** with a tier number (1–7) to implement that tier. Use **gap-analysis** to regenerate the gap report. Use **add-tests** with a package path to add table-driven tests. Use **add-embedding-provider** or **add-cli-command** with a name/spec to scaffold. Use **scale-sandbox** for container-based sandbox work.
+- **Cursor rules** (in `.cursor/rules/`): Apply when editing matching paths — `chronos-go.mdc` (always), `storage-adapters.mdc` for `storage/adapters/**/*.go`, `cli-commands.mdc` for `cli/**/*.go`, `model-providers.mdc` for `engine/model/**/*.go`.
+
 ## Do NOT
 - Add `init()` functions
 - Use global state or package-level variables (except constants)
