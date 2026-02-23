@@ -266,7 +266,17 @@ func buildProvider(cfg ModelConfig) (model.Provider, error) {
 		return model.NewOllama(host, modelID), nil
 
 	case "azure":
-		return model.NewAzureOpenAI(cfg.Endpoint, apiKey, cfg.Deployment), nil
+		azCfg := model.AzureConfig{
+			ProviderConfig: model.ProviderConfig{
+				APIKey:     apiKey,
+				BaseURL:    cfg.Endpoint,
+				Model:      cfg.Deployment,
+				TimeoutSec: cfg.TimeoutSec,
+			},
+			Deployment: cfg.Deployment,
+			APIVersion: cfg.APIVersion,
+		}
+		return model.NewAzureOpenAIWithConfig(azCfg), nil
 
 	case "groq":
 		return model.NewGroq(apiKey, modelID), nil
