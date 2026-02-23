@@ -31,7 +31,7 @@ import "github.com/chronos-ai/chronos/sdk/agent"
 Clone the repository and build:
 
 ```bash
-git clone https://github.com/chronos-ai/chronos.git
+git clone https://github.com/spawn08/chronos.git
 cd chronos
 make build
 ```

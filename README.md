@@ -733,7 +733,7 @@ fmt.Println(result.Stdout) // hello
 ## Build from Source
 
 ```bash
-git clone https://github.com/chronos-ai/chronos.git
+git clone https://github.com/spawn08/chronos.git
 cd chronos
 ```
 
