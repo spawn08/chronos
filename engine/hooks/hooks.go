@@ -13,6 +13,11 @@ const (
 	EventModelCallAfter  EventType = "model_call.after"
 	EventNodeBefore      EventType = "node.before"
 	EventNodeAfter       EventType = "node.after"
+
+	EventContextOverflow EventType = "context.overflow"
+	EventSummarization   EventType = "context.summarize"
+	EventSessionStart    EventType = "session.start"
+	EventSessionEnd      EventType = "session.end"
 )
 
 // Event carries data about an execution event.

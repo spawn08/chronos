@@ -97,10 +97,11 @@ type Provider interface {
 
 // ProviderConfig holds common configuration shared by all providers.
 type ProviderConfig struct {
-	APIKey     string  `json:"api_key"`
-	BaseURL    string  `json:"base_url,omitempty"`
-	Model      string  `json:"model"`
-	MaxRetries int     `json:"max_retries,omitempty"`
-	TimeoutSec int     `json:"timeout_sec,omitempty"`
-	OrgID      string  `json:"org_id,omitempty"`
+	APIKey        string `json:"api_key"`
+	BaseURL       string `json:"base_url,omitempty"`
+	Model         string `json:"model"`
+	MaxRetries    int    `json:"max_retries,omitempty"`
+	TimeoutSec    int    `json:"timeout_sec,omitempty"`
+	OrgID         string `json:"org_id,omitempty"`
+	ContextWindow int    `json:"context_window,omitempty"` // override default context window size for the model
 }

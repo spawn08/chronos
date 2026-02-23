@@ -31,6 +31,7 @@ type AgentConfig struct {
 	OutputSchema   map[string]any `yaml:"output_schema,omitempty"`
 	NumHistoryRuns int            `yaml:"num_history_runs,omitempty"`
 	Stream         bool           `yaml:"stream,omitempty"`
+	Context        ContextYAML    `yaml:"context,omitempty"`
 
 	// Team nesting: an agent config can reference sub-agents by ID
 	SubAgents []string `yaml:"sub_agents,omitempty"`
@@ -62,6 +63,13 @@ type ToolConfig struct {
 	Name        string         `yaml:"name"`
 	Description string         `yaml:"description"`
 	Parameters  map[string]any `yaml:"parameters,omitempty"` // JSON Schema
+}
+
+// ContextYAML is the YAML-serializable form of ContextConfig.
+type ContextYAML struct {
+	MaxTokens           int     `yaml:"max_tokens,omitempty"`
+	SummarizeThreshold  float64 `yaml:"summarize_threshold,omitempty"`
+	PreserveRecentTurns int     `yaml:"preserve_recent_turns,omitempty"`
 }
 
 // FileConfig is the top-level structure of a Chronos YAML config file.
@@ -146,6 +154,13 @@ func BuildAgent(ctx context.Context, cfg *AgentConfig) (*Agent, error) {
 	}
 	if cfg.NumHistoryRuns > 0 {
 		b.WithHistoryRuns(cfg.NumHistoryRuns)
+	}
+	if cfg.Context.MaxTokens > 0 || cfg.Context.SummarizeThreshold > 0 || cfg.Context.PreserveRecentTurns > 0 {
+		b.WithContextConfig(ContextConfig{
+			MaxContextTokens:    cfg.Context.MaxTokens,
+			SummarizeThreshold:  cfg.Context.SummarizeThreshold,
+			PreserveRecentTurns: cfg.Context.PreserveRecentTurns,
+		})
 	}
 
 	// Model provider
@@ -391,5 +406,14 @@ func applyDefaults(cfg *AgentConfig, defaults *AgentConfig) {
 	}
 	if cfg.NumHistoryRuns == 0 {
 		cfg.NumHistoryRuns = defaults.NumHistoryRuns
+	}
+	if cfg.Context.MaxTokens == 0 {
+		cfg.Context.MaxTokens = defaults.Context.MaxTokens
+	}
+	if cfg.Context.SummarizeThreshold == 0 {
+		cfg.Context.SummarizeThreshold = defaults.Context.SummarizeThreshold
+	}
+	if cfg.Context.PreserveRecentTurns == 0 {
+		cfg.Context.PreserveRecentTurns = defaults.Context.PreserveRecentTurns
 	}
 }

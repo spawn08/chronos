@@ -42,6 +42,7 @@ type Agent struct {
 	SessionState   map[string]any // persistent cross-turn state
 	OutputSchema   map[string]any // JSON Schema for structured output
 	NumHistoryRuns int            // number of past runs to inject into context
+	ContextCfg     ContextConfig  // context window management and summarization
 
 	// System prompt and instructions
 	SystemPrompt string
@@ -51,6 +52,13 @@ type Agent struct {
 	SubAgents              []*Agent
 	MaxConcurrentSubAgents int
 	Capabilities           []string // advertised capabilities for the protocol bus
+}
+
+// ContextConfig controls context window management and automatic summarization.
+type ContextConfig struct {
+	MaxContextTokens    int     `json:"max_context_tokens" yaml:"max_tokens"`             // override model default; 0 = use model default
+	SummarizeThreshold  float64 `json:"summarize_threshold" yaml:"summarize_threshold"`    // fraction of context window to trigger summarization (default 0.8)
+	PreserveRecentTurns int     `json:"preserve_recent_turns" yaml:"preserve_recent_turns"` // number of recent user/assistant pairs to keep (default 5)
 }
 
 // Builder provides a fluent API for constructing agents.
@@ -83,6 +91,7 @@ func (b *Builder) WithKnowledge(k knowledge.Knowledge) *Builder { b.agent.Knowle
 func (b *Builder) WithMemoryManager(m *memory.Manager) *Builder { b.agent.MemoryManager = m; return b }
 func (b *Builder) WithOutputSchema(s map[string]any) *Builder   { b.agent.OutputSchema = s; return b }
 func (b *Builder) WithHistoryRuns(n int) *Builder               { b.agent.NumHistoryRuns = n; return b }
+func (b *Builder) WithContextConfig(cfg ContextConfig) *Builder { b.agent.ContextCfg = cfg; return b }
 func (b *Builder) WithSystemPrompt(prompt string) *Builder      { b.agent.SystemPrompt = prompt; return b }
 
 func (b *Builder) AddInstruction(instruction string) *Builder {
