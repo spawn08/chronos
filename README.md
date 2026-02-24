@@ -422,91 +422,113 @@ for chunk := range ch {
 
 ---
 
-## Multi-Agent Protocol
+## Multi-Agent Teams
 
-Chronos agents communicate like human developers on a team. The `protocol.Bus` routes typed messages between registered agents, enabling task delegation, result sharing, questions, and handoffs.
+Multiple agents can work together as a team. Each agent is a lightweight specialist — just a model and a system prompt, no graph or storage required.
 
-### How It Works
+### Creating Agents
 
+```go
+researcher, _ := agent.New("researcher", "Researcher").
+    Description("Researches topics and gathers facts").
+    WithModel(model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))).
+    WithSystemPrompt("You are a research specialist. Provide key facts on any topic.").
+    AddCapability("research").
+    Build()
+
+writer, _ := agent.New("writer", "Writer").
+    Description("Writes polished content from research").
+    WithModel(model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))).
+    WithSystemPrompt("You are a writer. Produce clear, engaging articles.").
+    AddCapability("writing").
+    Build()
 ```
-┌──────────┐     TaskRequest     ┌──────────┐
-│ Architect ├───────────────────►│ Developer │
-│          │◄───────────────────┤          │
-└──────────┘     TaskResult      └──────────┘
-      │                                │
-      │  Broadcast("plan ready")       │  Broadcast("code ready")
-      ▼                                ▼
-┌──────────────────────────────────────────┐
-│              Protocol Bus                │
-│  Message routing, history, observability │
-└──────────────────────────────────────────┘
-```
-
-### Message Types
-
-| Type | Purpose |
-|------|---------|
-| `task_request` | Ask another agent to perform work |
-| `task_result` | Return the outcome of a delegated task |
-| `question` | Ask another agent for information |
-| `answer` | Respond to a question |
-| `broadcast` | Send an update to all agents |
-| `handoff` | Transfer full ownership of a conversation |
-| `status` | Report progress on a long-running task |
-| `ack` | Acknowledge receipt |
-| `error` | Signal a failure |
 
 ### Team Strategies
 
 ```go
-// Sequential: architect → developer → reviewer (state flows through)
-team.New("dev-team", "Dev Team", team.StrategySequential).
-    AddAgent(architect).
-    AddAgent(developer).
+// Sequential: agents run in order, each builds on the previous output
+t := team.New("pipeline", "Content Pipeline", team.StrategySequential).
+    AddAgent(researcher).
+    AddAgent(writer).
     AddAgent(reviewer)
+result, _ := t.Run(ctx, graph.State{"message": "Write about renewable energy"})
 
-// Parallel: all agents run concurrently, results merged
-team.New("research", "Research Team", team.StrategyParallel).
-    AddAgent(webSearcher).
-    AddAgent(dbAnalyst).
-    SetMerge(combineResults)
+// Parallel: agents run concurrently with bounded concurrency and error handling
+t := team.New("analysis", "Analysis", team.StrategyParallel).
+    AddAgent(optimist).
+    AddAgent(pessimist).
+    AddAgent(realist).
+    SetMaxConcurrency(2).                       // limit concurrent API calls
+    SetErrorStrategy(team.ErrorStrategyBestEffort) // ignore failures, use what succeeds
 
-// Router: a function selects which agent handles the input
-team.New("support", "Support", team.StrategyRouter).
+// Router: dispatches to the best agent for the input
+t := team.New("support", "Support", team.StrategyRouter).
     AddAgent(billing).
     AddAgent(technical).
-    SetRouter(routeByIntent)
+    AddAgent(sales).
+    SetRouter(func(state graph.State) string {
+        msg, _ := state["message"].(string)
+        if strings.Contains(msg, "invoice") { return "billing" }
+        if strings.Contains(msg, "error")   { return "technical" }
+        return "sales"
+    })
 
-// Coordinator: first agent decomposes tasks, delegates to specialists via the bus
-team.New("project", "Project Team", team.StrategyCoordinator).
-    AddAgent(projectManager). // coordinator
-    AddAgent(frontendDev).
-    AddAgent(backendDev)
+// Coordinator: supervisor LLM decomposes tasks and delegates to specialists
+t := team.New("project", "Project Team", team.StrategyCoordinator).
+    SetCoordinator(supervisor).  // LLM-powered planner
+    AddAgent(researcher).
+    AddAgent(writer).
+    SetMaxIterations(2)          // allow re-planning after seeing results
 ```
 
-### Direct Communication
+### Agent Communication
+
+```
+┌──────────┐     TaskRequest     ┌──────────┐
+│Researcher├────────────────────►│  Writer  │
+│          │◄────────────────────┤          │
+└──────────┘     TaskResult      └──────────┘
+      │                                │
+      │  Broadcast("done")             │  Broadcast("done")
+      ▼                                ▼
+┌──────────────────────────────────────────┐
+│              Protocol Bus                │
+│  Typed messages · History · Back-pressure│
+└──────────────────────────────────────────┘
+```
+
+**Bus messaging** — delegate tasks, ask questions, broadcast updates:
 
 ```go
-bus := protocol.NewBus()
-
-// Register agents
-bus.Register("arch", "Architect", "Plans systems", []string{"architecture"}, handler)
-bus.Register("dev", "Developer", "Writes code", []string{"coding"}, handler)
-
 // Delegate a task and wait for the result
-result, _ := bus.DelegateTask(ctx, "arch", "dev", "Implement auth",
+result, _ := t.DelegateTask(ctx, "researcher", "writer", "draft",
     protocol.TaskPayload{
-        Description: "Implement JWT authentication",
-        Input:       map[string]any{"spec": authSpec},
+        Description: "Write a summary about solar energy",
+        Input:       map[string]any{"message": "Write about solar energy"},
     })
-fmt.Println(result.Output)
 
 // Ask a question
-answer, _ := bus.Ask(ctx, "dev", "arch", "Should we use RS256 or HS256?")
+answer, _ := t.Bus.Ask(ctx, "writer", "researcher", "What are the latest stats?")
 
-// Find agents by capability
-coders := bus.FindByCapability("coding")
+// Broadcast to all agents
+t.Broadcast(ctx, "researcher", "update", map[string]any{"progress": 0.5})
 ```
+
+**Direct channels** — bypass the bus for low-latency point-to-point messaging:
+
+```go
+dc := t.DirectChannel("researcher", "writer", 128)
+
+// Send directly (no bus routing overhead)
+dc.AtoB <- &protocol.Envelope{
+    Type: protocol.TypeTaskResult, From: "researcher", To: "writer",
+    Subject: "findings", Body: json.RawMessage(`{"data": "..."}`),
+}
+msg := <-dc.AtoB // writer receives
+```
+
+See the [Multi-Agent Teams guide](docs/guides/teams.md) for complete documentation with runnable examples.
 
 ---
 
@@ -687,7 +709,8 @@ Non-command input is sent directly to the loaded agent for chat.
 |---------|-------------|-----|
 | [quickstart](examples/quickstart/) | Minimal agent with SQLite and a 3-node graph | `go run ./examples/quickstart/main.go` |
 | [multi_provider](examples/multi_provider/) | Connect to OpenAI, Anthropic, Gemini, Mistral, Ollama | `go run ./examples/multi_provider/main.go` |
-| [multi_agent](examples/multi_agent/) | Team of agents communicating via protocol bus | `go run ./examples/multi_agent/main.go` |
+| [multi_agent](examples/multi_agent/) | All 4 team strategies, direct channels, bus delegation | `go run ./examples/multi_agent/main.go` |
+| [azure](examples/azure/) | Azure OpenAI provider usage | `go run ./examples/azure/main.go` |
 
 ---
 

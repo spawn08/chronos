@@ -91,13 +91,37 @@ Compiles the graph (if set) and returns the configured agent. Returns an error i
 
 ## Agent Methods
 
+### Execute (Lightweight Task Execution)
+
+```go
+func (a *Agent) Execute(ctx context.Context, task string) (string, error)
+```
+
+Runs the agent on a text task and returns the text response. This is the simplest way to use an agent — it requires only a model, no graph or storage. This is the primary entry point for team-based orchestration.
+
+**Requires:** `Model` must be set.
+
+```go
+a, _ := agent.New("helper", "Helper").
+    WithModel(model.NewOpenAI(apiKey)).
+    WithSystemPrompt("You are a helpful assistant.").
+    Build()
+
+response, err := a.Execute(ctx, "Explain quantum computing in 3 sentences")
+fmt.Println(response) // prints the text response directly
+```
+
+`Execute` is used internally by teams when running lightweight agents. It calls `Chat` under the hood and returns only the content string, making it convenient for orchestration where you just need the text output.
+
 ### Chat (Single-Turn)
 
 ```go
 func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatResponse, error)
 ```
 
-Sends a single user message to the model. Stateless -- no conversation history is maintained between calls.
+Sends a single user message to the model and returns the full response object (including usage stats, tool calls, etc.). Stateless — no conversation history is maintained between calls.
+
+**Requires:** `Model` must be set.
 
 **Flow:**
 1. Build messages: system prompt, instructions, memories, knowledge, user message
@@ -129,15 +153,17 @@ Sends a message within a persistent, multi-turn session. Messages are stored in 
 7. Call model, handle tool calls, check guardrails
 8. Persist assistant response
 
-### Run (Graph Execution)
+### Run (Graph or Model Execution)
 
 ```go
 func (a *Agent) Run(ctx context.Context, input map[string]any) (*graph.RunState, error)
 ```
 
-Starts a new execution session using the agent's StateGraph. State is checkpointed after every node.
+Starts a new execution session. If the agent has a `Graph` and `Storage`, it runs the full StateGraph with checkpointing. If the agent has only a `Model` (no graph), it falls back to `Execute` — extracting a `"message"` key from the input, calling the model, and returning the result.
 
-**Requires:** `Graph` and `Storage` must be set.
+**Requires:** Either `Graph` + `Storage`, or at minimum `Model`.
+
+This dual-mode behavior is what makes agents work seamlessly in teams: team strategies call `Run`, and lightweight model-only agents respond without needing any graph setup.
 
 ### Resume
 

@@ -92,9 +92,51 @@ a, err := agent.New("my-agent", "My Agent").
 | `WithGraph(g *graph.StateGraph)` | Set workflow graph |
 | `Build()` | Compile and return `*Agent` |
 
+## Execute (Lightweight Task Execution)
+
+`Execute` is the simplest way to use an agent. It takes a text task, calls the model, and returns the text response. No graph, no storage, no session management — just a model call with the agent's system prompt and configuration applied.
+
+This is the recommended entry point for agents used in multi-agent teams.
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "os"
+
+    "github.com/spawn08/chronos/engine/model"
+    "github.com/spawn08/chronos/sdk/agent"
+)
+
+func main() {
+    ctx := context.Background()
+
+    a, err := agent.New("helper", "Helper Agent").
+        WithModel(model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))).
+        WithSystemPrompt("You are a helpful assistant. Be concise.").
+        Build()
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    response, err := a.Execute(ctx, "What is the capital of France?")
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println(response) // "The capital of France is Paris."
+}
+```
+
+**When to use Execute vs Chat:**
+- `Execute` returns `string` — use when you just need the text response (team orchestration, simple tasks).
+- `Chat` returns `*model.ChatResponse` — use when you need the full response object (usage stats, tool calls, stop reason).
+
 ## Chat (Single Turn)
 
-`Chat` sends a single user message and returns the model response. It is stateless: no session is created, and conversation history is not persisted.
+`Chat` sends a single user message and returns the full model response. It is stateless: no session is created, and conversation history is not persisted.
 
 The agent builds messages from: system prompt, instructions, long-term memories (via MemoryManager), relevant knowledge (via RAG), and the user message. It runs input guardrails, calls the model, handles tool calls automatically, checks output guardrails, and extracts memories.
 
@@ -193,11 +235,15 @@ func main() {
 }
 ```
 
-## Run (Graph-Based Execution)
+## Run (Graph or Model Execution)
 
-`Run` executes a StateGraph with checkpointing. Each node receives and returns `graph.State` (a `map[string]any`). The runner persists checkpoints to storage, enabling resume after interrupts.
+`Run` starts an execution session. It works in two modes:
 
-Requires `Graph` and `Storage`.
+1. **Graph mode** (when `Graph` and `Storage` are set): Executes a StateGraph with checkpointing. Each node receives and returns `graph.State`. The runner persists checkpoints to storage, enabling resume after interrupts.
+
+2. **Model-only mode** (when only `Model` is set): Falls back to `Execute` — extracts a `"message"` key from the input, calls the model, and returns the result as a completed `RunState`. This is how lightweight agents work in multi-agent teams.
+
+Graph mode requires `Graph` and `Storage`. Model-only mode requires just `Model`.
 
 ```go
 package main

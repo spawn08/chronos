@@ -19,7 +19,7 @@ Storage (storage/)     — Persistence: pluggable adapters for SQL, NoSQL, and v
 | Skills | `sdk/skill/` | Skill metadata, versioning, registry |
 | Memory | `sdk/memory/` | Short/long-term memory + LLM-powered `Manager` |
 | Knowledge | `sdk/knowledge/` | RAG: `Knowledge` interface, `VectorKnowledge` impl |
-| Teams | `sdk/team/` | Multi-agent orchestration (sequential, parallel, router) |
+| Teams | `sdk/team/` | Multi-agent orchestration (sequential, parallel, router, coordinator) |
 | StateGraph | `engine/graph/` | Durable graph runtime: nodes, edges, checkpoints, resume |
 | Models | `engine/model/` | `Provider` interface, `EmbeddingsProvider`, caching |
 | Tools | `engine/tool/` | Tool `Registry` with permissions and approval hooks |
@@ -126,8 +126,8 @@ go mod tidy
 
 ## Gap Analysis (Current State)
 
-- **Working:** Agent builder, Chat, Run, Resume; StateGraph with checkpoints; team orchestration (sequential, parallel, router, coordinator); memory Store + Manager; VectorKnowledge; model providers (OpenAI, Anthropic, Gemini, Mistral, Ollama, Azure, Compatible); SQLite + Postgres Storage; Qdrant VectorStore; tool registry + approval; guardrails + hooks; stream Broker; ProcessSandbox; ChronosOS server + approval API; protocol bus.
-- **Not wired in agent:** Knowledge.Search, MemoryManager.GetUserMemories/ExtractMemories, OutputSchema, NumHistoryRuns, output guardrails, and tool/model hooks are stored on the agent but not used in Chat or Run. Fix in Tier 1 (see DEVELOPMENT.md).
+- **Working:** Agent builder, Chat, Execute, Run, Resume; StateGraph with checkpoints; team orchestration (sequential, parallel, router, coordinator) with lightweight model-only agents; protocol bus with back-pressure, object pooling, direct channels; memory Store + Manager; VectorKnowledge; model providers (OpenAI, Anthropic, Gemini, Mistral, Ollama, Azure, Compatible); SQLite + Postgres Storage; Qdrant VectorStore; tool registry + approval; guardrails + hooks; stream Broker; ProcessSandbox; ChronosOS server + approval API.
+- **Not wired in agent:** OutputSchema, NumHistoryRuns are stored on the agent but not fully used in Run. Fix in Tier 1 (see DEVELOPMENT.md).
 - **Stubs or missing:** Storage adapters (dynamo, mongo, redis, redisvector, pinecone, weaviate, milvus); concrete EmbeddingsProvider (none yet); CLI `run` and most subcommands (sessions, skills, kb, memory, mcp, config, db, monitor); ChronosOS sessions/traces APIs (return empty); auth (always allows); Runner→Broker publishing; trace collector during execution; container sandbox; Helm secrets/Ingress/HPA; migration framework; MCP client; evals; built-in skill tool implementations; tests.
 
 Re-run a full gap report with the **gap-analysis** slash command (see below).

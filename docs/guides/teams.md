@@ -7,236 +7,1044 @@ toc: true
 toc_sticky: true
 ---
 
-Teams orchestrate multiple agents working together. Chronos supports four strategies: sequential (state flows through agents in order), parallel (agents run concurrently, results merged), router (a function selects one agent), and coordinator (first agent decomposes and delegates to specialists). Agents communicate via the Protocol Bus.
+Teams let multiple AI agents collaborate on a shared task. Instead of one agent doing everything, you build specialist agents — a researcher, a writer, a reviewer — and let a team strategy coordinate how they work together.
 
-## Creating a Team
+This guide walks you through every concept from scratch, with complete, runnable examples.
 
-```go
-t := team.New(id, name, strategy)
+## Before You Start
+
+**Prerequisites:**
+
+- Go 1.24 or later
+- An API key from any supported provider (OpenAI, Anthropic, Gemini, etc.)
+
+**Install Chronos:**
+
+```bash
+go get github.com/spawn08/chronos
 ```
 
-| Strategy | Description |
-|----------|-------------|
-| `StrategySequential` | Agents run in order; state flows through each |
-| `StrategyParallel` | Agents run concurrently; results merged |
-| `StrategyRouter` | A function selects which agent handles the input |
-| `StrategyCoordinator` | First agent decomposes; delegates to specialists via bus |
-
-## Adding Agents
+**Key imports you'll use throughout this guide:**
 
 ```go
-t.AddAgent(researcherAgent)
-t.AddAgent(writerAgent)
-t.AddAgent(reviewerAgent)
+import (
+    "context"
+    "os"
+
+    "github.com/spawn08/chronos/engine/graph"
+    "github.com/spawn08/chronos/engine/model"
+    "github.com/spawn08/chronos/sdk/agent"
+    "github.com/spawn08/chronos/sdk/protocol"
+    "github.com/spawn08/chronos/sdk/team"
+)
 ```
 
-Agents are registered on the Protocol Bus when added. Order matters for sequential and coordinator strategies.
+---
 
-## Sequential Strategy
+## Core Concepts
 
-Agents run one after another. State flows from each agent to the next; results accumulate in `SharedContext`.
+### What Is an Agent?
+
+An agent is a unit of work powered by an LLM. Each agent has a role, a system prompt that defines its behavior, and optionally, tools and capabilities.
+
+**Lightweight agents** (model-only) need only a model — no graph, no storage, no database. This is the recommended way to build agents for team orchestration:
 
 ```go
-t := team.New("pipeline", "Research Pipeline", team.StrategySequential)
+researcher, _ := agent.New("researcher", "Researcher").
+    Description("Researches topics and gathers facts").
+    WithModel(model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))).
+    WithSystemPrompt("You are a research specialist. Given a topic, provide key facts.").
+    AddCapability("research").
+    Build()
+```
+
+**Graph-based agents** add durable execution with checkpointing, but are heavier — use them when you need workflows with multiple steps, interrupts, or persistence. See the [StateGraph guide](/guides/stategraph/) for details.
+
+### What Is a Team?
+
+A team is a group of agents that work together using a **strategy** — the pattern that decides who runs, in what order, and how results are combined.
+
+```go
+t := team.New("my-team", "My Team", team.StrategySequential)
 t.AddAgent(researcher)
 t.AddAgent(writer)
-t.AddAgent(reviewer)
 
-result, err := t.Run(ctx, graph.State{"topic": "Climate change"})
-// researcher runs first, then writer, then reviewer
-// result.State contains merged output
+result, err := t.Run(ctx, graph.State{"message": "Write about renewable energy"})
 ```
 
-## Parallel Strategy
+### What Is graph.State?
 
-Agents run concurrently. Results are merged via `SetMerge` or by combining all state keys.
+`graph.State` is simply `map[string]any`. It carries data between agents. You put data in, agents read and write keys, and the final state is your result.
 
 ```go
-t := team.New("parallel", "Parallel Team", team.StrategyParallel)
-t.AddAgent(agentA)
-t.AddAgent(agentB)
-t.AddAgent(agentC)
+input := graph.State{
+    "message": "Explain quantum computing",
+    "format":  "article",
+}
+```
 
+### Four Strategies at a Glance
+
+| Strategy | How It Works | Best For |
+|----------|-------------|----------|
+| **Sequential** | Agents run one after another in a pipeline | Content pipelines, multi-step processing |
+| **Parallel** | All agents run at the same time, results merged | Independent analysis, multi-perspective work |
+| **Router** | One agent is selected based on the input | Customer support, task classification |
+| **Coordinator** | A supervisor agent decomposes the task and delegates | Complex projects, dynamic task planning |
+
+---
+
+## Creating Agents
+
+Every team needs agents. Here's how to build them for each common role.
+
+### Minimal Agent (Just a Model)
+
+The simplest agent — a model with a system prompt:
+
+```go
+a, err := agent.New("helper", "Helper Agent").
+    WithModel(model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))).
+    WithSystemPrompt("You are a helpful assistant.").
+    Build()
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+### Agent with Capabilities
+
+Capabilities are tags that tell routers and coordinators what an agent is good at:
+
+```go
+writer, _ := agent.New("writer", "Writer").
+    Description("Writes polished content from research notes").
+    WithModel(model.NewOpenAI(apiKey)).
+    WithSystemPrompt("You are a writing specialist. Produce clear, engaging prose.").
+    AddCapability("writing").
+    AddCapability("editing").
+    Build()
+```
+
+### Agent with Tools
+
+Agents can call tools (functions) during execution:
+
+```go
+coder, _ := agent.New("coder", "Coder").
+    WithModel(model.NewOpenAI(apiKey)).
+    WithSystemPrompt("You are a Go programmer.").
+    AddTool(&tool.Definition{
+        Name:        "run_tests",
+        Description: "Run the test suite",
+        Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
+        Permission:  tool.PermAllow,
+        Handler: func(ctx context.Context, args map[string]any) (any, error) {
+            return map[string]string{"status": "all tests passed"}, nil
+        },
+    }).
+    Build()
+```
+
+### Using Different Providers
+
+Each agent can use a different LLM provider:
+
+```go
+// Agent 1: OpenAI GPT-4o
+agent1, _ := agent.New("gpt-agent", "GPT Agent").
+    WithModel(model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))).
+    Build()
+
+// Agent 2: Anthropic Claude
+agent2, _ := agent.New("claude-agent", "Claude Agent").
+    WithModel(model.NewAnthropic(os.Getenv("ANTHROPIC_API_KEY"))).
+    Build()
+
+// Agent 3: Local Ollama
+agent3, _ := agent.New("local-agent", "Local Agent").
+    WithModel(model.NewOllama("http://localhost:11434", "llama3.2")).
+    Build()
+```
+
+---
+
+## Strategy 1: Sequential (Pipeline)
+
+Sequential runs agents one after another in a pipeline. Each agent receives the output of the previous agent and builds on it.
+
+```
+Input → [Agent A] → [Agent B] → [Agent C] → Result
+```
+
+### When to Use
+
+- Multi-step content creation (research → write → review)
+- Data processing pipelines (extract → transform → validate)
+- Any workflow where each step depends on the previous step
+
+### Basic Example
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "os"
+
+    "github.com/spawn08/chronos/engine/graph"
+    "github.com/spawn08/chronos/engine/model"
+    "github.com/spawn08/chronos/sdk/agent"
+    "github.com/spawn08/chronos/sdk/team"
+)
+
+func main() {
+    ctx := context.Background()
+    apiKey := os.Getenv("OPENAI_API_KEY")
+
+    // Step 1: Create specialist agents
+    researcher, _ := agent.New("researcher", "Researcher").
+        WithModel(model.NewOpenAI(apiKey)).
+        WithSystemPrompt("You are a researcher. Given a topic, provide 3-5 key facts.").
+        Build()
+
+    writer, _ := agent.New("writer", "Writer").
+        WithModel(model.NewOpenAI(apiKey)).
+        WithSystemPrompt("You are a writer. Take the research provided and write a short article.").
+        Build()
+
+    reviewer, _ := agent.New("reviewer", "Reviewer").
+        WithModel(model.NewOpenAI(apiKey)).
+        WithSystemPrompt("You are an editor. Review the article for clarity and accuracy.").
+        Build()
+
+    // Step 2: Create a sequential team
+    t := team.New("pipeline", "Content Pipeline", team.StrategySequential).
+        AddAgent(researcher).
+        AddAgent(writer).
+        AddAgent(reviewer)
+
+    // Step 3: Run the pipeline
+    result, err := t.Run(ctx, graph.State{
+        "message": "Write a short article about renewable energy trends",
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Step 4: Read the final output
+    fmt.Println(result["response"])
+}
+```
+
+### How State Flows
+
+The `"message"` key is the primary input. Each agent reads it, produces a `"response"`, and the response becomes available as `"_previous_response"` for the next agent:
+
+| Step | Agent | Reads | Writes |
+|------|-------|-------|--------|
+| 1 | Researcher | `message` | `response` (research notes) |
+| 2 | Writer | `message`, `_previous_response` (research) | `response` (article draft) |
+| 3 | Reviewer | `message`, `_previous_response` (draft) | `response` (final article) |
+
+The final `result["response"]` contains the reviewer's output.
+
+### Viewing Communication History
+
+Every team records all inter-agent messages. Use this for debugging or observability:
+
+```go
+for _, msg := range t.MessageHistory() {
+    fmt.Printf("[%s] %s → %s: %s\n", msg.Type, msg.From, msg.To, msg.Subject)
+}
+```
+
+---
+
+## Strategy 2: Parallel (Fan-Out / Fan-In)
+
+Parallel runs all agents at the same time on the same input, then merges their results into one output.
+
+```
+         ┌→ [Agent A] ─┐
+Input ───┤→ [Agent B] ──┤──→ Merge → Result
+         └→ [Agent C] ─┘
+```
+
+### When to Use
+
+- Getting multiple perspectives on the same question
+- Independent analyses that don't depend on each other
+- Speeding up work by doing things simultaneously
+
+### Basic Example
+
+```go
+ctx := context.Background()
+apiKey := os.Getenv("OPENAI_API_KEY")
+
+optimist, _ := agent.New("optimist", "Optimist").
+    WithModel(model.NewOpenAI(apiKey)).
+    WithSystemPrompt("Analyze the topic with an optimistic perspective. Focus on opportunities.").
+    Build()
+
+pessimist, _ := agent.New("pessimist", "Pessimist").
+    WithModel(model.NewOpenAI(apiKey)).
+    WithSystemPrompt("Analyze the topic with a critical perspective. Focus on risks.").
+    Build()
+
+realist, _ := agent.New("realist", "Realist").
+    WithModel(model.NewOpenAI(apiKey)).
+    WithSystemPrompt("Analyze the topic objectively. Balance opportunities and risks.").
+    Build()
+
+t := team.New("analysis", "Multi-Perspective Analysis", team.StrategyParallel).
+    AddAgent(optimist).
+    AddAgent(pessimist).
+    AddAgent(realist)
+
+result, err := t.Run(ctx, graph.State{
+    "message": "What is the impact of AI on employment?",
+})
+if err != nil {
+    log.Fatal(err)
+}
+
+// Default merge combines all "response" values separated by "---"
+fmt.Println(result["response"])
+```
+
+### Controlling Concurrency
+
+By default, all agents run simultaneously. Use `SetMaxConcurrency` to limit how many run at once — useful when you have many agents or limited API rate limits:
+
+```go
+t := team.New("large-team", "Large Team", team.StrategyParallel).
+    AddAgent(agent1).
+    AddAgent(agent2).
+    AddAgent(agent3).
+    AddAgent(agent4).
+    AddAgent(agent5).
+    SetMaxConcurrency(2) // only 2 agents run at a time
+```
+
+### Custom Merge Function
+
+The default merge concatenates all responses. Use `SetMerge` for custom logic:
+
+```go
 t.SetMerge(func(results []graph.State) graph.State {
     merged := make(graph.State)
-    for _, r := range results {
-        for k, v := range r {
-            merged[k] = v
-        }
+    for i, r := range results {
+        // Namespace each agent's output to avoid key collisions
+        key := fmt.Sprintf("perspective_%d", i+1)
+        merged[key] = r["response"]
     }
+    merged["total_perspectives"] = len(results)
     return merged
 })
-
-result, err := t.Run(ctx, graph.State{"query": "Analyze X"})
 ```
 
-Without `SetMerge`, the default merge combines all state keys (later values overwrite earlier for duplicate keys).
+### Error Handling Strategies
 
-## Router Strategy
-
-A routing function selects which agent handles the input.
+Control what happens when an agent fails:
 
 ```go
-t := team.New("router", "Router Team", team.StrategyRouter)
-t.AddAgent(techAgent)
-t.AddAgent(supportAgent)
-t.AddAgent(salesAgent)
+// FailFast (default): Stop everything on first error
+t.SetErrorStrategy(team.ErrorStrategyFailFast)
 
-t.SetRouter(func(state graph.State) string {
-    topic, _ := state["topic"].(string)
-    switch {
-    case strings.Contains(topic, "bug") || strings.Contains(topic, "error"):
-        return supportAgent.ID
-    case strings.Contains(topic, "pricing") || strings.Contains(topic, "buy"):
-        return salesAgent.ID
-    default:
-        return techAgent.ID
-    }
+// Collect: Gather all errors, return them together
+t.SetErrorStrategy(team.ErrorStrategyCollect)
+
+// BestEffort: Ignore failures, return whatever succeeded
+t.SetErrorStrategy(team.ErrorStrategyBestEffort)
+```
+
+**`ErrorStrategyFailFast`** cancels all running agents the moment one fails. Use this when every agent's result is critical.
+
+**`ErrorStrategyCollect`** lets all agents finish, then returns a combined error listing every failure. Use this when you want a full picture of what went wrong.
+
+**`ErrorStrategyBestEffort`** ignores failures and merges only the successful results. Use this when partial results are acceptable.
+
+---
+
+## Strategy 3: Router (Intelligent Dispatch)
+
+Router examines the input and sends it to exactly one agent — the best one for the job.
+
+```
+         ┌→ [Agent A] (if condition A)
+Input ───┤→ [Agent B] (if condition B)
+         └→ [Agent C] (if condition C)
+```
+
+### When to Use
+
+- Customer support routing (billing vs. technical vs. sales)
+- Task classification and dispatch
+- Any scenario where different inputs need different specialists
+
+### Static Router (Function-Based)
+
+The simplest router uses a function you write:
+
+```go
+ctx := context.Background()
+apiKey := os.Getenv("OPENAI_API_KEY")
+
+billing, _ := agent.New("billing", "Billing Agent").
+    WithModel(model.NewOpenAI(apiKey)).
+    WithSystemPrompt("You handle billing and payment questions.").
+    AddCapability("billing").
+    Build()
+
+technical, _ := agent.New("technical", "Technical Agent").
+    WithModel(model.NewOpenAI(apiKey)).
+    WithSystemPrompt("You handle technical issues and troubleshooting.").
+    AddCapability("technical").
+    Build()
+
+sales, _ := agent.New("sales", "Sales Agent").
+    WithModel(model.NewOpenAI(apiKey)).
+    WithSystemPrompt("You handle pricing, plans, and purchasing questions.").
+    AddCapability("sales").
+    Build()
+
+t := team.New("support", "Customer Support", team.StrategyRouter).
+    AddAgent(billing).
+    AddAgent(technical).
+    AddAgent(sales).
+    SetRouter(func(state graph.State) string {
+        msg, _ := state["message"].(string)
+        lower := strings.ToLower(msg)
+        switch {
+        case strings.Contains(lower, "invoice") || strings.Contains(lower, "payment"):
+            return "billing"
+        case strings.Contains(lower, "error") || strings.Contains(lower, "crash"):
+            return "technical"
+        case strings.Contains(lower, "pricing") || strings.Contains(lower, "upgrade"):
+            return "sales"
+        default:
+            return "technical" // default to technical support
+        }
+    })
+
+// This will route to the billing agent
+result, _ := t.Run(ctx, graph.State{"message": "I have a question about my invoice"})
+fmt.Println(result["response"])
+```
+
+### Model-Based Router (LLM-Powered)
+
+For more nuanced routing, let an LLM decide which agent should handle the input:
+
+```go
+router := model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))
+
+t := team.New("smart-support", "Smart Support", team.StrategyRouter).
+    AddAgent(billing).
+    AddAgent(technical).
+    AddAgent(sales).
+    SetModelRouter(func(ctx context.Context, state graph.State, agents []team.AgentInfo) (string, error) {
+        msg, _ := state["message"].(string)
+
+        // Build a prompt listing available agents
+        prompt := fmt.Sprintf("Given this customer message:\n\"%s\"\n\nWhich agent should handle it? ", msg)
+        prompt += "Available agents:\n"
+        for _, a := range agents {
+            prompt += fmt.Sprintf("- %s (ID: %s): %s\n", a.Name, a.ID, a.Description)
+        }
+        prompt += "\nRespond with ONLY the agent ID, nothing else."
+
+        resp, err := router.Chat(ctx, &model.ChatRequest{
+            Messages: []model.Message{{Role: "user", Content: prompt}},
+        })
+        if err != nil {
+            return "", err
+        }
+        return strings.TrimSpace(resp.Content), nil
+    })
+```
+
+### Capability-Based Routing (Automatic Fallback)
+
+If you set neither `SetRouter` nor `SetModelRouter`, the router automatically scores agents based on how their advertised capabilities match the input state. This is a lightweight fallback that requires no configuration:
+
+```go
+// These agents advertise their capabilities
+billing, _ := agent.New("billing", "Billing").
+    AddCapability("billing").
+    AddCapability("payment").
+    Build()
+
+technical, _ := agent.New("technical", "Technical").
+    AddCapability("debugging").
+    AddCapability("troubleshooting").
+    Build()
+
+t := team.New("auto-router", "Auto Router", team.StrategyRouter).
+    AddAgent(billing).
+    AddAgent(technical)
+
+// If the state contains "billing" as a key or value, the billing agent wins
+result, _ := t.Run(ctx, graph.State{
+    "message":  "Help me with billing",
+    "category": "billing",
 })
-
-result, err := t.Run(ctx, graph.State{"topic": "How do I fix this error?", "message": "..."})
 ```
 
-## Coordinator Strategy
+---
 
-The first agent acts as coordinator: it decomposes the task and delegates sub-tasks to specialists via the Protocol Bus.
+## Strategy 4: Coordinator (LLM-Driven Supervisor)
+
+Coordinator uses a supervisor agent that analyzes the task, creates an execution plan, and delegates sub-tasks to specialist agents. The coordinator can re-plan based on intermediate results.
+
+```
+Input → [Coordinator] → Plan → [Agent A] ─┐
+                              → [Agent B] ──┤── Merge → (re-plan?) → Result
+                              → [Agent C] ─┘
+```
+
+### When to Use
+
+- Complex projects requiring task decomposition
+- Dynamic workflows where the plan depends on intermediate results
+- Any task where you'd assign a project manager to coordinate specialists
+
+### Basic Example
 
 ```go
-t := team.New("coord", "Coordinator Team", team.StrategyCoordinator)
-t.AddAgent(coordinatorAgent)  // must be first
-t.AddAgent(researcherAgent)
-t.AddAgent(writerAgent)
+ctx := context.Background()
+apiKey := os.Getenv("OPENAI_API_KEY")
 
-result, err := t.Run(ctx, graph.State{"task": "Write a report on renewable energy"})
-// Coordinator runs, produces plan, delegates to researcher and writer via bus
+// The supervisor agent — it creates the plan
+supervisor, _ := agent.New("supervisor", "Project Manager").
+    Description("Decomposes complex tasks and coordinates specialists").
+    WithModel(model.NewOpenAI(apiKey)).
+    WithSystemPrompt("You are a project coordinator.").
+    Build()
+
+// Specialist agents — they do the actual work
+researcher, _ := agent.New("researcher", "Researcher").
+    Description("Researches topics and provides factual analysis").
+    WithModel(model.NewOpenAI(apiKey)).
+    WithSystemPrompt("You are a research specialist. Provide thorough analysis.").
+    Build()
+
+writer, _ := agent.New("writer", "Writer").
+    Description("Writes polished articles and reports").
+    WithModel(model.NewOpenAI(apiKey)).
+    WithSystemPrompt("You are a writing specialist. Produce clear, engaging content.").
+    Build()
+
+// Create the coordinator team
+t := team.New("project", "Project Team", team.StrategyCoordinator).
+    SetCoordinator(supervisor).
+    AddAgent(researcher).
+    AddAgent(writer).
+    SetMaxIterations(2) // allow re-planning after first round
+
+result, err := t.Run(ctx, graph.State{
+    "message": "Create a report on electric vehicle adoption trends in Europe",
+})
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Println(result["response"])
 ```
 
-## Protocol Bus
+### How the Coordinator Works
 
-The bus routes typed messages between agents. Each team gets a `Bus` when created.
+1. **Planning:** The coordinator LLM receives the task and a list of available agents (with their IDs, names, descriptions, and capabilities). It produces a JSON plan:
 
-### Register
+```json
+{
+  "tasks": [
+    {"agent_id": "researcher", "description": "Research EV adoption data in Europe"},
+    {"agent_id": "writer", "description": "Write a report from the research", "depends_on": "researcher"}
+  ],
+  "done": false
+}
+```
 
-Agents are registered when added via `AddAgent`. For manual registration:
+2. **Execution:** Tasks without `depends_on` run in parallel. Tasks with `depends_on` wait for their dependency to finish first. Each task is delegated through the bus.
+
+3. **Re-planning (optional):** If `MaxIterations` > 1, the coordinator sees the results and decides whether to issue more tasks or mark the work as done (`"done": true`).
+
+### Setting an Explicit Coordinator
+
+Use `SetCoordinator` to designate the supervisor agent. This agent is **not** part of the worker pool — it only plans and delegates:
 
 ```go
-bus.Register(id, name, description, capabilities, handler)
+t := team.New("team", "Team", team.StrategyCoordinator).
+    SetCoordinator(supervisor).  // supervisor plans, does not execute tasks
+    AddAgent(researcher).        // worker
+    AddAgent(writer).            // worker
+    AddAgent(reviewer)           // worker
 ```
+
+### Without SetCoordinator (Backward Compatible)
+
+If you don't call `SetCoordinator`, the **first agent** added via `AddAgent` acts as both coordinator and worker:
+
+```go
+t := team.New("team", "Team", team.StrategyCoordinator).
+    AddAgent(leadAgent).    // first agent = coordinator
+    AddAgent(worker1).
+    AddAgent(worker2)
+```
+
+### Controlling Iterations
+
+`SetMaxIterations` controls how many planning cycles the coordinator can perform:
+
+```go
+t.SetMaxIterations(3)  // up to 3 rounds of plan → execute → re-plan
+```
+
+Set to `1` (the default) for a single-shot plan without re-planning.
+
+---
+
+## Agent Communication
+
+Agents in a team can communicate in three ways, listed from simplest to most flexible.
+
+### 1. Shared State (Automatic)
+
+When a team runs, state flows automatically between agents based on the strategy. You don't need to write any communication code — it just works.
+
+```go
+// Sequential: state flows from agent to agent
+result, _ := t.Run(ctx, graph.State{"message": "Hello"})
+// Every agent's output is merged into the result
+```
+
+### 2. Bus-Based Messaging (Structured)
+
+The Protocol Bus routes typed messages between agents. It's built into every team.
+
+**Delegate a task and wait for the result:**
+
+```go
+result, err := t.DelegateTask(ctx, "researcher", "writer", "draft-article",
+    protocol.TaskPayload{
+        Description: "Write a summary about solar energy",
+        Input:       map[string]any{"message": "Write about solar energy"},
+    })
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Printf("Success: %v\n", result.Success)
+fmt.Printf("Output: %v\n", result.Output["response"])
+```
+
+**Ask a question and wait for an answer:**
+
+```go
+answer, err := t.Bus.Ask(ctx, "writer", "researcher", "What are the latest solar panel efficiency records?")
+fmt.Println(answer)
+```
+
+**Broadcast an update to all agents:**
+
+```go
+err := t.Broadcast(ctx, "researcher", "status-update", map[string]any{
+    "progress": 0.75,
+    "message":  "Research phase 75% complete",
+})
+```
+
+**Find agents by capability:**
+
+```go
+reviewers := t.Bus.FindByCapability("review")
+for _, peer := range reviewers {
+    fmt.Printf("Found reviewer: %s (%s)\n", peer.Name, peer.ID)
+}
+```
+
+### 3. Direct Channels (Low-Latency Bypass)
+
+For performance-critical paths, create a direct channel between two agents that bypasses the central bus entirely:
+
+```go
+// Create a direct channel with buffer size 128
+dc := t.DirectChannel("researcher", "writer", 128)
+
+// Send from researcher to writer (non-blocking if buffer has space)
+go func() {
+    body, _ := json.Marshal(map[string]string{
+        "findings": "Solar efficiency reached 47.6% in 2025",
+    })
+    dc.AtoB <- &protocol.Envelope{
+        Type:    protocol.TypeTaskResult,
+        From:    "researcher",
+        To:      "writer",
+        Subject: "research_findings",
+        Body:    body,
+    }
+}()
+
+// Writer receives directly
+msg := <-dc.AtoB
+fmt.Println(string(msg.Body))
+
+// Send from writer back to researcher
+dc.BtoA <- &protocol.Envelope{...}
+```
+
+Direct channels are bidirectional: `AtoB` sends from the first agent to the second, `BtoA` sends in the reverse direction.
+
+---
+
+## Protocol Bus Reference
 
 ### Message Types
 
-| Type | Description |
-|------|-------------|
-| `task_request` | Ask another agent to perform work |
-| `task_result` | Outcome of a delegated task |
-| `question` | Ask another agent for information |
-| `answer` | Response to a question |
-| `broadcast` | Send update to all agents |
-| `handoff` | Transfer conversation/task |
+| Type | Constant | Purpose |
+|------|----------|---------|
+| Task Request | `protocol.TypeTaskRequest` | Ask an agent to perform work |
+| Task Result | `protocol.TypeTaskResult` | Return the outcome of delegated work |
+| Question | `protocol.TypeQuestion` | Ask an agent for information |
+| Answer | `protocol.TypeAnswer` | Respond to a question |
+| Broadcast | `protocol.TypeBroadcast` | Send an update to all agents |
+| Handoff | `protocol.TypeHandoff` | Transfer ownership of a task/conversation |
+| Status | `protocol.TypeStatus` | Report progress on long-running work |
+| Ack | `protocol.TypeAck` | Acknowledge receipt of a message |
+| Error | `protocol.TypeError` | Signal a failure |
 
-### DelegateTask
-
-Send a task and wait for the result:
+### Priority Levels
 
 ```go
-result, err := t.DelegateTask(ctx, fromAgentID, toAgentID, "subtask", protocol.TaskPayload{
-    Description: "Analyze the data",
-    Input:       map[string]any{"data": data},
+protocol.PriorityLow     // 0
+protocol.PriorityNormal  // 1 (default)
+protocol.PriorityHigh    // 2
+protocol.PriorityUrgent  // 3
+```
+
+### Bus Configuration
+
+Tune the bus for your workload:
+
+```go
+bus := protocol.NewBusWithConfig(protocol.BusConfig{
+    InboxSize:  1024,  // per-agent inbox buffer (default: 512)
+    HistoryCap: 8192,  // max retained history entries (default: 4096)
 })
 ```
 
-### Ask
+### Envelope Pooling
 
-Ask a question and wait for an answer (use the bus directly):
+For high-throughput scenarios, use the envelope pool to reduce garbage collection pressure:
 
 ```go
-answer, err := t.Bus.Ask(ctx, fromAgentID, toAgentID, "What is the capital of France?")
+env := protocol.AcquireEnvelope()
+env.Type = protocol.TypeTaskRequest
+env.From = "agent-a"
+env.To = "agent-b"
+env.Subject = "process-data"
+env.Body, _ = json.Marshal(payload)
+
+err := bus.Send(ctx, env)
+protocol.ReleaseEnvelope(env) // return to pool when done
 ```
 
-### FindByCapability
+### Message History (Observability)
 
-Find agents that advertise a capability:
+Every message sent through the bus is recorded for debugging:
 
 ```go
-peers := t.Bus.FindByCapability("code_review")
+history := t.MessageHistory()
+for _, msg := range history {
+    fmt.Printf("[%s] %s → %s: %s (type: %s)\n",
+        msg.CreatedAt.Format("15:04:05"),
+        msg.From, msg.To,
+        msg.Subject, msg.Type)
+}
 ```
 
-### Broadcast
+---
 
-Send a message to all agents (except sender):
+## Complete Example: Content Creation Pipeline
+
+This runnable example shows a realistic multi-agent content pipeline using sequential strategy, with proper error handling:
 
 ```go
-err := t.Broadcast(ctx, fromAgentID, "status_update", map[string]any{
-    "progress": 0.5,
-    "message":  "Halfway done",
-})
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "os"
+
+    "github.com/spawn08/chronos/engine/graph"
+    "github.com/spawn08/chronos/engine/model"
+    "github.com/spawn08/chronos/sdk/agent"
+    "github.com/spawn08/chronos/sdk/team"
+)
+
+func main() {
+    ctx := context.Background()
+    apiKey := os.Getenv("OPENAI_API_KEY")
+    if apiKey == "" {
+        log.Fatal("Set OPENAI_API_KEY environment variable")
+    }
+    provider := model.NewOpenAI(apiKey)
+
+    // Build specialist agents
+    researcher, err := agent.New("researcher", "Researcher").
+        Description("Gathers facts and data on a topic").
+        WithModel(provider).
+        WithSystemPrompt(`You are a research analyst.
+When given a topic, provide 5 key facts with sources.
+Format as a numbered list.`).
+        AddCapability("research").
+        Build()
+    if err != nil {
+        log.Fatalf("build researcher: %v", err)
+    }
+
+    writer, err := agent.New("writer", "Writer").
+        Description("Writes articles from research notes").
+        WithModel(provider).
+        WithSystemPrompt(`You are a professional writer.
+Take the research provided and write a clear, engaging article.
+Use headers and short paragraphs. Target 300-500 words.`).
+        AddCapability("writing").
+        Build()
+    if err != nil {
+        log.Fatalf("build writer: %v", err)
+    }
+
+    reviewer, err := agent.New("reviewer", "Reviewer").
+        Description("Reviews content for accuracy and quality").
+        WithModel(provider).
+        WithSystemPrompt(`You are a senior editor.
+Review the article for factual accuracy, clarity, and grammar.
+If the article is good, respond with the final version.
+If changes are needed, make them and return the improved version.`).
+        AddCapability("review").
+        Build()
+    if err != nil {
+        log.Fatalf("build reviewer: %v", err)
+    }
+
+    // Assemble the team
+    t := team.New("content-pipeline", "Content Pipeline", team.StrategySequential).
+        AddAgent(researcher).
+        AddAgent(writer).
+        AddAgent(reviewer)
+
+    // Run the pipeline
+    result, err := t.Run(ctx, graph.State{
+        "message": "Write a short article about the future of space tourism",
+    })
+    if err != nil {
+        log.Fatalf("pipeline failed: %v", err)
+    }
+
+    fmt.Println("=== Final Article ===")
+    fmt.Println(result["response"])
+    fmt.Printf("\n=== Communication Log (%d messages) ===\n", len(t.MessageHistory()))
+    for _, msg := range t.MessageHistory() {
+        fmt.Printf("  %s → %s: %s\n", msg.From, msg.To, msg.Subject)
+    }
+}
 ```
 
-## Direct Agent-to-Agent Communication
+## Complete Example: Smart Customer Support Router
 
-When an agent delegates a task, the bus delivers a `TypeTaskRequest` envelope. The team's handler invokes the target agent's `Run` with the task payload. The agent receives `_task_description` and `_delegated_by` in its input state. The handler returns a `TypeTaskResult` envelope with success/failure and output.
-
-Agents can also use the bus directly (if they have a reference) to send questions, broadcast updates, or hand off conversations.
-
-## Code Examples
-
-### Sequential
+This example routes customer messages to the right department using an LLM:
 
 ```go
-researcher, _ := agent.New("researcher", "Researcher").WithModel(p).WithGraph(researchGraph).Build()
-writer, _ := agent.New("writer", "Writer").WithModel(p).WithGraph(writeGraph).Build()
+package main
 
-t := team.New("seq", "Sequential", team.StrategySequential)
-t.AddAgent(researcher)
-t.AddAgent(writer)
+import (
+    "context"
+    "fmt"
+    "log"
+    "os"
+    "strings"
 
-result, err := t.Run(ctx, graph.State{"topic": "AI ethics"})
-```
+    "github.com/spawn08/chronos/engine/graph"
+    "github.com/spawn08/chronos/engine/model"
+    "github.com/spawn08/chronos/sdk/agent"
+    "github.com/spawn08/chronos/sdk/team"
+)
 
-### Parallel
+func main() {
+    ctx := context.Background()
+    apiKey := os.Getenv("OPENAI_API_KEY")
+    if apiKey == "" {
+        log.Fatal("Set OPENAI_API_KEY environment variable")
+    }
+    provider := model.NewOpenAI(apiKey)
 
-```go
-t := team.New("par", "Parallel", team.StrategyParallel)
-t.AddAgent(agent1)
-t.AddAgent(agent2)
-t.SetMerge(func(results []graph.State) graph.State {
-    merged := make(graph.State)
-    for _, r := range results {
-        for k, v := range r {
-            merged[k] = v
+    billing, _ := agent.New("billing", "Billing Support").
+        Description("Handles invoices, payments, refunds, and subscription changes").
+        WithModel(provider).
+        WithSystemPrompt("You are a billing support specialist. Help with payment and invoice questions.").
+        AddCapability("billing").AddCapability("payments").
+        Build()
+
+    technical, _ := agent.New("technical", "Technical Support").
+        Description("Handles bugs, errors, crashes, and technical troubleshooting").
+        WithModel(provider).
+        WithSystemPrompt("You are a technical support engineer. Help diagnose and fix issues.").
+        AddCapability("debugging").AddCapability("troubleshooting").
+        Build()
+
+    sales, _ := agent.New("sales", "Sales").
+        Description("Handles pricing questions, plan upgrades, and new purchases").
+        WithModel(provider).
+        WithSystemPrompt("You are a sales representative. Help with pricing and purchasing decisions.").
+        AddCapability("pricing").AddCapability("sales").
+        Build()
+
+    // Model-based routing — the LLM picks the best agent
+    routerModel := model.NewOpenAI(apiKey)
+
+    t := team.New("support", "Customer Support", team.StrategyRouter).
+        AddAgent(billing).
+        AddAgent(technical).
+        AddAgent(sales).
+        SetModelRouter(func(ctx context.Context, state graph.State, agents []team.AgentInfo) (string, error) {
+            msg, _ := state["message"].(string)
+            prompt := fmt.Sprintf(
+                "Customer message: \"%s\"\n\nAvailable agents:\n", msg)
+            for _, a := range agents {
+                prompt += fmt.Sprintf("- ID=%s: %s — %s\n", a.ID, a.Name, a.Description)
+            }
+            prompt += "\nRespond with ONLY the agent ID that should handle this message."
+
+            resp, err := routerModel.Chat(ctx, &model.ChatRequest{
+                Messages: []model.Message{{Role: "user", Content: prompt}},
+            })
+            if err != nil {
+                return "", err
+            }
+            return strings.TrimSpace(resp.Content), nil
+        })
+
+    // Test with different customer messages
+    messages := []string{
+        "My invoice shows a double charge for last month",
+        "The app crashes when I try to upload a file larger than 10MB",
+        "What's the price difference between Pro and Enterprise plans?",
+    }
+
+    for _, msg := range messages {
+        result, err := t.Run(ctx, graph.State{"message": msg})
+        if err != nil {
+            log.Printf("Error: %v", err)
+            continue
         }
+        fmt.Printf("Customer: %s\n", msg)
+        fmt.Printf("Response: %s\n\n", result["response"])
     }
-    return merged
-})
-result, err := t.Run(ctx, graph.State{"input": "..."})
+}
 ```
 
-### Router
+---
+
+## Team Builder Reference
+
+### Constructor
 
 ```go
-t := team.New("router", "Router", team.StrategyRouter)
-t.AddAgent(techAgent)
-t.AddAgent(supportAgent)
-t.SetRouter(func(s graph.State) string {
-    if msg, ok := s["message"].(string); ok && strings.Contains(msg, "bug") {
-        return supportAgent.ID
-    }
-    return techAgent.ID
-})
-result, err := t.Run(ctx, graph.State{"message": "I found a bug in..."})
+team.New(id string, name string, strategy team.Strategy) *Team
 ```
 
-### Coordinator
+### Configuration Methods
+
+All methods return `*Team` for chaining.
+
+| Method | Description | Strategies |
+|--------|-------------|------------|
+| `AddAgent(a *agent.Agent)` | Add an agent to the team | All |
+| `SetRouter(fn RouterFunc)` | Set a static routing function | Router |
+| `SetModelRouter(fn ModelRouterFunc)` | Set an LLM-based routing function | Router |
+| `SetMerge(fn MergeFunc)` | Set a custom result merge function | Parallel |
+| `SetMaxConcurrency(n int)` | Limit concurrent goroutines | Parallel |
+| `SetErrorStrategy(es ErrorStrategy)` | Control failure behavior | Parallel |
+| `SetCoordinator(a *agent.Agent)` | Set the supervisor agent | Coordinator |
+| `SetMaxIterations(n int)` | Max planning iterations | Coordinator |
+
+### Execution
 
 ```go
-coord, _ := agent.New("coord", "Coordinator").WithModel(p).WithGraph(coordGraph).Build()
-spec1, _ := agent.New("spec1", "Specialist 1").WithModel(p).Build()
-spec2, _ := agent.New("spec2", "Specialist 2").WithModel(p).Build()
-
-t := team.New("coord", "Coordinator", team.StrategyCoordinator)
-t.AddAgent(coord)
-t.AddAgent(spec1)
-t.AddAgent(spec2)
-
-result, err := t.Run(ctx, graph.State{"task": "Write a technical brief"})
+result, err := t.Run(ctx, graph.State{"message": "your task"})
 ```
+
+Returns a `graph.State` (which is `map[string]any`) containing the combined output from all agents that ran.
+
+### Communication
+
+| Method | Description |
+|--------|-------------|
+| `DelegateTask(ctx, from, to, subject, payload)` | Send a task and wait for the result |
+| `Broadcast(ctx, from, subject, data)` | Send a message to all agents |
+| `DirectChannel(agentA, agentB, bufSize)` | Create a direct channel between two agents |
+| `MessageHistory()` | Get all messages exchanged during the run |
+| `Bus` | Access the underlying Protocol Bus directly |
+
+### Type Signatures
+
+```go
+type RouterFunc func(state graph.State) string
+
+type ModelRouterFunc func(ctx context.Context, state graph.State, agents []AgentInfo) (string, error)
+
+type MergeFunc func(results []graph.State) graph.State
+
+type AgentInfo struct {
+    ID           string   `json:"id"`
+    Name         string   `json:"name"`
+    Description  string   `json:"description"`
+    Capabilities []string `json:"capabilities"`
+}
+```
+
+---
+
+## Running the Demo
+
+Chronos includes a complete demo that exercises all four strategies, direct channels, and bus delegation:
+
+```bash
+# With a real provider
+OPENAI_API_KEY=sk-... go run ./examples/multi_agent/
+
+# Without an API key (uses a mock provider for demonstration)
+go run ./examples/multi_agent/
+```
+
+The demo shows:
+1. Sequential pipeline (Researcher → Writer → Reviewer)
+2. Parallel fan-out with bounded concurrency
+3. Router with static dispatch
+4. Coordinator with LLM-driven planning
+5. Direct agent-to-agent channel
+6. Bus-based task delegation
+
+---
+
+## Tips and Best Practices
+
+**Start with lightweight agents.** Use model-only agents (`agent.New(...).WithModel(...).Build()`) for team orchestration. Only add graphs and storage when you need durable workflows.
+
+**Give agents clear descriptions and capabilities.** These are used by the coordinator for planning and by the router for automatic dispatch.
+
+**Use system prompts to define boundaries.** Tell each agent what it should and shouldn't do. Be specific: "You are a researcher. Provide facts, not opinions."
+
+**Choose the right error strategy for parallel teams.** Use `FailFast` for critical pipelines, `BestEffort` when partial results are acceptable.
+
+**Use `SetMaxConcurrency` with parallel teams.** If you have many agents or limited API rate limits, bound the concurrency to avoid hitting rate limits.
+
+**Use `SetMaxIterations` wisely with coordinator.** Each iteration costs a model call for re-planning. Start with 1 and increase only if you need iterative refinement.
+
+**Use direct channels for hot paths.** When two specific agents exchange many messages, a direct channel avoids the overhead of bus routing.
