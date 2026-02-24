@@ -1,9 +1,8 @@
 // Package protocol defines the agent-to-agent communication protocol.
 //
-// Agents communicate like human developers: they can send messages to each other,
-// delegate tasks, share results, ask questions, and broadcast updates. The protocol
-// is built around an in-process message bus that routes typed envelopes between
-// registered agents.
+// The bus uses lock-free delivery with object pooling, bounded inboxes with
+// back-pressure, and direct agent-to-agent channels that bypass the central
+// router for point-to-point communication.
 package protocol
 
 import (
@@ -11,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -18,24 +18,15 @@ import (
 type MessageType string
 
 const (
-	// TypeTaskRequest asks another agent to perform work.
 	TypeTaskRequest MessageType = "task_request"
-	// TypeTaskResult carries the outcome of a delegated task.
-	TypeTaskResult MessageType = "task_result"
-	// TypeQuestion asks another agent for information.
-	TypeQuestion MessageType = "question"
-	// TypeAnswer responds to a question.
-	TypeAnswer MessageType = "answer"
-	// TypeBroadcast sends an update to all agents.
-	TypeBroadcast MessageType = "broadcast"
-	// TypeAck acknowledges receipt of a message.
-	TypeAck MessageType = "ack"
-	// TypeError signals a failure.
-	TypeError MessageType = "error"
-	// TypeHandoff transfers full ownership of a conversation/task to another agent.
-	TypeHandoff MessageType = "handoff"
-	// TypeStatus reports progress on a long-running task.
-	TypeStatus MessageType = "status"
+	TypeTaskResult  MessageType = "task_result"
+	TypeQuestion    MessageType = "question"
+	TypeAnswer      MessageType = "answer"
+	TypeBroadcast   MessageType = "broadcast"
+	TypeAck         MessageType = "ack"
+	TypeError       MessageType = "error"
+	TypeHandoff     MessageType = "handoff"
+	TypeStatus      MessageType = "status"
 )
 
 // Priority controls message ordering when an agent's inbox has multiple pending messages.
@@ -52,15 +43,30 @@ const (
 type Envelope struct {
 	ID        string            `json:"id"`
 	Type      MessageType       `json:"type"`
-	From      string            `json:"from"`               // sender agent ID
-	To        string            `json:"to"`                 // recipient agent ID ("*" for broadcast)
-	ReplyTo   string            `json:"reply_to,omitempty"` // ID of the message being replied to
+	From      string            `json:"from"`
+	To        string            `json:"to"`
+	ReplyTo   string            `json:"reply_to,omitempty"`
 	Subject   string            `json:"subject"`
 	Body      json.RawMessage   `json:"body"`
 	Priority  Priority          `json:"priority"`
 	Metadata  map[string]string `json:"metadata,omitempty"`
 	CreatedAt time.Time         `json:"created_at"`
 	ExpiresAt time.Time         `json:"expires_at,omitempty"`
+}
+
+var envelopePool = sync.Pool{
+	New: func() any { return &Envelope{} },
+}
+
+// AcquireEnvelope returns a pooled envelope. Call ReleaseEnvelope when done.
+func AcquireEnvelope() *Envelope {
+	return envelopePool.Get().(*Envelope)
+}
+
+// ReleaseEnvelope returns an envelope to the pool after clearing it.
+func ReleaseEnvelope(e *Envelope) {
+	*e = Envelope{}
+	envelopePool.Put(e)
 }
 
 // TaskPayload is the body of a TypeTaskRequest envelope.
@@ -83,7 +89,7 @@ type ResultPayload struct {
 // StatusPayload is the body of a TypeStatus envelope.
 type StatusPayload struct {
 	TaskID   string  `json:"task_id"`
-	Progress float64 `json:"progress"` // 0.0 to 1.0
+	Progress float64 `json:"progress"`
 	Message  string  `json:"message"`
 }
 
@@ -112,22 +118,96 @@ type Peer struct {
 	handler      Handler
 }
 
-// Bus is the central message router for agent-to-agent communication.
-// It maintains a registry of peers and routes envelopes between them.
-type Bus struct {
-	mu      sync.RWMutex
-	peers   map[string]*Peer
-	inbox   map[string]chan *Envelope // per-agent inbox
-	history []*Envelope               // message log for observability
-	histMu  sync.Mutex
-	seqNum  int64
+// ---- Direct channel for agent-to-agent bypass ----
+
+// DirectChannel is a dedicated bidirectional pipe between two specific agents
+// that bypasses the central bus for minimal-latency point-to-point messaging.
+// Each direction uses a separate buffered channel to avoid head-of-line blocking.
+type DirectChannel struct {
+	AtoB chan *Envelope
+	BtoA chan *Envelope
 }
 
-// NewBus creates a new communication bus.
+// NewDirectChannel creates a channel pair with the given buffer capacity.
+func NewDirectChannel(bufSize int) *DirectChannel {
+	if bufSize <= 0 {
+		bufSize = 64
+	}
+	return &DirectChannel{
+		AtoB: make(chan *Envelope, bufSize),
+		BtoA: make(chan *Envelope, bufSize),
+	}
+}
+
+// Close drains and closes both directions.
+func (dc *DirectChannel) Close() {
+	close(dc.AtoB)
+	close(dc.BtoA)
+}
+
+// directKey returns a deterministic key for an unordered pair.
+func directKey(a, b string) string {
+	if a < b {
+		return a + "\x00" + b
+	}
+	return b + "\x00" + a
+}
+
+// ---- Bus ----
+
+const (
+	defaultInboxSize  = 512
+	defaultHistoryCap = 4096
+)
+
+// BusConfig tunes Bus resource limits.
+type BusConfig struct {
+	InboxSize  int // per-peer inbox buffer; 0 = defaultInboxSize
+	HistoryCap int // max retained history entries; 0 = defaultHistoryCap
+}
+
+// Bus is the central message router for agent-to-agent communication.
+// Delivery is non-blocking: if a peer's inbox is full the send fails with
+// an error rather than blocking the sender (back-pressure).
+type Bus struct {
+	mu    sync.RWMutex
+	peers map[string]*Peer
+	inbox map[string]chan *Envelope
+
+	directMu   sync.RWMutex
+	directs    map[string]*DirectChannel // directKey -> channel
+
+	histMu  sync.Mutex
+	history []*Envelope
+	histCap int
+
+	seqNum    atomic.Int64
+	inboxSize int
+	closed    atomic.Bool
+}
+
+// NewBus creates a new communication bus with default settings.
 func NewBus() *Bus {
+	return NewBusWithConfig(BusConfig{})
+}
+
+// NewBusWithConfig creates a bus with explicit resource limits.
+func NewBusWithConfig(cfg BusConfig) *Bus {
+	iSize := cfg.InboxSize
+	if iSize <= 0 {
+		iSize = defaultInboxSize
+	}
+	hCap := cfg.HistoryCap
+	if hCap <= 0 {
+		hCap = defaultHistoryCap
+	}
 	return &Bus{
-		peers: make(map[string]*Peer),
-		inbox: make(map[string]chan *Envelope),
+		peers:     make(map[string]*Peer),
+		inbox:     make(map[string]chan *Envelope),
+		directs:   make(map[string]*DirectChannel),
+		history:   make([]*Envelope, 0, min(hCap, 256)),
+		histCap:   hCap,
+		inboxSize: iSize,
 	}
 }
 
@@ -147,7 +227,7 @@ func (b *Bus) Register(id, name, description string, capabilities []string, hand
 		Capabilities: capabilities,
 		handler:      handler,
 	}
-	b.inbox[id] = make(chan *Envelope, 256)
+	b.inbox[id] = make(chan *Envelope, b.inboxSize)
 	return nil
 }
 
@@ -192,14 +272,39 @@ func (b *Bus) FindByCapability(capability string) []*Peer {
 	return matches
 }
 
-// Send delivers an envelope to its recipient. For broadcasts (To=="*"),
-// the message is delivered to all peers except the sender.
+// DirectChannelBetween returns (or creates) a dedicated channel between two agents.
+func (b *Bus) DirectChannelBetween(agentA, agentB string, bufSize int) *DirectChannel {
+	key := directKey(agentA, agentB)
+
+	b.directMu.RLock()
+	if dc, ok := b.directs[key]; ok {
+		b.directMu.RUnlock()
+		return dc
+	}
+	b.directMu.RUnlock()
+
+	b.directMu.Lock()
+	defer b.directMu.Unlock()
+
+	if dc, ok := b.directs[key]; ok {
+		return dc
+	}
+	dc := NewDirectChannel(bufSize)
+	b.directs[key] = dc
+	return dc
+}
+
+// Send delivers an envelope to its recipient.
+// For broadcasts (To=="*") the message is delivered to all peers except the sender.
+// Returns an error immediately if the recipient's inbox is full (back-pressure).
 func (b *Bus) Send(ctx context.Context, env *Envelope) error {
+	if b.closed.Load() {
+		return fmt.Errorf("protocol: bus is closed")
+	}
+
 	if env.ID == "" {
-		b.mu.Lock()
-		b.seqNum++
-		env.ID = fmt.Sprintf("msg_%d_%d", time.Now().UnixNano(), b.seqNum)
-		b.mu.Unlock()
+		seq := b.seqNum.Add(1)
+		env.ID = fmt.Sprintf("msg_%d_%d", time.Now().UnixNano(), seq)
 	}
 	if env.CreatedAt.IsZero() {
 		env.CreatedAt = time.Now()
@@ -237,7 +342,6 @@ func (b *Bus) SendAndWait(ctx context.Context, env *Envelope) (*Envelope, error)
 			if reply.ReplyTo == env.ID {
 				return reply, nil
 			}
-			// Not the reply we're waiting for; re-queue it.
 			b.mu.RLock()
 			ch := b.inbox[env.From]
 			b.mu.RUnlock()
@@ -305,6 +409,27 @@ func (b *Bus) History() []*Envelope {
 	return out
 }
 
+// Close shuts down the bus and all direct channels.
+func (b *Bus) Close() {
+	if !b.closed.CompareAndSwap(false, true) {
+		return
+	}
+
+	b.directMu.Lock()
+	for k, dc := range b.directs {
+		dc.Close()
+		delete(b.directs, k)
+	}
+	b.directMu.Unlock()
+
+	b.mu.Lock()
+	for id, ch := range b.inbox {
+		close(ch)
+		delete(b.inbox, id)
+	}
+	b.mu.Unlock()
+}
+
 func (b *Bus) broadcast(ctx context.Context, env *Envelope) error {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -334,7 +459,6 @@ func (b *Bus) deliverToLocked(_ context.Context, env *Envelope, agentID string) 
 		return fmt.Errorf("protocol: recipient %q not found", agentID)
 	}
 
-	// If the peer has a synchronous handler, call it and route the reply back.
 	if peer.handler != nil {
 		go func() {
 			reply, err := peer.handler(context.Background(), env)
@@ -370,7 +494,6 @@ func (b *Bus) deliverToLocked(_ context.Context, env *Envelope, agentID string) 
 		return nil
 	}
 
-	// Otherwise, deliver to inbox for polling.
 	ch, ok := b.inbox[agentID]
 	if !ok {
 		return fmt.Errorf("protocol: no inbox for %q", agentID)
@@ -379,12 +502,18 @@ func (b *Bus) deliverToLocked(_ context.Context, env *Envelope, agentID string) 
 	case ch <- env:
 		return nil
 	default:
-		return fmt.Errorf("protocol: inbox full for %q", agentID)
+		return fmt.Errorf("protocol: inbox full for %q (back-pressure)", agentID)
 	}
 }
 
 func (b *Bus) recordHistory(env *Envelope) {
 	b.histMu.Lock()
 	defer b.histMu.Unlock()
+
+	if len(b.history) >= b.histCap {
+		n := b.histCap / 4
+		copy(b.history, b.history[n:])
+		b.history = b.history[:len(b.history)-n]
+	}
 	b.history = append(b.history, env)
 }

@@ -302,16 +302,52 @@ func (a *Agent) handleToolCalls(ctx context.Context, messages []model.Message, r
 	return a.Model.Chat(ctx, &model.ChatRequest{Messages: messages})
 }
 
+// Execute runs the agent on a text task and returns the text response.
+// Unlike Run, Execute works with just a model — no graph or storage needed.
+// This is the primary entry point for team-based orchestration where agents
+// are lightweight task executors.
+func (a *Agent) Execute(ctx context.Context, task string) (string, error) {
+	if a.Model == nil {
+		return "", fmt.Errorf("agent %q: no model configured", a.ID)
+	}
+
+	resp, err := a.Chat(ctx, task)
+	if err != nil {
+		return "", err
+	}
+	return resp.Content, nil
+}
+
 // Run starts a new execution session for this agent.
 func (a *Agent) Run(ctx context.Context, input map[string]any) (*graph.RunState, error) {
+	// If no graph, use model-only execution via Execute
+	if a.Graph == nil && a.Model != nil {
+		msg, _ := input["message"].(string)
+		if msg == "" {
+			msg = stateToPrompt(input)
+		}
+		content, err := a.Execute(ctx, msg)
+		if err != nil {
+			return nil, err
+		}
+		out := make(map[string]any, len(input)+1)
+		for k, v := range input {
+			out[k] = v
+		}
+		out["response"] = content
+		return &graph.RunState{
+			Status: graph.RunStatusCompleted,
+			State:  graph.State(out),
+		}, nil
+	}
+
 	if a.Graph == nil {
-		return nil, fmt.Errorf("agent %q has no graph", a.ID)
+		return nil, fmt.Errorf("agent %q has no graph or model", a.ID)
 	}
 	if a.Storage == nil {
 		return nil, fmt.Errorf("agent %q has no storage", a.ID)
 	}
 
-	// Check input guardrails
 	if inputMsg, ok := input["message"].(string); ok {
 		if result := a.Guardrails.CheckInput(ctx, inputMsg); result != nil {
 			return nil, fmt.Errorf("input guardrail failed: %s", result.Reason)
@@ -329,7 +365,6 @@ func (a *Agent) Run(ctx context.Context, input map[string]any) (*graph.RunState,
 		return nil, err
 	}
 
-	// Fire before hooks
 	evt := &hooks.Event{Type: hooks.EventNodeBefore, Name: "run_start", Input: input}
 	if err := a.Hooks.Before(ctx, evt); err != nil {
 		return nil, fmt.Errorf("hook before run: %w", err)
@@ -338,14 +373,12 @@ func (a *Agent) Run(ctx context.Context, input map[string]any) (*graph.RunState,
 	runner := graph.NewRunner(a.Graph, a.Storage)
 	result, err := runner.Run(ctx, sess.ID, graph.State(input))
 
-	// Fire after hooks
 	evt.Type = hooks.EventNodeAfter
 	evt.Output = result
 	if hookErr := a.Hooks.After(ctx, evt); hookErr != nil && err == nil {
 		err = hookErr
 	}
 
-	// Post-run memory extraction
 	if a.MemoryManager != nil && err == nil {
 		if inputMsg, ok := input["message"].(string); ok {
 			msgs := []model.Message{{Role: model.RoleUser, Content: inputMsg}}
@@ -359,6 +392,18 @@ func (a *Agent) Run(ctx context.Context, input map[string]any) (*graph.RunState,
 	}
 
 	return result, err
+}
+
+// stateToPrompt converts a state map into a textual prompt for model-only execution.
+func stateToPrompt(state map[string]any) string {
+	var b strings.Builder
+	for k, v := range state {
+		if strings.HasPrefix(k, "_") {
+			continue
+		}
+		fmt.Fprintf(&b, "%s: %v\n", k, v)
+	}
+	return b.String()
 }
 
 // Resume continues a paused session.

@@ -1,175 +1,306 @@
-// Example: multi_agent demonstrates agents communicating like human developers.
+// Example: multi_agent demonstrates all four team strategies and agent communication.
 //
-// Three agents work together as a software team:
-//   - Architect: decomposes requirements into tasks
-//   - Developer: implements the tasks
-//   - Reviewer: reviews the implementation
+// This example shows how lightweight agents (model-only, no graph or storage)
+// work together using sequential, parallel, router, and coordinator strategies,
+// plus direct agent-to-agent channels and bus-based delegation.
 //
-// They communicate via the protocol bus, delegating tasks, sharing results,
-// and broadcasting status updates — just like a real development team.
+// Set OPENAI_API_KEY (or any supported provider key) to run with a real model.
+// Without a key, the example runs with a mock provider that echoes prompts.
 package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"os"
+	"strings"
 
 	"github.com/spawn08/chronos/engine/graph"
+	"github.com/spawn08/chronos/engine/model"
 	"github.com/spawn08/chronos/sdk/agent"
+	"github.com/spawn08/chronos/sdk/protocol"
 	"github.com/spawn08/chronos/sdk/team"
-	"github.com/spawn08/chronos/storage/adapters/sqlite"
 )
 
 func main() {
 	ctx := context.Background()
+	provider := resolveProvider()
 
-	store, err := sqlite.New(":memory:")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer store.Close()
-	if err := store.Migrate(ctx); err != nil {
-		log.Fatal(err)
-	}
+	fmt.Println("╔═══════════════════════════════════════════════════╗")
+	fmt.Println("║       Chronos Multi-Agent Orchestration Demo     ║")
+	fmt.Println("╚═══════════════════════════════════════════════════╝")
 
-	// --- Agent 1: Architect ---
-	architectGraph := graph.New("architect-flow").
-		AddNode("analyze", func(_ context.Context, s graph.State) (graph.State, error) {
-			requirement := s["requirement"]
-			s["architecture"] = fmt.Sprintf("Architecture plan for: %v", requirement)
-			s["tasks"] = []string{"design API", "implement handlers", "add tests"}
-			s["status"] = "architecture_complete"
-			fmt.Println("[Architect] Analyzed requirements and produced architecture plan")
-			return s, nil
-		}).
-		SetEntryPoint("analyze").
-		SetFinishPoint("analyze")
+	researcher := buildAgent("researcher", "Researcher",
+		"Researches topics and gathers facts",
+		[]string{"research", "analysis"}, provider,
+		"You are a research specialist. Given a topic, provide key facts and findings.")
 
-	architect, err := agent.New("architect", "Architect").
-		Description("Analyzes requirements and produces architecture plans").
-		AddCapability("architecture").
-		AddCapability("planning").
-		WithStorage(store).
-		WithGraph(architectGraph).
-		Build()
-	if err != nil {
-		log.Fatal(err)
-	}
+	writer := buildAgent("writer", "Writer",
+		"Writes polished content from research notes",
+		[]string{"writing", "content"}, provider,
+		"You are a writing specialist. Given research notes, produce polished prose.")
 
-	// --- Agent 2: Developer ---
-	developerGraph := graph.New("developer-flow").
-		AddNode("implement", func(_ context.Context, s graph.State) (graph.State, error) {
-			arch := s["architecture"]
-			s["implementation"] = fmt.Sprintf("Code implementing: %v", arch)
-			s["tests"] = "unit tests passing"
-			s["status"] = "implementation_complete"
-			fmt.Println("[Developer] Implemented the architecture plan")
-			return s, nil
-		}).
-		SetEntryPoint("implement").
-		SetFinishPoint("implement")
+	reviewer := buildAgent("reviewer", "Reviewer",
+		"Reviews content for accuracy and quality",
+		[]string{"review", "quality"}, provider,
+		"You are a reviewer. Evaluate the content for accuracy and quality. Provide feedback.")
 
-	developer, err := agent.New("developer", "Developer").
-		Description("Implements features based on architecture plans").
-		AddCapability("coding").
-		AddCapability("testing").
-		WithStorage(store).
-		WithGraph(developerGraph).
-		Build()
-	if err != nil {
-		log.Fatal(err)
-	}
+	translator := buildAgent("translator", "Translator",
+		"Translates content between languages",
+		[]string{"translation", "languages"}, provider,
+		"You are a translator. Translate the given content into the requested language.")
 
-	// --- Agent 3: Reviewer ---
-	reviewerGraph := graph.New("reviewer-flow").
-		AddNode("review", func(_ context.Context, s graph.State) (graph.State, error) {
-			impl := s["implementation"]
-			s["review"] = fmt.Sprintf("Review of: %v — LGTM with minor suggestions", impl)
-			s["approved"] = true
-			s["status"] = "review_complete"
-			fmt.Println("[Reviewer] Reviewed implementation and approved")
-			return s, nil
-		}).
-		SetEntryPoint("review").
-		SetFinishPoint("review")
+	// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+	// 1. Sequential Strategy — pipeline
+	// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+	fmt.Println("\n━━━ 1. Sequential Strategy (Researcher → Writer → Reviewer) ━━━")
 
-	reviewer, err := agent.New("reviewer", "Reviewer").
-		Description("Reviews code implementations for quality and correctness").
-		AddCapability("code_review").
-		AddCapability("quality_assurance").
-		WithStorage(store).
-		WithGraph(reviewerGraph).
-		Build()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// --- Assemble the team ---
-
-	// Sequential strategy: architect → developer → reviewer
-	fmt.Println("=== Sequential Team (architect → developer → reviewer) ===")
-	seqTeam := team.New("dev-team", "Development Team", team.StrategySequential).
-		AddAgent(architect).
-		AddAgent(developer).
+	seqTeam := team.New("seq-team", "Content Pipeline", team.StrategySequential).
+		AddAgent(researcher).
+		AddAgent(writer).
 		AddAgent(reviewer)
 
 	result, err := seqTeam.Run(ctx, graph.State{
-		"requirement": "Build a REST API for user management",
+		"message": "Write a short article about renewable energy",
 	})
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Sequential: %v", err)
+	}
+	fmt.Printf("  Response: %.120s...\n", result["response"])
+	fmt.Printf("  Messages exchanged: %d\n", len(seqTeam.MessageHistory()))
+
+	// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+	// 2. Parallel Strategy — fan-out with bounded concurrency
+	// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+	fmt.Println("\n━━━ 2. Parallel Strategy (all agents run concurrently, max 2) ━━━")
+
+	parTeam := team.New("par-team", "Parallel Analysis", team.StrategyParallel).
+		AddAgent(researcher).
+		AddAgent(writer).
+		AddAgent(translator).
+		SetMaxConcurrency(2).
+		SetErrorStrategy(team.ErrorStrategyBestEffort).
+		SetMerge(func(results []graph.State) graph.State {
+			merged := make(graph.State)
+			for i, r := range results {
+				key := fmt.Sprintf("agent_%d_response", i)
+				merged[key] = r["response"]
+			}
+			merged["count"] = len(results)
+			return merged
+		})
+
+	result, err = parTeam.Run(ctx, graph.State{
+		"message": "Summarize the impact of AI on healthcare",
+	})
+	if err != nil {
+		log.Fatalf("Parallel: %v", err)
+	}
+	fmt.Printf("  Agents completed: %v\n", result["count"])
+	for k, v := range result {
+		if strings.HasPrefix(k, "agent_") {
+			s := fmt.Sprintf("%v", v)
+			if len(s) > 100 {
+				s = s[:100] + "..."
+			}
+			fmt.Printf("  %s: %s\n", k, s)
+		}
 	}
 
-	fmt.Println("\nFinal result:")
-	fmt.Printf("  Architecture: %v\n", result["architecture"])
-	fmt.Printf("  Implementation: %v\n", result["implementation"])
-	fmt.Printf("  Review: %v\n", result["review"])
-	fmt.Printf("  Approved: %v\n", result["approved"])
+	// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+	// 3. Router Strategy — intelligent dispatch
+	// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+	fmt.Println("\n━━━ 3. Router Strategy (static routing by task type) ━━━")
 
-	// Show the communication history
-	fmt.Printf("\n  Messages exchanged: %d\n", len(seqTeam.MessageHistory()))
-	for i, msg := range seqTeam.MessageHistory() {
-		fmt.Printf("    [%d] %s → %s: %s (%s)\n", i+1, msg.From, msg.To, msg.Subject, msg.Type)
+	routerTeam := team.New("router-team", "Task Router", team.StrategyRouter).
+		AddAgent(researcher).
+		AddAgent(writer).
+		AddAgent(translator).
+		SetRouter(func(state graph.State) string {
+			msg, _ := state["message"].(string)
+			switch {
+			case strings.Contains(strings.ToLower(msg), "translate"):
+				return "translator"
+			case strings.Contains(strings.ToLower(msg), "write"):
+				return "writer"
+			default:
+				return "researcher"
+			}
+		})
+
+	// Route to translator
+	result, err = routerTeam.Run(ctx, graph.State{
+		"message": "Translate 'hello world' into French",
+	})
+	if err != nil {
+		log.Fatalf("Router (translate): %v", err)
 	}
+	fmt.Printf("  Routed to translator: %.100s...\n", result["response"])
 
-	// --- Coordinator strategy ---
-	fmt.Println("\n=== Coordinator Team (architect leads, delegates to developer & reviewer) ===")
+	// Route to researcher
+	result, err = routerTeam.Run(ctx, graph.State{
+		"message": "Research the history of quantum computing",
+	})
+	if err != nil {
+		log.Fatalf("Router (research): %v", err)
+	}
+	fmt.Printf("  Routed to researcher: %.100s...\n", result["response"])
 
-	store2, _ := sqlite.New(":memory:")
-	defer store2.Close()
-	_ = store2.Migrate(ctx)
+	// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+	// 4. Coordinator Strategy — LLM-driven task decomposition
+	// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+	fmt.Println("\n━━━ 4. Coordinator Strategy (supervisor decomposes & delegates) ━━━")
 
-	arch2, _ := agent.New("arch2", "Lead Architect").
-		Description("Leads the team and decomposes tasks").
-		WithStorage(store2).
-		WithGraph(architectGraph).
-		Build()
-
-	dev2, _ := agent.New("dev2", "Developer").
-		Description("Implements features").
-		WithStorage(store2).
-		WithGraph(developerGraph).
-		Build()
-
-	rev2, _ := agent.New("rev2", "Reviewer").
-		Description("Reviews code").
-		WithStorage(store2).
-		WithGraph(reviewerGraph).
-		Build()
+	supervisor := buildAgent("supervisor", "Supervisor",
+		"Decomposes complex tasks and coordinates specialists",
+		[]string{"planning", "coordination"}, provider,
+		"You are a project coordinator. Break tasks into sub-tasks and delegate.")
 
 	coordTeam := team.New("coord-team", "Coordinated Team", team.StrategyCoordinator).
-		AddAgent(arch2). // first agent is the coordinator
-		AddAgent(dev2).
-		AddAgent(rev2)
+		SetCoordinator(supervisor).
+		AddAgent(researcher).
+		AddAgent(writer).
+		AddAgent(reviewer).
+		SetMaxIterations(2)
 
-	result2, err := coordTeam.Run(ctx, graph.State{
-		"requirement": "Add authentication to the API",
+	result, err = coordTeam.Run(ctx, graph.State{
+		"message": "Create a report on electric vehicle adoption trends",
 	})
 	if err != nil {
-		log.Fatal(err)
+		fmt.Printf("  Coordinator result: %v (expected with mock provider)\n", err)
+	} else {
+		fmt.Printf("  Final state keys: %v\n", stateKeys(result))
+		fmt.Printf("  Messages exchanged: %d\n", len(coordTeam.MessageHistory()))
 	}
 
-	fmt.Println("\nFinal result:")
-	fmt.Printf("  Approved: %v\n", result2["approved"])
-	fmt.Printf("  Messages exchanged: %d\n", len(coordTeam.MessageHistory()))
+	// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+	// 5. Direct Agent-to-Agent Communication
+	// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+	fmt.Println("\n━━━ 5. Direct Agent-to-Agent Channel (bypasses bus) ━━━")
+
+	directTeam := team.New("direct-team", "Direct Comm", team.StrategySequential).
+		AddAgent(researcher).
+		AddAgent(writer)
+
+	dc := directTeam.DirectChannel("researcher", "writer", 64)
+
+	// Simulate direct point-to-point messaging
+	go func() {
+		body, _ := json.Marshal(map[string]string{
+			"findings": "Solar energy grew 30% in 2025",
+		})
+		dc.AtoB <- &protocol.Envelope{
+			Type:    protocol.TypeTaskResult,
+			From:    "researcher",
+			To:      "writer",
+			Subject: "research_findings",
+			Body:    body,
+		}
+	}()
+
+	received := <-dc.AtoB
+	var findings map[string]string
+	_ = json.Unmarshal(received.Body, &findings)
+	fmt.Printf("  Writer received directly from Researcher: %s\n", findings["findings"])
+
+	// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+	// 6. Bus-based Task Delegation
+	// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+	fmt.Println("\n━━━ 6. Bus-based Task Delegation (researcher delegates to writer) ━━━")
+
+	busTeam := team.New("bus-team", "Bus Delegation", team.StrategySequential).
+		AddAgent(researcher).
+		AddAgent(writer)
+
+	taskResult, err := busTeam.DelegateTask(ctx, "researcher", "writer", "draft-article",
+		protocol.TaskPayload{
+			Description: "Write a summary about climate change impacts",
+			Input: map[string]any{
+				"message": "Write a 2-sentence summary about climate change impacts on agriculture",
+			},
+		})
+	if err != nil {
+		log.Fatalf("Delegation: %v", err)
+	}
+	fmt.Printf("  Delegation success: %v\n", taskResult.Success)
+	if resp, ok := taskResult.Output["response"]; ok {
+		s := fmt.Sprintf("%v", resp)
+		if len(s) > 120 {
+			s = s[:120] + "..."
+		}
+		fmt.Printf("  Writer produced: %s\n", s)
+	}
+
+	fmt.Println("\n✓ All strategies demonstrated successfully.")
 }
+
+// buildAgent creates a lightweight model-only agent (no graph, no storage).
+func buildAgent(id, name, desc string, caps []string, provider model.Provider, systemPrompt string) *agent.Agent {
+	b := agent.New(id, name).
+		Description(desc).
+		WithModel(provider).
+		WithSystemPrompt(systemPrompt)
+
+	for _, c := range caps {
+		b.AddCapability(c)
+	}
+
+	a, err := b.Build()
+	if err != nil {
+		log.Fatalf("build %s: %v", id, err)
+	}
+	return a
+}
+
+func resolveProvider() model.Provider {
+	if key := os.Getenv("OPENAI_API_KEY"); key != "" {
+		return model.NewOpenAI(key)
+	}
+	if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
+		return model.NewAnthropic(key)
+	}
+	if key := os.Getenv("GEMINI_API_KEY"); key != "" {
+		return model.NewGemini(key)
+	}
+	fmt.Println("⚠ No API key found, using mock provider (set OPENAI_API_KEY for real responses)")
+	return &mockProvider{}
+}
+
+func stateKeys(s graph.State) []string {
+	keys := make([]string, 0, len(s))
+	for k := range s {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// mockProvider returns the prompt back as the response for demo purposes.
+type mockProvider struct{}
+
+func (m *mockProvider) Chat(_ context.Context, req *model.ChatRequest) (*model.ChatResponse, error) {
+	last := req.Messages[len(req.Messages)-1].Content
+	if strings.Contains(last, "Analyze the following") {
+		plan := `{"tasks": [{"agent_id": "researcher", "description": "Research the topic"}, {"agent_id": "writer", "description": "Write the report", "depends_on": "researcher"}], "done": false}`
+		return &model.ChatResponse{Content: plan, Role: "assistant", StopReason: model.StopReasonEnd}, nil
+	}
+	if strings.Contains(last, "Review the results") || strings.Contains(last, "Iteration") {
+		return &model.ChatResponse{Content: `{"tasks": [], "done": true}`, Role: "assistant", StopReason: model.StopReasonEnd}, nil
+	}
+	return &model.ChatResponse{
+		Content:    fmt.Sprintf("[Mock response for: %.80s]", last),
+		Role:       "assistant",
+		StopReason: model.StopReasonEnd,
+	}, nil
+}
+
+func (m *mockProvider) StreamChat(_ context.Context, req *model.ChatRequest) (<-chan *model.ChatResponse, error) {
+	ch := make(chan *model.ChatResponse, 1)
+	resp, _ := m.Chat(context.Background(), req)
+	ch <- resp
+	close(ch)
+	return ch, nil
+}
+
+func (m *mockProvider) Name() string  { return "mock" }
+func (m *mockProvider) Model() string { return "mock-v1" }

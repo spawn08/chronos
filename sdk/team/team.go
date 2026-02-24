@@ -1,16 +1,15 @@
 // Package team provides multi-agent orchestration with inter-agent communication.
 //
 // Teams coordinate multiple agents working together using different strategies:
-// sequential, parallel, router, or coordinator (LLM-driven task decomposition).
-// Agents within a team communicate via the protocol.Bus, sharing tasks and results
-// the same way human developers collaborate.
+// sequential (pipeline), parallel (fan-out/fan-in), router (intelligent dispatch),
+// or coordinator (LLM-driven task decomposition). Communication flows through the
+// protocol.Bus with optional direct agent-to-agent channels for low-latency paths.
 package team
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sync"
 
 	"github.com/spawn08/chronos/engine/graph"
 	"github.com/spawn08/chronos/sdk/agent"
@@ -21,34 +20,57 @@ import (
 type Strategy string
 
 const (
-	// StrategySequential runs agents one after another, passing state along.
-	StrategySequential Strategy = "sequential"
-	// StrategyParallel runs all agents concurrently and merges results.
-	StrategyParallel Strategy = "parallel"
-	// StrategyRouter uses a routing function to select which agent handles the input.
-	StrategyRouter Strategy = "router"
-	// StrategyCoordinator uses an LLM to decompose tasks and delegate to specialists.
+	StrategySequential  Strategy = "sequential"
+	StrategyParallel    Strategy = "parallel"
+	StrategyRouter      Strategy = "router"
 	StrategyCoordinator Strategy = "coordinator"
 )
 
 // RouterFunc selects an agent ID based on the current state.
 type RouterFunc func(state graph.State) string
 
+// ModelRouterFunc selects an agent using model-based reasoning. It receives the
+// full state plus a list of available agents with descriptions.
+type ModelRouterFunc func(ctx context.Context, state graph.State, agents []AgentInfo) (string, error)
+
 // MergeFunc combines results from parallel agent executions.
 type MergeFunc func(results []graph.State) graph.State
+
+// ErrorStrategy controls how agent failures are handled.
+type ErrorStrategy int
+
+const (
+	ErrorStrategyFailFast  ErrorStrategy = iota // abort on first error
+	ErrorStrategyCollect                        // collect all errors, return combined
+	ErrorStrategyBestEffort                     // ignore errors, return successful results
+)
+
+// AgentInfo is a lightweight descriptor exposed to routing functions.
+type AgentInfo struct {
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Description  string   `json:"description"`
+	Capabilities []string `json:"capabilities"`
+}
 
 // Team orchestrates multiple agents working together.
 type Team struct {
 	ID       string
 	Name     string
 	Agents   map[string]*agent.Agent
-	Order    []string // insertion order for deterministic sequential execution
+	Order    []string
 	Strategy Strategy
-	Router   RouterFunc
-	Merge    MergeFunc
-	Bus      *protocol.Bus
 
-	// SharedContext is visible to all agents and accumulates results across the team run.
+	Router      RouterFunc
+	ModelRouter ModelRouterFunc
+	Merge       MergeFunc
+	Bus         *protocol.Bus
+
+	MaxConcurrency int           // for parallel strategy; 0 = unbounded
+	ErrorMode      ErrorStrategy // how to handle agent failures
+	Coordinator    *agent.Agent  // explicit coordinator agent (for StrategyCoordinator)
+	MaxIterations  int           // max coordinator planning iterations; 0 = 1
+
 	SharedContext map[string]any
 }
 
@@ -61,6 +83,7 @@ func New(id, name string, strategy Strategy) *Team {
 		Strategy:      strategy,
 		Bus:           protocol.NewBus(),
 		SharedContext: make(map[string]any),
+		MaxIterations: 1,
 	}
 }
 
@@ -69,7 +92,7 @@ func (t *Team) AddAgent(a *agent.Agent) *Team {
 	t.Agents[a.ID] = a
 	t.Order = append(t.Order, a.ID)
 
-	_ = t.Bus.Register(a.ID, a.Name, a.Description, nil,
+	_ = t.Bus.Register(a.ID, a.Name, a.Description, a.Capabilities,
 		func(ctx context.Context, env *protocol.Envelope) (*protocol.Envelope, error) {
 			return t.handleAgentMessage(ctx, a, env)
 		},
@@ -77,15 +100,51 @@ func (t *Team) AddAgent(a *agent.Agent) *Team {
 	return t
 }
 
-// SetRouter sets the routing function (for StrategyRouter).
+// SetRouter sets a static routing function (for StrategyRouter).
 func (t *Team) SetRouter(fn RouterFunc) *Team {
 	t.Router = fn
+	return t
+}
+
+// SetModelRouter sets a model-based routing function (for StrategyRouter).
+func (t *Team) SetModelRouter(fn ModelRouterFunc) *Team {
+	t.ModelRouter = fn
 	return t
 }
 
 // SetMerge sets the merge function (for StrategyParallel).
 func (t *Team) SetMerge(fn MergeFunc) *Team {
 	t.Merge = fn
+	return t
+}
+
+// SetMaxConcurrency limits goroutines for parallel execution.
+func (t *Team) SetMaxConcurrency(n int) *Team {
+	t.MaxConcurrency = n
+	return t
+}
+
+// SetErrorStrategy controls how agent failures are handled.
+func (t *Team) SetErrorStrategy(es ErrorStrategy) *Team {
+	t.ErrorMode = es
+	return t
+}
+
+// SetCoordinator sets an explicit coordinator agent (for StrategyCoordinator).
+// The coordinator is automatically registered on the bus so it can delegate tasks.
+func (t *Team) SetCoordinator(a *agent.Agent) *Team {
+	t.Coordinator = a
+	_ = t.Bus.Register(a.ID, a.Name, a.Description, a.Capabilities,
+		func(ctx context.Context, env *protocol.Envelope) (*protocol.Envelope, error) {
+			return t.handleAgentMessage(ctx, a, env)
+		},
+	)
+	return t
+}
+
+// SetMaxIterations sets the max number of coordinator planning iterations.
+func (t *Team) SetMaxIterations(n int) *Team {
+	t.MaxIterations = n
 	return t
 }
 
@@ -122,137 +181,67 @@ func (t *Team) Broadcast(ctx context.Context, fromAgent, subject string, data ma
 	})
 }
 
+// DirectChannel returns (or creates) a dedicated low-latency channel between
+// two agents that bypasses the central bus.
+func (t *Team) DirectChannel(agentA, agentB string, bufSize int) *protocol.DirectChannel {
+	return t.Bus.DirectChannelBetween(agentA, agentB, bufSize)
+}
+
 // MessageHistory returns all inter-agent messages exchanged during the team run.
 func (t *Team) MessageHistory() []*protocol.Envelope {
 	return t.Bus.History()
 }
 
-func (t *Team) runSequential(ctx context.Context, state graph.State) (graph.State, error) {
-	current := state
-	for _, agentID := range t.Order {
-		a := t.Agents[agentID]
-
-		// Share accumulated context with the agent
-		for k, v := range t.SharedContext {
-			if _, exists := current[k]; !exists {
-				current[k] = v
-			}
-		}
-
-		result, err := a.Run(ctx, current)
-		if err != nil {
-			return nil, fmt.Errorf("team %q: agent %q: %w", t.ID, a.ID, err)
-		}
-		current = graph.State(result.State)
-
-		// Accumulate results into shared context
-		for k, v := range current {
-			t.SharedContext[k] = v
-		}
-
-		// Broadcast result to other agents for awareness
-		t.Broadcast(ctx, a.ID, fmt.Sprintf("completed:%s", a.Name), current)
+// agentInfoList returns lightweight descriptors for all agents.
+func (t *Team) agentInfoList() []AgentInfo {
+	infos := make([]AgentInfo, 0, len(t.Order))
+	for _, id := range t.Order {
+		a := t.Agents[id]
+		infos = append(infos, AgentInfo{
+			ID:           a.ID,
+			Name:         a.Name,
+			Description:  a.Description,
+			Capabilities: a.Capabilities,
+		})
 	}
-	return current, nil
+	return infos
 }
 
-func (t *Team) runParallel(ctx context.Context, input graph.State) (graph.State, error) {
-	var mu sync.Mutex
-	var results []graph.State
-	var firstErr error
-
-	var wg sync.WaitGroup
-	for _, agentID := range t.Order {
-		a := t.Agents[agentID]
-		wg.Add(1)
-		go func(ag *agent.Agent) {
-			defer wg.Done()
-			result, err := ag.Run(ctx, input)
-			mu.Lock()
-			defer mu.Unlock()
-			if err != nil && firstErr == nil {
-				firstErr = fmt.Errorf("team %q: agent %q: %w", t.ID, ag.ID, err)
-				return
-			}
-			if result != nil {
-				results = append(results, graph.State(result.State))
-			}
-		}(a)
-	}
-	wg.Wait()
-
-	if firstErr != nil {
-		return nil, firstErr
+// executeAgent runs an agent on a state, using Execute (model-only) when possible,
+// falling back to Run (graph-based).
+func executeAgent(ctx context.Context, a *agent.Agent, state graph.State) (graph.State, error) {
+	msg, _ := state["message"].(string)
+	if msg == "" {
+		msg = stateToPrompt(state)
 	}
 
-	if t.Merge != nil {
-		return t.Merge(results), nil
-	}
-	merged := make(graph.State)
-	for _, r := range results {
-		for k, v := range r {
-			merged[k] = v
-		}
-	}
-	return merged, nil
-}
-
-func (t *Team) runRouter(ctx context.Context, state graph.State) (graph.State, error) {
-	if t.Router == nil {
-		return nil, fmt.Errorf("team %q: router strategy requires a RouterFunc", t.ID)
-	}
-	agentID := t.Router(state)
-	a, ok := t.Agents[agentID]
-	if !ok {
-		return nil, fmt.Errorf("team %q: router selected unknown agent %q", t.ID, agentID)
-	}
-	result, err := a.Run(ctx, state)
+	content, err := a.Execute(ctx, msg)
 	if err != nil {
-		return nil, err
+		result, runErr := a.Run(ctx, state)
+		if runErr != nil {
+			return nil, runErr
+		}
+		return result.State, nil
 	}
-	return graph.State(result.State), nil
+
+	out := make(graph.State, len(state)+1)
+	for k, v := range state {
+		out[k] = v
+	}
+	out["response"] = content
+	return out, nil
 }
 
-// runCoordinator uses an LLM-like decomposition: the first agent acts as coordinator,
-// breaking tasks into sub-tasks and delegating to specialists via the bus.
-func (t *Team) runCoordinator(ctx context.Context, input graph.State) (graph.State, error) {
-	if len(t.Order) < 2 {
-		return nil, fmt.Errorf("team %q: coordinator strategy requires at least 2 agents", t.ID)
-	}
-
-	coordinatorID := t.Order[0]
-	coordinator := t.Agents[coordinatorID]
-
-	// The coordinator runs first to produce a plan
-	result, err := coordinator.Run(ctx, input)
-	if err != nil {
-		return nil, fmt.Errorf("team %q: coordinator %q: %w", t.ID, coordinatorID, err)
-	}
-
-	state := graph.State(result.State)
-
-	// Delegate to each specialist sequentially via the bus
-	for _, agentID := range t.Order[1:] {
-		taskPayload := protocol.TaskPayload{
-			Description: fmt.Sprintf("Execute sub-task from coordinator for %s", agentID),
-			Input:       state,
+// stateToPrompt converts a state map into a textual prompt.
+func stateToPrompt(state graph.State) string {
+	var result string
+	for k, v := range state {
+		if k == "_task_description" || k == "_delegated_by" {
+			continue
 		}
-
-		taskResult, err := t.Bus.DelegateTask(ctx, coordinatorID, agentID, "subtask", taskPayload)
-		if err != nil {
-			return nil, fmt.Errorf("team %q: delegate to %q: %w", t.ID, agentID, err)
-		}
-
-		if taskResult.Success {
-			for k, v := range taskResult.Output {
-				state[k] = v
-			}
-		} else if taskResult.Error != "" {
-			return nil, fmt.Errorf("team %q: agent %q failed: %s", t.ID, agentID, taskResult.Error)
-		}
+		result += fmt.Sprintf("%s: %v\n", k, v)
 	}
-
-	return state, nil
+	return result
 }
 
 // handleAgentMessage is called when an agent receives a message on the bus.
@@ -271,7 +260,7 @@ func (t *Team) handleAgentMessage(ctx context.Context, a *agent.Agent, env *prot
 		input["_task_description"] = task.Description
 		input["_delegated_by"] = env.From
 
-		result, err := a.Run(ctx, input)
+		state, err := executeAgent(ctx, a, input)
 
 		var resultPayload protocol.ResultPayload
 		resultPayload.TaskID = env.ID
@@ -280,7 +269,7 @@ func (t *Team) handleAgentMessage(ctx context.Context, a *agent.Agent, env *prot
 			resultPayload.Error = err.Error()
 		} else {
 			resultPayload.Success = true
-			resultPayload.Output = result.State
+			resultPayload.Output = state
 		}
 
 		body, _ := json.Marshal(resultPayload)
@@ -294,19 +283,19 @@ func (t *Team) handleAgentMessage(ctx context.Context, a *agent.Agent, env *prot
 		var q map[string]string
 		_ = json.Unmarshal(env.Body, &q)
 
-		input := map[string]any{
+		input := graph.State{
 			"_question": q["question"],
 			"_asked_by": env.From,
 			"message":   q["question"],
 		}
-		result, err := a.Run(ctx, input)
+		state, err := executeAgent(ctx, a, input)
 		if err != nil {
 			return nil, err
 		}
 
-		answer := result.State["response"]
+		answer := state["response"]
 		if answer == nil {
-			answer = result.State["answer"]
+			answer = state["answer"]
 		}
 		body, _ := json.Marshal(map[string]any{"answer": answer})
 		return &protocol.Envelope{
@@ -316,7 +305,6 @@ func (t *Team) handleAgentMessage(ctx context.Context, a *agent.Agent, env *prot
 		}, nil
 
 	case protocol.TypeBroadcast:
-		// Store broadcast data in shared context
 		var data map[string]any
 		if err := json.Unmarshal(env.Body, &data); err == nil {
 			for k, v := range data {

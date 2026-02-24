@@ -1,6 +1,7 @@
 # Build output
 bin/
 dist/
+.claude/settings.local.json
 
 # Go
 *.exe
