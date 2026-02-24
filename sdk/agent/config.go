@@ -72,13 +72,41 @@ type ContextYAML struct {
 	PreserveRecentTurns int     `yaml:"preserve_recent_turns,omitempty"`
 }
 
+// TeamConfig defines a multi-agent team in YAML.
+type TeamConfig struct {
+	ID             string   `yaml:"id"`
+	Name           string   `yaml:"name"`
+	Strategy       string   `yaml:"strategy"`                  // sequential, parallel, router, coordinator
+	Agents         []string `yaml:"agents"`                    // agent IDs (order matters for sequential)
+	Coordinator    string   `yaml:"coordinator,omitempty"`     // agent ID to use as coordinator
+	MaxConcurrency int      `yaml:"max_concurrency,omitempty"` // for parallel strategy
+	MaxIterations  int      `yaml:"max_iterations,omitempty"`  // for coordinator strategy
+	ErrorStrategy  string   `yaml:"error_strategy,omitempty"`  // fail_fast, collect, best_effort
+}
+
 // FileConfig is the top-level structure of a Chronos YAML config file.
-// Supports both a single agent and a list of agents.
+// Supports both a single agent and a list of agents, plus optional teams.
 type FileConfig struct {
 	Agents []AgentConfig `yaml:"agents"`
+	Teams  []TeamConfig  `yaml:"teams,omitempty"`
 
 	// Defaults applied to all agents unless overridden
 	Defaults *AgentConfig `yaml:"defaults,omitempty"`
+}
+
+// FindTeam looks up a team by ID (case-insensitive) within a FileConfig.
+func (fc *FileConfig) FindTeam(id string) (*TeamConfig, error) {
+	lower := strings.ToLower(id)
+	for i := range fc.Teams {
+		if strings.ToLower(fc.Teams[i].ID) == lower {
+			return &fc.Teams[i], nil
+		}
+	}
+	names := make([]string, len(fc.Teams))
+	for i, t := range fc.Teams {
+		names[i] = t.ID
+	}
+	return nil, fmt.Errorf("team %q not found in config (available: %s)", id, strings.Join(names, ", "))
 }
 
 // LoadFile parses a YAML config file and returns all agent configs.

@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"github.com/spawn08/chronos/cli/repl"
+	"github.com/spawn08/chronos/engine/graph"
 	chronosos "github.com/spawn08/chronos/os"
 	"github.com/spawn08/chronos/sdk/agent"
+	"github.com/spawn08/chronos/sdk/team"
 	"github.com/spawn08/chronos/storage"
 	"github.com/spawn08/chronos/storage/adapters/sqlite"
 )
@@ -31,6 +33,8 @@ func Execute() error {
 		return runAgent()
 	case "agent", "agents":
 		return runAgentCmd()
+	case "team", "teams":
+		return runTeamCmd()
 	case "sessions":
 		return runSessions()
 	case "memory":
@@ -62,6 +66,9 @@ Commands:
   agent list                List agents defined in config
   agent show <id>           Show agent configuration details
   agent chat <id>           Start a chat session with a specific agent
+  team list                 List teams defined in config
+  team run <id> <message>   Run a multi-agent team on a task
+  team show <id>            Show team configuration details
   sessions                  Session management (list, resume, export)
   memory                    Memory management (list, forget, clear)
   db                        Database operations (init, status)
@@ -337,6 +344,196 @@ func agentChat(idOrName string) error {
 	r.SetAgent(a)
 	fmt.Printf("Chatting with agent: %s (%s / %s)\n", a.Name, a.Model.Name(), a.Model.Model())
 	return r.Start()
+}
+
+// --- team subcommands ---
+
+func runTeamCmd() error {
+	sub := "list"
+	if len(os.Args) > 2 {
+		sub = os.Args[2]
+	}
+	switch sub {
+	case "list":
+		return teamList()
+	case "show":
+		if len(os.Args) < 4 {
+			return fmt.Errorf("usage: chronos team show <team_id>")
+		}
+		return teamShow(os.Args[3])
+	case "run":
+		return teamRun()
+	default:
+		return fmt.Errorf("unknown team subcommand: %s\nUsage: chronos team [list|show|run]", sub)
+	}
+}
+
+func teamList() error {
+	fc, err := loadAgentConfig()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	if len(fc.Teams) == 0 {
+		fmt.Println("No teams defined. Add a 'teams:' section to your agents.yaml.")
+		return nil
+	}
+	fmt.Printf("%-15s %-20s %-15s %-10s %s\n", "ID", "NAME", "STRATEGY", "AGENTS", "COORDINATOR")
+	fmt.Println(strings.Repeat("-", 80))
+	for _, tc := range fc.Teams {
+		coord := "-"
+		if tc.Coordinator != "" {
+			coord = tc.Coordinator
+		}
+		fmt.Printf("%-15s %-20s %-15s %-10d %s\n", tc.ID, tc.Name, tc.Strategy, len(tc.Agents), coord)
+	}
+	return nil
+}
+
+func teamShow(id string) error {
+	fc, err := loadAgentConfig()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	tc, err := fc.FindTeam(id)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Team: %s\n", tc.ID)
+	fmt.Printf("  Name:           %s\n", tc.Name)
+	fmt.Printf("  Strategy:       %s\n", tc.Strategy)
+	fmt.Printf("  Agents:         %s\n", strings.Join(tc.Agents, " → "))
+	if tc.Coordinator != "" {
+		fmt.Printf("  Coordinator:    %s\n", tc.Coordinator)
+	}
+	if tc.MaxConcurrency > 0 {
+		fmt.Printf("  Max Concurrency: %d\n", tc.MaxConcurrency)
+	}
+	if tc.MaxIterations > 0 {
+		fmt.Printf("  Max Iterations:  %d\n", tc.MaxIterations)
+	}
+	if tc.ErrorStrategy != "" {
+		fmt.Printf("  Error Strategy:  %s\n", tc.ErrorStrategy)
+	}
+	return nil
+}
+
+func teamRun() error {
+	args := os.Args[3:]
+	if len(args) < 2 {
+		return fmt.Errorf("usage: chronos team run <team_id> <message>")
+	}
+	teamID := args[0]
+	message := strings.Join(args[1:], " ")
+
+	ctx := context.Background()
+
+	fc, err := loadAgentConfig()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	tc, err := fc.FindTeam(teamID)
+	if err != nil {
+		return err
+	}
+
+	agents, err := agent.BuildAll(ctx, fc)
+	if err != nil {
+		return fmt.Errorf("build agents: %w", err)
+	}
+
+	strategy, err := parseStrategy(tc.Strategy)
+	if err != nil {
+		return err
+	}
+
+	t := team.New(tc.ID, tc.Name, strategy)
+
+	for _, agentID := range tc.Agents {
+		a, ok := agents[agentID]
+		if !ok {
+			return fmt.Errorf("team %q references unknown agent %q", tc.ID, agentID)
+		}
+		t.AddAgent(a)
+	}
+
+	if tc.Coordinator != "" {
+		coord, ok := agents[tc.Coordinator]
+		if !ok {
+			return fmt.Errorf("team %q references unknown coordinator %q", tc.ID, tc.Coordinator)
+		}
+		t.SetCoordinator(coord)
+	}
+	if tc.MaxConcurrency > 0 {
+		t.SetMaxConcurrency(tc.MaxConcurrency)
+	}
+	if tc.MaxIterations > 0 {
+		t.SetMaxIterations(tc.MaxIterations)
+	}
+	if tc.ErrorStrategy != "" {
+		es, err := parseErrorStrategy(tc.ErrorStrategy)
+		if err != nil {
+			return err
+		}
+		t.SetErrorStrategy(es)
+	}
+
+	fmt.Printf("Team: %s (%s strategy)\n", tc.Name, tc.Strategy)
+	fmt.Printf("Agents: %s\n", strings.Join(tc.Agents, ", "))
+	if tc.Coordinator != "" {
+		fmt.Printf("Coordinator: %s\n", tc.Coordinator)
+	}
+	fmt.Printf("Message: %s\n\n", message)
+
+	result, err := t.Run(ctx, graph.State{"message": message})
+	if err != nil {
+		return fmt.Errorf("team run: %w", err)
+	}
+
+	if resp, ok := result["response"]; ok {
+		fmt.Println(resp)
+	} else {
+		for k, v := range result {
+			if strings.HasPrefix(k, "_") {
+				continue
+			}
+			fmt.Printf("%s: %v\n", k, v)
+		}
+	}
+
+	history := t.MessageHistory()
+	if len(history) > 0 {
+		fmt.Printf("\n[%d inter-agent messages exchanged]\n", len(history))
+	}
+	return nil
+}
+
+func parseStrategy(s string) (team.Strategy, error) {
+	switch strings.ToLower(s) {
+	case "sequential":
+		return team.StrategySequential, nil
+	case "parallel":
+		return team.StrategyParallel, nil
+	case "router":
+		return team.StrategyRouter, nil
+	case "coordinator":
+		return team.StrategyCoordinator, nil
+	default:
+		return "", fmt.Errorf("unknown strategy %q (supported: sequential, parallel, router, coordinator)", s)
+	}
+}
+
+func parseErrorStrategy(s string) (team.ErrorStrategy, error) {
+	switch strings.ToLower(s) {
+	case "fail_fast", "failfast":
+		return team.ErrorStrategyFailFast, nil
+	case "collect":
+		return team.ErrorStrategyCollect, nil
+	case "best_effort", "besteffort":
+		return team.ErrorStrategyBestEffort, nil
+	default:
+		return 0, fmt.Errorf("unknown error strategy %q (supported: fail_fast, collect, best_effort)", s)
+	}
 }
 
 // --- sessions subcommands ---

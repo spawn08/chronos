@@ -1,0 +1,102 @@
+# Multi-Provider Setup
+#
+# Each agent uses a different LLM provider, demonstrating how to mix
+# providers within the same configuration file.
+#
+# Usage:
+#   export OPENAI_API_KEY=sk-...
+#   export ANTHROPIC_API_KEY=sk-ant-...
+#   export GEMINI_API_KEY=AI...
+#   CHRONOS_CONFIG=examples/yaml-configs/multi-provider.yaml go run ./cli/main.go agent list
+#   CHRONOS_CONFIG=examples/yaml-configs/multi-provider.yaml go run ./cli/main.go agent chat openai-agent
+#   CHRONOS_CONFIG=examples/yaml-configs/multi-provider.yaml go run ./cli/main.go team run compare "Explain quantum entanglement"
+
+agents:
+  # --- OpenAI GPT-4o ---
+  - id: openai-agent
+    name: GPT-4o Agent
+    description: General-purpose assistant powered by OpenAI
+    model:
+      provider: openai
+      model: gpt-4o
+      api_key: ${OPENAI_API_KEY}
+    storage:
+      backend: none
+    system_prompt: You are a helpful assistant powered by GPT-4o.
+
+  # --- Anthropic Claude ---
+  - id: claude-agent
+    name: Claude Agent
+    description: Deep reasoning and analysis powered by Anthropic
+    model:
+      provider: anthropic
+      model: claude-sonnet-4-6
+      api_key: ${ANTHROPIC_API_KEY}
+    storage:
+      backend: none
+    system_prompt: |
+      You are Claude, an AI assistant by Anthropic. You excel at
+      nuanced reasoning, careful analysis, and long-form writing.
+
+  # --- Google Gemini ---
+  - id: gemini-agent
+    name: Gemini Agent
+    description: Multimodal assistant powered by Google
+    model:
+      provider: gemini
+      model: gemini-2.0-flash
+      api_key: ${GEMINI_API_KEY}
+    storage:
+      backend: none
+    system_prompt: You are a helpful assistant powered by Google Gemini.
+
+  # --- Local Ollama (no API key needed) ---
+  - id: local-agent
+    name: Local Agent
+    description: Privacy-first agent running on your machine via Ollama
+    model:
+      provider: ollama
+      model: llama3.2
+      base_url: http://localhost:11434
+    storage:
+      backend: none
+    system_prompt: |
+      You are a local AI assistant running on the user's machine.
+      All data stays private — nothing is sent to external servers.
+
+  # --- Groq (ultra-fast inference) ---
+  - id: groq-agent
+    name: Fast Agent
+    description: Ultra-low latency via Groq hardware
+    model:
+      provider: groq
+      model: llama-3.3-70b-versatile
+      api_key: ${GROQ_API_KEY}
+    storage:
+      backend: none
+    system_prompt: You are a fast, concise assistant. Get to the point quickly.
+
+  # --- DeepSeek (cost-effective coding) ---
+  - id: deepseek-agent
+    name: DeepSeek Coder
+    description: Cost-effective coding assistant
+    model:
+      provider: deepseek
+      model: deepseek-chat
+      api_key: ${DEEPSEEK_API_KEY}
+    storage:
+      backend: none
+    system_prompt: You are an expert programmer. Write clean, efficient code.
+    capabilities:
+      - coding
+      - debugging
+
+teams:
+  - id: compare
+    name: Provider Comparison
+    strategy: parallel
+    agents:
+      - openai-agent
+      - claude-agent
+    max_concurrency: 3
+    error_strategy: best_effort

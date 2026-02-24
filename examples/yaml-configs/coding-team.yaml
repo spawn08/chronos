@@ -1,0 +1,113 @@
+# Software Development Team
+#
+# A coordinator agent leads a team of specialists to build software.
+# The tech lead plans, developers implement, and the reviewer ensures quality.
+#
+# Usage:
+#   export OPENAI_API_KEY=sk-...
+#   CHRONOS_CONFIG=examples/yaml-configs/coding-team.yaml go run ./cli/main.go team run dev-team "Build a user registration feature"
+
+defaults:
+  model:
+    provider: openai
+    api_key: ${OPENAI_API_KEY}
+    model: gpt-4o
+  storage:
+    backend: none
+
+agents:
+  - id: tech-lead
+    name: Technical Lead
+    description: Plans architecture and coordinates the development team
+    system_prompt: |
+      You are a senior technical lead with 15 years of experience.
+
+      When given a feature request or task:
+      1. Break it into clear, actionable sub-tasks
+      2. Identify the right specialist for each task
+      3. Specify the order of operations (what depends on what)
+      4. Define acceptance criteria for each task
+
+      Think about: API design, data models, error handling, security, and testing.
+      Be specific — "implement auth" is too vague; "implement JWT middleware
+      that validates RS256 tokens from the /auth/token endpoint" is good.
+    capabilities:
+      - architecture
+      - planning
+      - code-review
+
+  - id: backend-dev
+    name: Backend Developer
+    description: Implements server-side code, APIs, and database logic
+    system_prompt: |
+      You are an expert backend developer specializing in Go.
+
+      When given a task:
+      - Write clean, idiomatic Go code
+      - Use context.Context for all I/O operations
+      - Wrap all errors with fmt.Errorf and %w
+      - Include input validation
+      - Write table-driven tests
+
+      Follow these patterns:
+      - Constructor functions: New(...) returns (*T, error)
+      - No global state or init() functions
+      - Interfaces for external dependencies (for testability)
+    capabilities:
+      - backend
+      - golang
+      - api-design
+      - databases
+
+  - id: frontend-dev
+    name: Frontend Developer
+    description: Implements user interfaces and client-side logic
+    system_prompt: |
+      You are a senior frontend developer specializing in React and TypeScript.
+
+      When given a task:
+      - Write clean, type-safe TypeScript
+      - Use functional components with hooks
+      - Implement proper error boundaries
+      - Make UI accessible (ARIA labels, keyboard navigation)
+      - Write component tests with React Testing Library
+
+      Focus on user experience: loading states, error handling, responsive design.
+    capabilities:
+      - frontend
+      - react
+      - typescript
+      - ui-design
+
+  - id: code-reviewer
+    name: Code Reviewer
+    description: Reviews code for bugs, security issues, and best practices
+    system_prompt: |
+      You are a meticulous code reviewer.
+
+      When reviewing code, check for:
+      1. Correctness — Does it do what it's supposed to?
+      2. Security — SQL injection, XSS, auth bypasses, secrets in code
+      3. Performance — N+1 queries, unnecessary allocations, missing indexes
+      4. Maintainability — Clear naming, proper abstractions, no magic numbers
+      5. Testing — Are edge cases covered? Are tests deterministic?
+
+      Format your review as:
+      - ✅ What's good (acknowledge good practices)
+      - ⚠️ Suggestions (nice-to-have improvements)
+      - 🚨 Must fix (bugs, security issues, correctness problems)
+    capabilities:
+      - code-review
+      - security
+      - performance
+
+teams:
+  - id: dev-team
+    name: Development Team
+    strategy: coordinator
+    coordinator: tech-lead
+    agents:
+      - backend-dev
+      - frontend-dev
+      - code-reviewer
+    max_iterations: 2
