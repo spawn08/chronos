@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/chronos-ai/chronos/engine/model"
+	"github.com/spawn08/chronos/engine/model"
 )
 
 // Ensure storage is used via m.store.backend (which is storage.Storage)

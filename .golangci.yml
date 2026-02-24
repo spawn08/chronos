@@ -35,7 +35,7 @@ linters-settings:
   misspell:
     locale: US
   goimports:
-    local-prefixes: github.com/chronos-ai/chronos
+    local-prefixes: github.com/spawn08/chronos
 
 issues:
   exclude-rules:

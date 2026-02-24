@@ -40,7 +40,7 @@ The chart exposes these values:
 ```yaml
 # Image
 image:
-  repository: ghcr.io/chronos-ai/chronos
+  repository: ghcr.io/spawn08/chronos
   tag: latest
   pullPolicy: IfNotPresent
 

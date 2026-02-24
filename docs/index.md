@@ -16,12 +16,12 @@ classes: wide
   </p>
   <div class="hero-buttons">
     <a href="{{ '/getting-started/quickstart/' | relative_url }}" class="btn btn-primary">Get Started</a>
-    <a href="https://github.com/chronos-ai/chronos" class="btn btn-outline">
+    <a href="https://github.com/spawn08/chronos" class="btn btn-outline">
       <i class="fab fa-github"></i> View on GitHub
     </a>
   </div>
   <div class="install-command">
-    <span class="prompt">$ </span>go get github.com/chronos-ai/chronos
+    <span class="prompt">$ </span>go get github.com/spawn08/chronos
   </div>
 </div>
 
@@ -144,8 +144,8 @@ import (
     "fmt"
     "os"
 
-    "github.com/chronos-ai/chronos/engine/model"
-    "github.com/chronos-ai/chronos/sdk/agent"
+    "github.com/spawn08/chronos/engine/model"
+    "github.com/spawn08/chronos/sdk/agent"
 )
 
 func main() {

@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/chronos-ai/chronos/engine/graph"
-	"github.com/chronos-ai/chronos/sdk/agent"
-	"github.com/chronos-ai/chronos/storage/adapters/sqlite"
+	"github.com/spawn08/chronos/engine/graph"
+	"github.com/spawn08/chronos/sdk/agent"
+	"github.com/spawn08/chronos/storage/adapters/sqlite"
 )
 
 func main() {

@@ -90,7 +90,7 @@ type StreamEvent struct {
 The `stream.Broker` provides server-sent events for web clients:
 
 ```go
-import "github.com/chronos-ai/chronos/engine/stream"
+import "github.com/spawn08/chronos/engine/stream"
 
 broker := stream.NewBroker()
 

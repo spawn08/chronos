@@ -9,9 +9,9 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/chronos-ai/chronos/engine/model"
-	"github.com/chronos-ai/chronos/sdk/agent"
-	"github.com/chronos-ai/chronos/storage"
+	"github.com/spawn08/chronos/engine/model"
+	"github.com/spawn08/chronos/sdk/agent"
+	"github.com/spawn08/chronos/storage"
 )
 
 // REPL is the interactive command loop.

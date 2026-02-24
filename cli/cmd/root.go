@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	chronosos "github.com/chronos-ai/chronos/os"
-	"github.com/chronos-ai/chronos/cli/repl"
-	"github.com/chronos-ai/chronos/sdk/agent"
-	"github.com/chronos-ai/chronos/storage"
-	"github.com/chronos-ai/chronos/storage/adapters/sqlite"
+	chronosos "github.com/spawn08/chronos/os"
+	"github.com/spawn08/chronos/cli/repl"
+	"github.com/spawn08/chronos/sdk/agent"
+	"github.com/spawn08/chronos/storage"
+	"github.com/spawn08/chronos/storage/adapters/sqlite"
 )
 
 // Execute runs the root CLI command.
