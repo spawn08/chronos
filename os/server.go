@@ -9,11 +9,11 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/chronos-ai/chronos/engine/stream"
-	"github.com/chronos-ai/chronos/os/approval"
-	"github.com/chronos-ai/chronos/os/auth"
-	"github.com/chronos-ai/chronos/os/trace"
-	"github.com/chronos-ai/chronos/storage"
+	"github.com/spawn08/chronos/engine/stream"
+	"github.com/spawn08/chronos/os/approval"
+	"github.com/spawn08/chronos/os/auth"
+	"github.com/spawn08/chronos/os/trace"
+	"github.com/spawn08/chronos/storage"
 )
 
 // Server is the ChronosOS control plane.

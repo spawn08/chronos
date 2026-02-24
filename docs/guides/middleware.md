@@ -226,9 +226,9 @@ import (
     "os"
     "time"
 
-    "github.com/chronos-ai/chronos/engine/hooks"
-    "github.com/chronos-ai/chronos/engine/model"
-    "github.com/chronos-ai/chronos/sdk/agent"
+    "github.com/spawn08/chronos/engine/hooks"
+    "github.com/spawn08/chronos/engine/model"
+    "github.com/spawn08/chronos/sdk/agent"
 )
 
 func main() {

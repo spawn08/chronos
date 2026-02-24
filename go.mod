@@ -1,4 +1,4 @@
-module github.com/chronos-ai/chronos
+module github.com/spawn08/chronos
 
 go 1.24.11
 

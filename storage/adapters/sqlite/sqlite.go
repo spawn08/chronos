@@ -10,7 +10,7 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/chronos-ai/chronos/storage"
+	"github.com/spawn08/chronos/storage"
 )
 
 // Store implements storage.Storage using SQLite.

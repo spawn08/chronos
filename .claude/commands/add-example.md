@@ -7,7 +7,7 @@ The example name/description is: $ARGUMENTS
 1. Create `examples/$ARGUMENTS/main.go`
 2. Follow the pattern from `examples/quickstart/main.go`:
    - Import `context`, `fmt`, `log`
-   - Import from `github.com/chronos-ai/chronos/...` packages
+   - Import from `github.com/spawn08/chronos/...` packages
    - Open a SQLite store (for simplicity): `sqlite.New("$ARGUMENTS.db")`
    - Call `store.Migrate(ctx)`
    - Define a `graph.StateGraph` with relevant nodes

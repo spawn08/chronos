@@ -60,7 +60,7 @@ Chronos provides the full stack for building this kind of software in Go:
 ### Install
 
 ```bash
-go get github.com/chronos-ai/chronos
+go get github.com/spawn08/chronos
 ```
 
 ### Option A: YAML Config (recommended)
@@ -116,8 +116,8 @@ import (
     "fmt"
     "os"
 
-    "github.com/chronos-ai/chronos/engine/model"
-    "github.com/chronos-ai/chronos/sdk/agent"
+    "github.com/spawn08/chronos/engine/model"
+    "github.com/spawn08/chronos/sdk/agent"
 )
 
 func main() {
@@ -733,7 +733,7 @@ fmt.Println(result.Stdout) // hello
 ## Build from Source
 
 ```bash
-git clone https://github.com/chronos-ai/chronos.git
+git clone https://github.com/spawn08/chronos.git
 cd chronos
 ```
 

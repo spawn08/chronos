@@ -13,8 +13,8 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=1 go build \
     -ldflags "-s -w \
-      -X github.com/chronos-ai/chronos/cli/cmd.Version=${VERSION} \
-      -X github.com/chronos-ai/chronos/cli/cmd.Commit=${COMMIT}" \
+      -X github.com/spawn08/chronos/cli/cmd.Version=${VERSION} \
+      -X github.com/spawn08/chronos/cli/cmd.Commit=${COMMIT}" \
     -o /chronos ./cli/main.go
 
 # ── Runtime stage ────────────────────────────────────────────

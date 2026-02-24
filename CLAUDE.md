@@ -1,7 +1,7 @@
 # Chronos — Project Instructions for Claude Code
 
 ## Overview
-Chronos is a Go-based agentic framework for building durable, scalable AI agents. Module: `github.com/chronos-ai/chronos`.
+Chronos is a Go-based agentic framework for building durable, scalable AI agents. Module: `github.com/spawn08/chronos`.
 
 ## Architecture (top-down)
 ```

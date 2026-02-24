@@ -1,6 +1,6 @@
 title: Chronos
 description: "A Go framework for building durable, scalable AI agents"
-url: "https://chronos-ai.github.io"
+url: "https://spawn08.github.io"
 baseurl: "/chronos"
 
 remote_theme: "mmistakes/minimal-mistakes@4.26.2"
@@ -11,7 +11,7 @@ locale: "en-US"
 title_separator: "|"
 subtitle: "AI Agent Framework"
 name: "Chronos"
-repository: "chronos-ai/chronos"
+repository: "spawn08/chronos"
 
 teaser: /assets/images/chronos-og.png
 og_image: /assets/images/chronos-og.png
@@ -27,7 +27,7 @@ footer:
   links:
     - label: "GitHub"
       icon: "fab fa-fw fa-github"
-      url: "https://github.com/chronos-ai/chronos"
+      url: "https://github.com/spawn08/chronos"
 
 defaults:
   - scope:

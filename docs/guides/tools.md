@@ -167,9 +167,9 @@ import (
     "log"
     "os"
 
-    "github.com/chronos-ai/chronos/engine/model"
-    "github.com/chronos-ai/chronos/engine/tool"
-    "github.com/chronos-ai/chronos/sdk/agent"
+    "github.com/spawn08/chronos/engine/model"
+    "github.com/spawn08/chronos/engine/tool"
+    "github.com/spawn08/chronos/sdk/agent"
 )
 
 func main() {

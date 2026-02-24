@@ -8,15 +8,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/chronos-ai/chronos/engine/graph"
-	"github.com/chronos-ai/chronos/engine/guardrails"
-	"github.com/chronos-ai/chronos/engine/hooks"
-	"github.com/chronos-ai/chronos/engine/model"
-	"github.com/chronos-ai/chronos/engine/tool"
-	"github.com/chronos-ai/chronos/sdk/knowledge"
-	"github.com/chronos-ai/chronos/sdk/memory"
-	"github.com/chronos-ai/chronos/sdk/skill"
-	"github.com/chronos-ai/chronos/storage"
+	"github.com/spawn08/chronos/engine/graph"
+	"github.com/spawn08/chronos/engine/guardrails"
+	"github.com/spawn08/chronos/engine/hooks"
+	"github.com/spawn08/chronos/engine/model"
+	"github.com/spawn08/chronos/engine/tool"
+	"github.com/spawn08/chronos/sdk/knowledge"
+	"github.com/spawn08/chronos/sdk/memory"
+	"github.com/spawn08/chronos/sdk/skill"
+	"github.com/spawn08/chronos/storage"
 )
 
 // Agent is the top-level agent definition.

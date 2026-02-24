@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/chronos-ai/chronos/storage"
+	"github.com/spawn08/chronos/storage"
 )
 
 // Store implements storage.VectorStore using Milvus REST API (v2).

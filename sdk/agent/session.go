@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chronos-ai/chronos/engine/hooks"
-	"github.com/chronos-ai/chronos/engine/model"
-	"github.com/chronos-ai/chronos/storage"
+	"github.com/spawn08/chronos/engine/hooks"
+	"github.com/spawn08/chronos/engine/model"
+	"github.com/spawn08/chronos/storage"
 )
 
 // ChatSession manages multi-turn conversation state with automatic

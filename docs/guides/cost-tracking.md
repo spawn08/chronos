@@ -12,7 +12,7 @@ The `CostTracker` hook monitors LLM API costs in real time. It accumulates token
 ## Quick Setup
 
 ```go
-import "github.com/chronos-ai/chronos/engine/hooks"
+import "github.com/spawn08/chronos/engine/hooks"
 
 tracker := hooks.NewCostTracker(nil) // uses default price table
 

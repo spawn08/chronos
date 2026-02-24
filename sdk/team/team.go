@@ -12,9 +12,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/chronos-ai/chronos/engine/graph"
-	"github.com/chronos-ai/chronos/sdk/agent"
-	"github.com/chronos-ai/chronos/sdk/protocol"
+	"github.com/spawn08/chronos/engine/graph"
+	"github.com/spawn08/chronos/sdk/agent"
+	"github.com/spawn08/chronos/sdk/protocol"
 )
 
 // Strategy defines how work is distributed across team members.
