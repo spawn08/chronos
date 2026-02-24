@@ -32,15 +32,15 @@ type Message struct {
 
 // ToolCall represents a model-requested tool invocation.
 type ToolCall struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
 	Arguments string `json:"arguments"` // JSON string
 }
 
 // ToolDefinition describes a tool the model can call (OpenAI function-calling format).
 type ToolDefinition struct {
-	Type     string       `json:"type"` // "function"
-	Function FunctionDef  `json:"function"`
+	Type     string      `json:"type"` // "function"
+	Function FunctionDef `json:"function"`
 }
 
 // FunctionDef describes a callable function for the model.

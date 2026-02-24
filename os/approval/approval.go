@@ -13,13 +13,13 @@ type Request struct {
 	ID       string         `json:"id"`
 	ToolName string         `json:"tool_name"`
 	Args     map[string]any `json:"args"`
-	Response chan bool       `json:"-"`
+	Response chan bool      `json:"-"`
 }
 
 // Service manages pending approval requests.
 type Service struct {
-	mu       sync.Mutex
-	pending  map[string]*Request
+	mu      sync.Mutex
+	pending map[string]*Request
 }
 
 func NewService() *Service {

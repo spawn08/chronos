@@ -11,18 +11,18 @@ import (
 type Permission string
 
 const (
-	PermAllow        Permission = "allow"        // auto-approved
+	PermAllow           Permission = "allow"            // auto-approved
 	PermRequireApproval Permission = "require_approval" // needs human approval
-	PermDeny         Permission = "deny"         // blocked
+	PermDeny            Permission = "deny"             // blocked
 )
 
 // Definition describes a callable tool.
 type Definition struct {
-	Name        string            `json:"name"`
-	Description string            `json:"description"`
-	Parameters  map[string]any    `json:"parameters"` // JSON Schema
-	Permission  Permission        `json:"permission"`
-	Handler     Handler           `json:"-"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Parameters  map[string]any `json:"parameters"` // JSON Schema
+	Permission  Permission     `json:"permission"`
+	Handler     Handler        `json:"-"`
 }
 
 // Handler is the function signature for tool execution.

@@ -56,8 +56,8 @@ type Agent struct {
 
 // ContextConfig controls context window management and automatic summarization.
 type ContextConfig struct {
-	MaxContextTokens    int     `json:"max_context_tokens" yaml:"max_tokens"`             // override model default; 0 = use model default
-	SummarizeThreshold  float64 `json:"summarize_threshold" yaml:"summarize_threshold"`    // fraction of context window to trigger summarization (default 0.8)
+	MaxContextTokens    int     `json:"max_context_tokens" yaml:"max_tokens"`               // override model default; 0 = use model default
+	SummarizeThreshold  float64 `json:"summarize_threshold" yaml:"summarize_threshold"`     // fraction of context window to trigger summarization (default 0.8)
 	PreserveRecentTurns int     `json:"preserve_recent_turns" yaml:"preserve_recent_turns"` // number of recent user/assistant pairs to keep (default 5)
 }
 
@@ -82,11 +82,11 @@ func New(id, name string) *Builder {
 	}
 }
 
-func (b *Builder) Description(d string) *Builder              { b.agent.Description = d; return b }
-func (b *Builder) WithUserID(id string) *Builder               { b.agent.UserID = id; return b }
-func (b *Builder) WithModel(p model.Provider) *Builder         { b.agent.Model = p; return b }
-func (b *Builder) WithStorage(s storage.Storage) *Builder      { b.agent.Storage = s; return b }
-func (b *Builder) WithMemory(m *memory.Store) *Builder         { b.agent.Memory = m; return b }
+func (b *Builder) Description(d string) *Builder                { b.agent.Description = d; return b }
+func (b *Builder) WithUserID(id string) *Builder                { b.agent.UserID = id; return b }
+func (b *Builder) WithModel(p model.Provider) *Builder          { b.agent.Model = p; return b }
+func (b *Builder) WithStorage(s storage.Storage) *Builder       { b.agent.Storage = s; return b }
+func (b *Builder) WithMemory(m *memory.Store) *Builder          { b.agent.Memory = m; return b }
 func (b *Builder) WithKnowledge(k knowledge.Knowledge) *Builder { b.agent.Knowledge = k; return b }
 func (b *Builder) WithMemoryManager(m *memory.Manager) *Builder { b.agent.MemoryManager = m; return b }
 func (b *Builder) WithOutputSchema(s map[string]any) *Builder   { b.agent.OutputSchema = s; return b }

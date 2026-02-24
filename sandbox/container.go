@@ -88,16 +88,16 @@ func (c *ContainerSandbox) Execute(ctx context.Context, command string, args []s
 
 	cmd := append([]string{command}, args...)
 	createBody := map[string]any{
-		"Image":        c.Image,
-		"Cmd":          cmd,
-		"AttachStdout": true,
-		"AttachStderr": true,
+		"Image":           c.Image,
+		"Cmd":             cmd,
+		"AttachStdout":    true,
+		"AttachStderr":    true,
 		"NetworkDisabled": c.NetworkMode == "none",
 		"HostConfig": map[string]any{
-			"Memory":      c.MemoryBytes,
-			"CpuQuota":    c.CPUQuota,
-			"NetworkMode": c.NetworkMode,
-			"AutoRemove":  false,
+			"Memory":         c.MemoryBytes,
+			"CpuQuota":       c.CPUQuota,
+			"NetworkMode":    c.NetworkMode,
+			"AutoRemove":     false,
 			"ReadonlyRootfs": true,
 		},
 	}

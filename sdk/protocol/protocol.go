@@ -52,8 +52,8 @@ const (
 type Envelope struct {
 	ID        string            `json:"id"`
 	Type      MessageType       `json:"type"`
-	From      string            `json:"from"`       // sender agent ID
-	To        string            `json:"to"`         // recipient agent ID ("*" for broadcast)
+	From      string            `json:"from"`               // sender agent ID
+	To        string            `json:"to"`                 // recipient agent ID ("*" for broadcast)
 	ReplyTo   string            `json:"reply_to,omitempty"` // ID of the message being replied to
 	Subject   string            `json:"subject"`
 	Body      json.RawMessage   `json:"body"`
@@ -115,12 +115,12 @@ type Peer struct {
 // Bus is the central message router for agent-to-agent communication.
 // It maintains a registry of peers and routes envelopes between them.
 type Bus struct {
-	mu       sync.RWMutex
-	peers    map[string]*Peer
-	inbox    map[string]chan *Envelope // per-agent inbox
-	history  []*Envelope              // message log for observability
-	histMu   sync.Mutex
-	seqNum   int64
+	mu      sync.RWMutex
+	peers   map[string]*Peer
+	inbox   map[string]chan *Envelope // per-agent inbox
+	history []*Envelope               // message log for observability
+	histMu  sync.Mutex
+	seqNum  int64
 }
 
 // NewBus creates a new communication bus.

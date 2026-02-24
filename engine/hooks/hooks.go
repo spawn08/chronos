@@ -23,7 +23,7 @@ const (
 // Event carries data about an execution event.
 type Event struct {
 	Type     EventType      `json:"type"`
-	Name     string         `json:"name"`     // tool name, model name, or node ID
+	Name     string         `json:"name"` // tool name, model name, or node ID
 	Input    any            `json:"input,omitempty"`
 	Output   any            `json:"output,omitempty"`
 	Error    error          `json:"-"`

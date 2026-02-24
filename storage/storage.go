@@ -8,24 +8,24 @@ import (
 
 // Session represents an agent execution session.
 type Session struct {
-	ID        string            `json:"id"`
-	AgentID   string            `json:"agent_id"`
-	Status    string            `json:"status"` // running, paused, completed, failed
-	Metadata  map[string]any    `json:"metadata,omitempty"`
-	CreatedAt time.Time         `json:"created_at"`
-	UpdatedAt time.Time         `json:"updated_at"`
+	ID        string         `json:"id"`
+	AgentID   string         `json:"agent_id"`
+	Status    string         `json:"status"` // running, paused, completed, failed
+	Metadata  map[string]any `json:"metadata,omitempty"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
 }
 
 // MemoryRecord represents a short-term or long-term memory entry.
 type MemoryRecord struct {
-	ID        string         `json:"id"`
-	SessionID string         `json:"session_id,omitempty"` // empty = long-term
-	AgentID   string         `json:"agent_id"`
-	UserID    string         `json:"user_id,omitempty"`
-	Kind      string         `json:"kind"` // short_term, long_term
-	Key       string         `json:"key"`
-	Value     any            `json:"value"`
-	CreatedAt time.Time      `json:"created_at"`
+	ID        string    `json:"id"`
+	SessionID string    `json:"session_id,omitempty"` // empty = long-term
+	AgentID   string    `json:"agent_id"`
+	UserID    string    `json:"user_id,omitempty"`
+	Kind      string    `json:"kind"` // short_term, long_term
+	Key       string    `json:"key"`
+	Value     any       `json:"value"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // AuditLog records a security-relevant event.
@@ -41,26 +41,26 @@ type AuditLog struct {
 
 // Trace represents a single trace span for observability.
 type Trace struct {
-	ID        string         `json:"id"`
-	SessionID string         `json:"session_id"`
-	ParentID  string         `json:"parent_id,omitempty"`
-	Name      string         `json:"name"`
-	Kind      string         `json:"kind"` // node, tool_call, model_call, approval
-	Input     any            `json:"input,omitempty"`
-	Output    any            `json:"output,omitempty"`
-	Error     string         `json:"error,omitempty"`
-	StartedAt time.Time      `json:"started_at"`
-	EndedAt   time.Time      `json:"ended_at,omitempty"`
+	ID        string    `json:"id"`
+	SessionID string    `json:"session_id"`
+	ParentID  string    `json:"parent_id,omitempty"`
+	Name      string    `json:"name"`
+	Kind      string    `json:"kind"` // node, tool_call, model_call, approval
+	Input     any       `json:"input,omitempty"`
+	Output    any       `json:"output,omitempty"`
+	Error     string    `json:"error,omitempty"`
+	StartedAt time.Time `json:"started_at"`
+	EndedAt   time.Time `json:"ended_at,omitempty"`
 }
 
 // Event is an append-only ledger entry for replayability.
 type Event struct {
-	ID        string         `json:"id"`
-	SessionID string         `json:"session_id"`
-	SeqNum    int64          `json:"seq_num"`
-	Type      string         `json:"type"`
-	Payload   any            `json:"payload"`
-	CreatedAt time.Time      `json:"created_at"`
+	ID        string    `json:"id"`
+	SessionID string    `json:"session_id"`
+	SeqNum    int64     `json:"seq_num"`
+	Type      string    `json:"type"`
+	Payload   any       `json:"payload"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // Checkpoint captures the full state of a run for resume/time-travel.

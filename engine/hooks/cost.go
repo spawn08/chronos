@@ -168,11 +168,11 @@ func defaultPriceTable() map[string]ModelPrice {
 		"o3":          {PromptPricePerToken: 0.00001, CompletionPricePerToken: 0.00004},
 		"o3-mini":     {PromptPricePerToken: 0.0000011, CompletionPricePerToken: 0.0000044},
 
-		"claude-sonnet-4-6":  {PromptPricePerToken: 0.000003, CompletionPricePerToken: 0.000015},
-		"claude-3-5-sonnet":  {PromptPricePerToken: 0.000003, CompletionPricePerToken: 0.000015},
-		"claude-3-opus":      {PromptPricePerToken: 0.000015, CompletionPricePerToken: 0.000075},
-		"claude-3-haiku":     {PromptPricePerToken: 0.00000025, CompletionPricePerToken: 0.00000125},
-		"claude-3-5-haiku":   {PromptPricePerToken: 0.0000008, CompletionPricePerToken: 0.000004},
+		"claude-sonnet-4-6": {PromptPricePerToken: 0.000003, CompletionPricePerToken: 0.000015},
+		"claude-3-5-sonnet": {PromptPricePerToken: 0.000003, CompletionPricePerToken: 0.000015},
+		"claude-3-opus":     {PromptPricePerToken: 0.000015, CompletionPricePerToken: 0.000075},
+		"claude-3-haiku":    {PromptPricePerToken: 0.00000025, CompletionPricePerToken: 0.00000125},
+		"claude-3-5-haiku":  {PromptPricePerToken: 0.0000008, CompletionPricePerToken: 0.000004},
 
 		"gemini-2.0-flash": {PromptPricePerToken: 0.00000015, CompletionPricePerToken: 0.0000006},
 		"gemini-1.5-pro":   {PromptPricePerToken: 0.00000125, CompletionPricePerToken: 0.000005},

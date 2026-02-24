@@ -16,17 +16,17 @@ import (
 
 // AgentConfig is the YAML-serializable definition of a single agent.
 type AgentConfig struct {
-	ID          string            `yaml:"id"`
-	Name        string            `yaml:"name"`
-	Description string            `yaml:"description,omitempty"`
-	UserID      string            `yaml:"user_id,omitempty"`
+	ID          string `yaml:"id"`
+	Name        string `yaml:"name"`
+	Description string `yaml:"description,omitempty"`
+	UserID      string `yaml:"user_id,omitempty"`
 
-	Model       ModelConfig       `yaml:"model"`
-	Storage     StorageConfig     `yaml:"storage,omitempty"`
-	System      string            `yaml:"system_prompt,omitempty"`
-	Instructions []string         `yaml:"instructions,omitempty"`
-	Tools       []ToolConfig      `yaml:"tools,omitempty"`
-	Capabilities []string         `yaml:"capabilities,omitempty"`
+	Model        ModelConfig   `yaml:"model"`
+	Storage      StorageConfig `yaml:"storage,omitempty"`
+	System       string        `yaml:"system_prompt,omitempty"`
+	Instructions []string      `yaml:"instructions,omitempty"`
+	Tools        []ToolConfig  `yaml:"tools,omitempty"`
+	Capabilities []string      `yaml:"capabilities,omitempty"`
 
 	OutputSchema   map[string]any `yaml:"output_schema,omitempty"`
 	NumHistoryRuns int            `yaml:"num_history_runs,omitempty"`
@@ -39,12 +39,12 @@ type AgentConfig struct {
 
 // ModelConfig describes which model provider and settings to use.
 type ModelConfig struct {
-	Provider    string `yaml:"provider"`              // openai, anthropic, gemini, mistral, ollama, azure, groq, together, deepseek, openrouter, fireworks, perplexity, anyscale, compatible
-	Model       string `yaml:"model,omitempty"`        // model ID, e.g. "gpt-4o", "claude-sonnet-4-6"
-	APIKey      string `yaml:"api_key,omitempty"`      // literal or ${ENV_VAR}
-	BaseURL     string `yaml:"base_url,omitempty"`
-	OrgID       string `yaml:"org_id,omitempty"`
-	TimeoutSec  int    `yaml:"timeout_sec,omitempty"`
+	Provider   string `yaml:"provider"`          // openai, anthropic, gemini, mistral, ollama, azure, groq, together, deepseek, openrouter, fireworks, perplexity, anyscale, compatible
+	Model      string `yaml:"model,omitempty"`   // model ID, e.g. "gpt-4o", "claude-sonnet-4-6"
+	APIKey     string `yaml:"api_key,omitempty"` // literal or ${ENV_VAR}
+	BaseURL    string `yaml:"base_url,omitempty"`
+	OrgID      string `yaml:"org_id,omitempty"`
+	TimeoutSec int    `yaml:"timeout_sec,omitempty"`
 
 	// Azure-specific
 	Endpoint   string `yaml:"endpoint,omitempty"`

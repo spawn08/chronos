@@ -100,12 +100,12 @@ func (s *Store) del(_ context.Context, key string) error {
 	return s.rawCmd("DEL", key)
 }
 
-func sessionKey(id string) string       { return "chronos:session:" + id }
-func memoryKey(id string) string        { return "chronos:memory:" + id }
-func auditKey(id string) string         { return "chronos:audit:" + id }
-func traceKey(id string) string         { return "chronos:trace:" + id }
-func eventKey(id string) string         { return "chronos:event:" + id }
-func checkpointKey(id string) string    { return "chronos:checkpoint:" + id }
+func sessionKey(id string) string    { return "chronos:session:" + id }
+func memoryKey(id string) string     { return "chronos:memory:" + id }
+func auditKey(id string) string      { return "chronos:audit:" + id }
+func traceKey(id string) string      { return "chronos:trace:" + id }
+func eventKey(id string) string      { return "chronos:event:" + id }
+func checkpointKey(id string) string { return "chronos:checkpoint:" + id }
 
 // --- Sessions ---
 

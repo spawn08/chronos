@@ -106,9 +106,9 @@ func (a *Anthropic) buildRequestBody(req *ChatRequest, stream bool) map[string]a
 		if m.Role == RoleTool {
 			msg["role"] = RoleUser
 			msg["content"] = []map[string]any{{
-				"type":         "tool_result",
-				"tool_use_id":  m.ToolCallID,
-				"content":      m.Content,
+				"type":        "tool_result",
+				"tool_use_id": m.ToolCallID,
+				"content":     m.Content,
 			}}
 		} else if len(m.ToolCalls) > 0 {
 			content := make([]map[string]any, 0, len(m.ToolCalls)+1)

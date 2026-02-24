@@ -56,7 +56,7 @@ func (s *Store) doJSON(ctx context.Context, method, path string, body any) (json
 
 func (s *Store) CreateCollection(ctx context.Context, name string, dimension int) error {
 	schema := map[string]any{
-		"class": name,
+		"class":      name,
 		"vectorizer": "none",
 		"properties": []map[string]any{
 			{"name": "content", "dataType": []string{"text"}},

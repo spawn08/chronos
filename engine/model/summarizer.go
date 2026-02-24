@@ -76,7 +76,7 @@ func NewSummarizer(provider Provider, counter TokenCounter, cfg SummarizationCon
 
 // SummarizeResult holds the output of a summarization pass.
 type SummarizeResult struct {
-	Summary          string    // the new rolling summary
+	Summary           string    // the new rolling summary
 	PreservedMessages []Message // recent messages kept intact
 }
 

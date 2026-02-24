@@ -55,8 +55,8 @@ func (s *Store) Upsert(ctx context.Context, collection string, embeddings []stor
 
 func (s *Store) Search(ctx context.Context, collection string, query []float32, topK int) ([]storage.SearchResult, error) {
 	body := map[string]any{
-		"vector":      query,
-		"limit":       topK,
+		"vector":       query,
+		"limit":        topK,
 		"with_payload": true,
 	}
 	data, err := s.post(ctx, fmt.Sprintf("/collections/%s/points/search", collection), body)

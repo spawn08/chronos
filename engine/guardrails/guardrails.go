@@ -9,8 +9,8 @@ import (
 
 // Result is the outcome of a guardrail check.
 type Result struct {
-	Passed  bool   `json:"passed"`
-	Reason  string `json:"reason,omitempty"`
+	Passed bool   `json:"passed"`
+	Reason string `json:"reason,omitempty"`
 }
 
 // Guardrail validates input or output at runtime.

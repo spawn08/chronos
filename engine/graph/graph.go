@@ -58,10 +58,10 @@ func (g *StateGraph) SetFinishPoint(nodeID string) *StateGraph {
 
 // CompiledGraph is the immutable, validated graph ready for execution.
 type CompiledGraph struct {
-	ID       string
-	Nodes    map[string]*Node
-	AdjList  map[string][]*Edge // from -> edges
-	Entry    string
+	ID      string
+	Nodes   map[string]*Node
+	AdjList map[string][]*Edge // from -> edges
+	Entry   string
 }
 
 // Compile validates the graph and returns a CompiledGraph.

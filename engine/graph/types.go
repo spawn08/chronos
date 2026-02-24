@@ -19,8 +19,8 @@ type EdgeCondition func(state State) string
 
 // Node represents a node in the state graph.
 type Node struct {
-	ID   string
-	Fn   NodeFunc
+	ID string
+	Fn NodeFunc
 	// Interrupt, if true, causes the runner to checkpoint and pause before executing this node.
 	Interrupt bool
 }
@@ -44,20 +44,20 @@ const (
 
 // RunState captures the full runtime state for a single graph execution.
 type RunState struct {
-	RunID       string            `json:"run_id"`
-	SessionID   string            `json:"session_id"`
-	GraphID     string            `json:"graph_id"`
-	CurrentNode string            `json:"current_node"`
-	Status      RunStatus         `json:"status"`
-	State       State             `json:"state"`
-	SeqNum      int64             `json:"seq_num"`
-	StartedAt   time.Time         `json:"started_at"`
-	UpdatedAt   time.Time         `json:"updated_at"`
+	RunID       string    `json:"run_id"`
+	SessionID   string    `json:"session_id"`
+	GraphID     string    `json:"graph_id"`
+	CurrentNode string    `json:"current_node"`
+	Status      RunStatus `json:"status"`
+	State       State     `json:"state"`
+	SeqNum      int64     `json:"seq_num"`
+	StartedAt   time.Time `json:"started_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 
 	// Rich output (Agno-inspired)
-	Messages   []Message         `json:"messages,omitempty"`
-	ToolCalls  []ToolCallRecord  `json:"tool_calls,omitempty"`
-	TotalUsage UsageStats        `json:"total_usage"`
+	Messages   []Message        `json:"messages,omitempty"`
+	ToolCalls  []ToolCallRecord `json:"tool_calls,omitempty"`
+	TotalUsage UsageStats       `json:"total_usage"`
 }
 
 // Message records a message exchanged during the run.

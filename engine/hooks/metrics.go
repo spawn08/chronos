@@ -8,13 +8,13 @@ import (
 
 // CallMetric records timing and usage data for a single model or tool call.
 type CallMetric struct {
-	Type             EventType `json:"type"`
-	Name             string    `json:"name"`
-	StartedAt        time.Time `json:"started_at"`
+	Type             EventType     `json:"type"`
+	Name             string        `json:"name"`
+	StartedAt        time.Time     `json:"started_at"`
 	Duration         time.Duration `json:"duration"`
-	PromptTokens     int       `json:"prompt_tokens,omitempty"`
-	CompletionTokens int       `json:"completion_tokens,omitempty"`
-	Error            bool      `json:"error,omitempty"`
+	PromptTokens     int           `json:"prompt_tokens,omitempty"`
+	CompletionTokens int           `json:"completion_tokens,omitempty"`
+	Error            bool          `json:"error,omitempty"`
 }
 
 // MetricsSummary aggregates metrics across all calls.

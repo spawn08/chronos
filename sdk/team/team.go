@@ -295,9 +295,9 @@ func (t *Team) handleAgentMessage(ctx context.Context, a *agent.Agent, env *prot
 		_ = json.Unmarshal(env.Body, &q)
 
 		input := map[string]any{
-			"_question":   q["question"],
-			"_asked_by":   env.From,
-			"message":     q["question"],
+			"_question": q["question"],
+			"_asked_by": env.From,
+			"message":   q["question"],
 		}
 		result, err := a.Run(ctx, input)
 		if err != nil {

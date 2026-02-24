@@ -10,9 +10,9 @@ import (
 
 // Runner executes a CompiledGraph with durable checkpointing.
 type Runner struct {
-	graph   *CompiledGraph
-	store   storage.Storage
-	stream  chan StreamEvent
+	graph  *CompiledGraph
+	store  storage.Storage
+	stream chan StreamEvent
 }
 
 // NewRunner creates a runner for the given compiled graph.

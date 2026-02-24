@@ -332,11 +332,11 @@ func (a *Agent) resolveContextLimit() int {
 
 // chatMessagePayload is used for JSON marshalling of chat message events.
 type chatMessagePayload struct {
-	Role       string           `json:"role"`
-	Content    string           `json:"content"`
-	Name       string           `json:"name,omitempty"`
-	ToolCallID string           `json:"tool_call_id,omitempty"`
-	ToolCalls  []toolCallJSON   `json:"tool_calls,omitempty"`
+	Role       string         `json:"role"`
+	Content    string         `json:"content"`
+	Name       string         `json:"name,omitempty"`
+	ToolCallID string         `json:"tool_call_id,omitempty"`
+	ToolCalls  []toolCallJSON `json:"tool_calls,omitempty"`
 }
 
 type toolCallJSON struct {
