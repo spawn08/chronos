@@ -1,0 +1,38 @@
+---
+description: CLI command and REPL development patterns
+globs: cli/**/*.go
+alwaysApply: false
+---
+
+# Chronos CLI Rules
+
+CLI entry: `cli/main.go` calls `cmd.Execute()`. Commands are dispatched in `cli/cmd/root.go` via `os.Args[1]`.
+
+## Existing Commands
+| Command | Status | Description |
+|---------|--------|-------------|
+| `repl` / `interactive` | Implemented | REPL with YAML agent config |
+| `serve [addr]` | Implemented | Start ChronosOS server (default :8420) |
+| `run` | Stub | Execute agent headless |
+| `agent` / `agents` | Stub | Agent management |
+| `sessions` | Stub | Session queries (list, resume, export) |
+| `memory` | Stub | Memory operations (list, forget, clear) |
+| `db` | Stub | Database/storage operations |
+| `config` | Stub | Configuration management |
+| `version` | Implemented | Version info |
+| `help` | Implemented | Usage |
+
+## Adding a command
+- Add a new case in the switch in `root.go`, or add a dedicated `runXxx()` and call it.
+- For subcommands (e.g. `chronos sessions list`), parse `os.Args[2]` and delegate to a handler.
+- Use `context.Context` for cancellation; avoid global state.
+
+## REPL (`cli/repl/repl.go`)
+- Accepts YAML agent config for model/storage setup.
+- Slash commands: prefix `/` (e.g. `/help`, `/sessions`, `/quit`). Register in the REPL command map.
+- Non-command input: sent to the agent via Chat/Run.
+- Store-backed commands use the `storage.Storage` passed into `repl.New(store)`.
+
+## Output
+- Use `fmt` for simple output. For richer TUI, use a minimal approach; avoid heavy UI deps.
+- Errors: log or print with clear messages; return errors from `Execute()` so main can exit non-zero.

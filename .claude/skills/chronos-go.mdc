@@ -1,0 +1,60 @@
+---
+description: Core Chronos Go conventions and package map
+alwaysApply: true
+---
+
+# Chronos Go Framework
+
+Chronos is a Go-based agentic framework. Module: `github.com/spawn08/chronos`.
+
+## Package Map
+
+### SDK Layer (`sdk/`)
+- **sdk/agent/** — Agent builder: `agent.New(id, name).WithModel().WithStorage().Build()`
+- **sdk/skill/** — Skill metadata, versioning, registry
+- **sdk/memory/** — Short/long-term memory Store + LLM-powered Manager (extract, optimize, get)
+- **sdk/knowledge/** — RAG: `Knowledge` interface, `VectorKnowledge` impl (VectorStore + EmbeddingsProvider)
+- **sdk/team/** — Multi-agent orchestration: Sequential, Parallel, Router, Coordinator strategies
+- **sdk/protocol/** — Inter-agent communication bus with envelope pooling and back-pressure
+
+### Engine Layer (`engine/`)
+- **engine/graph/** — Durable StateGraph: nodes, edges, checkpoints, resume, time-travel debugging
+- **engine/model/** — `Provider` (8 impls: OpenAI, Anthropic, Gemini, Mistral, Ollama, Azure, Compatible, Fallback) + `EmbeddingsProvider` (OpenAI, Ollama) + CachedEmbeddings wrapper
+- **engine/tool/** — Tool `Registry` with permissions (Allow, RequireApproval, Deny) and approval hooks
+- **engine/hooks/** — `Hook` interface + `Chain` middleware + built-ins: Retry, RateLimit, Cache, Cost, Metrics
+- **engine/guardrails/** — `Guardrail` interface + built-ins: Blocklist, MaxLength
+- **engine/stream/** — SSE event `Broker` for real-time observability
+
+### Infrastructure
+- **storage/** — `Storage` (18 methods) and `VectorStore` (5 methods) interfaces
+- **storage/adapters/** — SQLite (full), Postgres (full), Qdrant (full vector), + 7 stubs
+- **os/** — ChronosOS HTTP control plane: auth, tracing, approval, dashboard API
+- **sandbox/** — `ProcessSandbox` (subprocess) + `ContainerSandbox` (Docker Engine API)
+- **cli/** — REPL + CLI commands (repl, serve, run, agent, sessions, memory, db, config)
+- **examples/** — Quickstart, multi-provider, multi-agent, azure
+
+## Key Interfaces
+- `storage.Storage` — 18 methods (sessions, memory, audit, traces, events, checkpoints)
+- `storage.VectorStore` — Upsert, Search, Delete, CreateCollection, Close
+- `model.Provider` — Chat, StreamChat, Name, Model
+- `model.EmbeddingsProvider` — Embed
+- `knowledge.Knowledge` — Load, Search, Close
+- `guardrails.Guardrail` — Check(ctx, content) Result
+- `hooks.Hook` — Before(ctx, event), After(ctx, event)
+- `sandbox.Sandbox` — Execute, Close
+- `protocol.Handler` — func(ctx, *Envelope) (*Envelope, error)
+
+## Conventions
+- **Errors**: Always wrap: `fmt.Errorf("context: %w", err)`.
+- **Constructors**: `New(...)` returns `(*T, error)` or `*T` if infallible.
+- **I/O**: First parameter is `context.Context`.
+- **No** `init()`; no global state; no `os` in library packages.
+- **Naming**: Interfaces = noun (Storage, Provider); no `I` prefix. Files = lowercase matching type.
+- **JSON tags** on all exported struct fields.
+
+## Do NOT
+- Add `init()` or package-level mutable state.
+- Skip error wrapping.
+- Use panic for recoverable errors.
+- Add dependencies without checking stdlib first.
+- Import `os` in library packages (only in `cli/` and `examples/`).

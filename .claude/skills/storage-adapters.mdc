@@ -1,0 +1,43 @@
+---
+description: Storage and VectorStore adapter implementation contract
+globs: storage/adapters/**/*.go
+alwaysApply: false
+---
+
+# Storage Adapter Rules
+
+When implementing a storage adapter, follow the interfaces in `storage/storage.go` and `storage/vector.go`.
+
+## Existing Adapters
+| Adapter | Type | Status | Reference |
+|---------|------|--------|-----------|
+| SQLite | `Storage` | Full impl + tests | `storage/adapters/sqlite/sqlite.go` |
+| PostgreSQL | `Storage` | Full impl | `storage/adapters/postgres/postgres.go` |
+| Qdrant | `VectorStore` | Full impl | `storage/adapters/qdrant/qdrant.go` |
+| DynamoDB | `Storage` | Stub | `storage/adapters/dynamo/` |
+| MongoDB | `Storage` | Stub | `storage/adapters/mongo/` |
+| Redis | `Storage` | Stub | `storage/adapters/redis/` |
+| Redis Vector | `VectorStore` | Stub | `storage/adapters/redisvector/` |
+| Pinecone | `VectorStore` | Stub | `storage/adapters/pinecone/` |
+| Weaviate | `VectorStore` | Stub | `storage/adapters/weaviate/` |
+| Milvus | `VectorStore` | Stub | `storage/adapters/milvus/` |
+
+## Storage (relational/session state)
+Implement **all 18 methods**:
+- Sessions: CreateSession, GetSession, UpdateSession, ListSessions
+- Memory: PutMemory, GetMemory, ListMemory, DeleteMemory
+- Audit: AppendAuditLog, ListAuditLogs
+- Traces: InsertTrace, GetTrace, ListTraces
+- Events: AppendEvent, ListEvents
+- Checkpoints: SaveCheckpoint, GetCheckpoint, GetLatestCheckpoint, ListCheckpoints
+- Lifecycle: Migrate(ctx), Close()
+
+Use types from `storage` package (Session, MemoryRecord, AuditLog, Trace, Event, Checkpoint). Marshal map/any with `encoding/json`. SQL adapters: `?` for SQLite, `$N` for Postgres.
+
+## VectorStore (embeddings)
+Implement: Upsert, Search, Delete, CreateCollection, Close. Use `storage.Embedding`, `storage.SearchResult`. Reference: `storage/adapters/qdrant/qdrant.go`.
+
+## Required
+- One file per adapter: `storage/adapters/<name>/<name>.go`.
+- Package name = adapter name. Constructor: `New(dsn string) (*Store, error)` (or equivalent).
+- Always implement `Migrate(ctx)` for schema/collection creation and `Close()`.

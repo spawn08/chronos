@@ -1,0 +1,52 @@
+---
+description: LLM Provider and EmbeddingsProvider implementation contract
+globs: engine/model/**/*.go
+alwaysApply: false
+---
+
+# Model Provider Rules
+
+## Provider (LLM chat)
+Interface in `engine/model/provider.go`:
+- `Chat(ctx, req *ChatRequest) (*ChatResponse, error)`
+- `StreamChat(ctx, req *ChatRequest) (<-chan *ChatResponse, error)`
+- `Name() string`, `Model() string`
+
+Use types: `Message`, `ToolCall`, `ChatRequest`, `ChatResponse`, `Usage`, `StopReason`.
+
+### Existing Providers (8)
+| Provider | Constructor | File |
+|----------|------------|------|
+| OpenAI | `NewOpenAI(apiKey)` | `openai.go` |
+| Anthropic | `NewAnthropic(apiKey)` | `anthropic.go` |
+| Gemini | `NewGemini(apiKey)` | `gemini.go` |
+| Mistral | `NewMistral(apiKey)` | `mistral.go` |
+| Ollama | `NewOllama(baseURL)` | `ollama.go` |
+| Azure | `NewAzure(endpoint, apiKey, deployment)` | `azure.go` |
+| Compatible | `NewCompatible(baseURL, apiKey)` | `compatible.go` |
+| Fallback | `NewFallback(providers...)` | `fallback.go` |
+
+## EmbeddingsProvider
+Interface in `engine/model/embeddings.go`:
+- `Embed(ctx context.Context, req *EmbeddingRequest) (*EmbeddingResponse, error)`
+
+Use `EmbeddingRequest` (Model, Input []string) and `EmbeddingResponse` (Embeddings [][]float32, Usage).
+
+### Existing Embeddings Providers
+| Provider | Constructor | File |
+|----------|------------|------|
+| OpenAI | `NewOpenAIEmbeddings(apiKey)` | `openai_embeddings.go` |
+| Ollama | `NewOllamaEmbeddings(baseURL)` | `ollama_embeddings.go` |
+
+Wrap any provider with `model.NewCachedEmbeddings(provider)` for in-memory caching (SHA256 keys).
+
+## Utilities
+- **httpclient.go** — Shared HTTP client helpers
+- **tokenizer.go** — Token counting utilities
+- **summarizer.go** — Context summarization
+
+## Conventions
+- One file per provider: `engine/model/<name>.go`. Package is `model`.
+- No init(); expose constructor only. Use `context.Context` for timeouts and cancellation.
+- Errors: wrap with `fmt.Errorf("provider name: %w", err)`.
+- For new embeddings providers, reference `openai_embeddings.go` as the canonical pattern.
