@@ -122,7 +122,7 @@ jobs:
             -o ${BINARY_NAME} ./cli/main.go
 
       - name: Upload binary artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: chronos-${{ matrix.goos }}-${{ matrix.goarch }}
           path: chronos-*
