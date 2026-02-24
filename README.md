@@ -671,6 +671,11 @@ chronos run --agent researcher "compare React vs Svelte"
 chronos agent list                   # List all configured agents
 chronos agent show dev               # Show agent details
 
+# Team management
+chronos team list                    # List all configured teams
+chronos team show dev-team           # Show team details
+chronos team run dev-team "Build a login feature"  # Run a team
+
 # Session management
 chronos sessions list                # List past sessions
 chronos sessions export <id>        # Export session as markdown
@@ -710,7 +715,21 @@ Non-command input is sent directly to the loaded agent for chat.
 | [quickstart](examples/quickstart/) | Minimal agent with SQLite and a 3-node graph | `go run ./examples/quickstart/main.go` |
 | [multi_provider](examples/multi_provider/) | Connect to OpenAI, Anthropic, Gemini, Mistral, Ollama | `go run ./examples/multi_provider/main.go` |
 | [multi_agent](examples/multi_agent/) | All 4 team strategies, direct channels, bus delegation | `go run ./examples/multi_agent/main.go` |
+| [yaml-configs](examples/yaml-configs/) | YAML agent and team configs for real-world use cases | See [guide](docs/guides/yaml-examples.md) |
 | [azure](examples/azure/) | Azure OpenAI provider usage | `go run ./examples/azure/main.go` |
+
+### YAML Agent Examples
+
+Complete YAML configurations for real-world use cases, with step-by-step instructions:
+
+| YAML Example | Strategy | Description |
+|-------------|----------|-------------|
+| [customer-support](examples/yaml-configs/customer-support.yaml) | Router | Routes customer queries to billing, technical, or sales agents |
+| [content-pipeline](examples/yaml-configs/content-pipeline.yaml) | Sequential | Research → Write → Edit article pipeline |
+| [coding-team](examples/yaml-configs/coding-team.yaml) | Coordinator | Tech lead delegates to backend, frontend, and reviewer |
+| [multi-provider](examples/yaml-configs/multi-provider.yaml) | Any | Mix OpenAI, Anthropic, Gemini, Ollama, Groq, and DeepSeek |
+
+See the **[YAML Agent Examples guide](docs/guides/yaml-examples.md)** for detailed setup and execution instructions.
 
 ---
 

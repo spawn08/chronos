@@ -80,6 +80,16 @@ jobs:
       - name: Run tests
         run: go test -race -count=1 -timeout 120s -coverprofile=coverage.out ./...
 
+      - name: Check coverage threshold
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          total=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+          echo "Total coverage: ${total}%"
+          threshold=10
+          if (( $(echo "$total < $threshold" | bc -l) )); then
+            echo "::warning::Coverage ${total}% is below threshold ${threshold}%"
+          fi
+
       - name: Upload coverage
         if: matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@v4

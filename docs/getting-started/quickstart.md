@@ -197,3 +197,9 @@ func main() {
 - **`agent.LoadFile("")`** — Loads from the default search path. Pass a path to use a specific file.
 - **`fc.FindAgent("dev")`** — Looks up an agent by ID or name (case-insensitive).
 - **`agent.BuildAgent(ctx, cfg)`** — Constructs a fully-wired `*Agent` from the config, including model provider, storage, and migrations.
+
+## Next Steps
+
+- **[YAML Agent Examples](/guides/yaml-examples/)** — Real-world YAML configurations with step-by-step instructions: customer support router, content pipeline, coding team, multi-provider setup
+- **[Multi-Agent Teams](/guides/teams/)** — How to run agents as teams using sequential, parallel, router, and coordinator strategies
+- **[Configuration Reference](/getting-started/configuration/)** — Complete YAML config reference with all fields and providers

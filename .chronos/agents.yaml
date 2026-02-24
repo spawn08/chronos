@@ -107,3 +107,24 @@ agents:
   #     base_url: https://my-llm-proxy.internal/v1
   #     api_key: ${CUSTOM_API_KEY}
   #     model: my-custom-model
+
+# Define teams — groups of agents working together.
+# Run with: go run ./cli/main.go team run <team-id> "your task"
+teams:
+  # --- Sequential pipeline: dev writes, researcher reviews ---
+  - id: dev-pipeline
+    name: Dev Pipeline
+    strategy: sequential
+    agents:
+      - dev
+      - researcher
+
+  # --- Coordinator: coordinator plans and delegates ---
+  - id: project
+    name: Project Team
+    strategy: coordinator
+    coordinator: coordinator
+    agents:
+      - dev
+      - researcher
+    max_iterations: 2

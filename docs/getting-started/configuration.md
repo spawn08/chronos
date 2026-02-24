@@ -82,6 +82,18 @@ agents:
       max_tokens: 0
       summarize_threshold: 0.8
       preserve_recent_turns: 5
+
+teams:
+  - id: my-team
+    name: My Team
+    strategy: sequential           # sequential, parallel, router, coordinator
+    agents:                        # agent IDs (order matters for sequential)
+      - agent-1
+      - agent-2
+    coordinator: ""                # agent ID (coordinator strategy only)
+    max_concurrency: 0             # parallel strategy; 0 = unbounded
+    max_iterations: 1              # coordinator strategy; planning loops
+    error_strategy: ""             # fail_fast, collect, best_effort
 ```
 
 ## ModelConfig
@@ -104,6 +116,19 @@ agents:
 |-------|-------------|
 | `backend` | `sqlite` or `postgres` |
 | `dsn` | Connection string or file path (e.g., `chronos.db` for SQLite) |
+
+## TeamConfig
+
+| Field | Description |
+|-------|-------------|
+| `id` | Unique team identifier (used in `team run`) |
+| `name` | Display name |
+| `strategy` | `sequential`, `parallel`, `router`, or `coordinator` |
+| `agents` | List of agent IDs (order matters for sequential) |
+| `coordinator` | Agent ID for the coordinator strategy |
+| `max_concurrency` | Max parallel goroutines (parallel strategy); `0` = unbounded |
+| `max_iterations` | Max coordinator planning loops; default `1` |
+| `error_strategy` | `fail_fast`, `collect`, or `best_effort` (parallel strategy) |
 
 ## Context management
 
@@ -181,3 +206,13 @@ agents:
 | `perplexity` | Perplexity |
 | `anyscale` | Anyscale Endpoints |
 | `compatible` | Any OpenAI-compatible endpoint (vLLM, TGI, LiteLLM, etc.) |
+
+## Real-World Examples
+
+For complete, runnable YAML configurations with step-by-step setup instructions, see the [YAML Agent Examples](/guides/yaml-examples/) guide:
+
+- **Customer Support Router** — Three specialist agents with intelligent routing
+- **Content Creation Pipeline** — Sequential research → write → edit workflow
+- **Software Development Team** — Coordinator-driven task decomposition
+- **Multi-Provider Setup** — Mix OpenAI, Anthropic, Gemini, and Ollama
+- **Parallel Analysis Team** — Multiple perspectives on the same question

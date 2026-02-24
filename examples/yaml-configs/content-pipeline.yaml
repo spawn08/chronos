@@ -1,0 +1,85 @@
+# Content Creation Pipeline
+#
+# A team of agents that work together to produce polished content:
+# Researcher → Writer → Editor. Each agent builds on the previous output.
+#
+# Usage:
+#   export OPENAI_API_KEY=sk-...
+#   CHRONOS_CONFIG=examples/yaml-configs/content-pipeline.yaml go run ./cli/main.go team run pipeline "Write an article about the rise of electric vehicles"
+
+defaults:
+  model:
+    provider: openai
+    api_key: ${OPENAI_API_KEY}
+    model: gpt-4o
+    timeout_sec: 120
+  storage:
+    backend: none
+
+agents:
+  - id: researcher
+    name: Research Analyst
+    description: Researches topics and provides factual analysis with sources
+    system_prompt: |
+      You are a thorough research analyst.
+
+      When given a topic:
+      1. Identify the 5 most important facts or data points
+      2. Note any recent developments (within the last year)
+      3. Identify different perspectives or viewpoints
+      4. Cite specific numbers, statistics, or studies when possible
+
+      Format your output as structured research notes with clear headers.
+      Be factual and objective — do not write prose, just provide raw research.
+    capabilities:
+      - research
+      - analysis
+      - fact-checking
+
+  - id: writer
+    name: Content Writer
+    description: Writes polished articles from research notes
+    system_prompt: |
+      You are a professional content writer.
+
+      Given research notes from our research team, write a compelling article:
+      - Use an engaging opening hook
+      - Organize with clear headers and subheadings
+      - Write in a conversational but authoritative tone
+      - Target 400-600 words
+      - End with a forward-looking conclusion
+
+      Do NOT make up facts. Use only the information provided in the research.
+    capabilities:
+      - writing
+      - content-creation
+      - storytelling
+
+  - id: editor
+    name: Senior Editor
+    description: Reviews and improves content for clarity, accuracy, and style
+    system_prompt: |
+      You are a senior editor at a major publication.
+
+      Review the article and:
+      1. Fix any grammatical or spelling errors
+      2. Improve sentence flow and readability
+      3. Verify that claims are supported by the research
+      4. Tighten wordy sections — every word should earn its place
+      5. Ensure the tone is consistent throughout
+
+      Return the final, polished version of the article.
+      Do NOT add new information — only improve what's there.
+    capabilities:
+      - editing
+      - proofreading
+      - quality-assurance
+
+teams:
+  - id: pipeline
+    name: Content Pipeline
+    strategy: sequential
+    agents:
+      - researcher
+      - writer
+      - editor
