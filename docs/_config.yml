@@ -13,8 +13,6 @@ subtitle: "AI Agent Framework"
 name: "Chronos"
 repository: "spawn08/chronos"
 
-teaser: /assets/images/chronos-og.png
-og_image: /assets/images/chronos-og.png
 logo: /assets/images/logo.svg
 
 search: true

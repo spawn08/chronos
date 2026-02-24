@@ -24,6 +24,8 @@ docs:
         url: /guides/context-management/
       - title: "Multi-Agent Teams"
         url: /guides/teams/
+      - title: "YAML Agent Examples"
+        url: /guides/yaml-examples/
       - title: "StateGraph Runtime"
         url: /guides/stategraph/
 

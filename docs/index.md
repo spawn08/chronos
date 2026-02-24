@@ -12,12 +12,12 @@ classes: wide
   <h1>Chronos</h1>
   <p class="tagline">
     A Go framework for building durable, scalable AI agents.<br/>
-    Define agents. Connect any LLM. Let them collaborate.
+    Define agents in YAML. Connect any LLM. Let them collaborate.
   </p>
   <div class="hero-buttons">
     <a href="{{ '/getting-started/quickstart/' | relative_url }}" class="btn btn-primary">Get Started</a>
     <a href="https://github.com/spawn08/chronos" class="btn btn-outline">
-      <i class="fab fa-github"></i> View on GitHub
+      <i class="fab fa-github"></i> GitHub
     </a>
   </div>
   <div class="install-command">
@@ -65,40 +65,40 @@ Chronos provides the **full stack** for building this kind of software in Go:
 
 <div class="feature-grid">
   <div class="feature-card">
-    <h3><span class="feature-icon">&#x2699;</span> YAML-First Configuration</h3>
-    <p>Define agents, models, and storage in <code>.chronos/agents.yaml</code> with environment variable expansion and defaults inheritance. No Go code required for basic setups.</p>
+    <h3><span class="feature-icon">&#x2699;</span> YAML-First Config</h3>
+    <p>Define agents, teams, and models in <code>.chronos/agents.yaml</code> with environment variable expansion and defaults inheritance. Run from CLI with zero Go code.</p>
   </div>
   <div class="feature-card">
-    <h3><span class="feature-icon">&#x1F916;</span> Multi-Provider LLM Support</h3>
-    <p>OpenAI, Anthropic, Google Gemini, Mistral, Ollama, Azure OpenAI, and any OpenAI-compatible endpoint. Swap providers with one line.</p>
-  </div>
-  <div class="feature-card">
-    <h3><span class="feature-icon">&#x1F4AC;</span> Context Summarization</h3>
-    <p>Automatic conversation summarization when the token limit is approached. Rolling summaries preserve key facts while staying within the context window.</p>
-  </div>
-  <div class="feature-card">
-    <h3><span class="feature-icon">&#x1F50C;</span> Durable Execution</h3>
-    <p>StateGraph runtime with checkpointing, interrupt nodes, and resume-from-checkpoint. Survive crashes and restart exactly where you left off.</p>
+    <h3><span class="feature-icon">&#x1F916;</span> 14+ LLM Providers</h3>
+    <p>OpenAI, Anthropic, Gemini, Mistral, Ollama, Azure OpenAI, Groq, DeepSeek, and any OpenAI-compatible endpoint. Swap with one line.</p>
   </div>
   <div class="feature-card">
     <h3><span class="feature-icon">&#x1F465;</span> Multi-Agent Teams</h3>
-    <p>Sequential, parallel, router, and coordinator strategies with a typed protocol bus for task delegation, questions, handoffs, and broadcasts.</p>
+    <p>Sequential, parallel, router, and coordinator strategies. Define teams in YAML and run from the CLI.</p>
   </div>
   <div class="feature-card">
-    <h3><span class="feature-icon">&#x1F6E1;</span> Guardrails & Middleware</h3>
-    <p>Input/output validation, retry with backoff, rate limiting, cost tracking, response caching, and observability metrics. All composable via hooks.</p>
+    <h3><span class="feature-icon">&#x1F50C;</span> Durable Execution</h3>
+    <p>StateGraph runtime with checkpointing, interrupt nodes, and resume. Survive crashes and restart exactly where you left off.</p>
   </div>
   <div class="feature-card">
-    <h3><span class="feature-icon">&#x1F9E0;</span> Memory & Knowledge</h3>
-    <p>Short-term and long-term memory with LLM-powered extraction. Vector-backed RAG automatically injected into agent context.</p>
+    <h3><span class="feature-icon">&#x1F6E1;</span> Guardrails & Hooks</h3>
+    <p>Input/output validation, retry, rate limiting, cost tracking, caching, and observability. All composable via middleware.</p>
   </div>
   <div class="feature-card">
-    <h3><span class="feature-icon">&#x1F4E6;</span> Pluggable Storage</h3>
-    <p>Single interface with adapters for SQLite, PostgreSQL, Redis, MongoDB, DynamoDB, Qdrant, Pinecone, Weaviate, and Milvus.</p>
+    <h3><span class="feature-icon">&#x1F9E0;</span> Memory & RAG</h3>
+    <p>Short-term and long-term memory with LLM-powered extraction. Vector-backed retrieval injected into agent context.</p>
+  </div>
+  <div class="feature-card">
+    <h3><span class="feature-icon">&#x1F4E6;</span> 10 Storage Adapters</h3>
+    <p>SQLite, PostgreSQL, Redis, MongoDB, DynamoDB, Qdrant, Pinecone, Weaviate, Milvus. One interface, any backend.</p>
+  </div>
+  <div class="feature-card">
+    <h3><span class="feature-icon">&#x1F4AC;</span> Context Summarization</h3>
+    <p>Automatic conversation summarization when approaching token limits. Rolling summaries preserve key facts within the context window.</p>
   </div>
   <div class="feature-card">
     <h3><span class="feature-icon">&#x1F680;</span> Production Ready</h3>
-    <p>Docker images, Helm chart with HPA, Ingress, Secrets, and ServiceAccount. CI/CD with GitHub Actions. Cross-platform binaries.</p>
+    <p>Docker, Helm chart with HPA and Ingress, CI/CD with GitHub Actions, cross-platform binaries.</p>
   </div>
 </div>
 
@@ -134,32 +134,41 @@ Chronos provides the **full stack** for building this kind of software in Go:
 
 ---
 
-## Quick Example
+## Quick Start
+
+**YAML approach** — define an agent and run it:
+
+```yaml
+# .chronos/agents.yaml
+agents:
+  - id: assistant
+    name: Assistant
+    model:
+      provider: openai
+      model: gpt-4o
+      api_key: ${OPENAI_API_KEY}
+    system_prompt: You are a helpful assistant.
+```
+
+```bash
+export OPENAI_API_KEY=sk-...
+go run ./cli/main.go run "What is the capital of France?"
+```
+
+**Go builder** — for programmatic control:
 
 ```go
-package main
+a, _ := agent.New("chat", "Chat Agent").
+    WithModel(model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))).
+    WithSystemPrompt("You are a helpful assistant.").
+    Build()
 
-import (
-    "context"
-    "fmt"
-    "os"
-
-    "github.com/spawn08/chronos/engine/model"
-    "github.com/spawn08/chronos/sdk/agent"
-)
-
-func main() {
-    a, _ := agent.New("chat-agent", "Chat Agent").
-        WithModel(model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))).
-        WithSystemPrompt("You are a helpful assistant.").
-        Build()
-
-    resp, _ := a.Chat(context.Background(), "What is the capital of France?")
-    fmt.Println(resp.Content)
-}
+resp, _ := a.Chat(ctx, "What is the capital of France?")
+fmt.Println(resp.Content)
 ```
 
 <div class="hero-buttons" style="margin-top: 2rem;">
-  <a href="{{ '/getting-started/quickstart/' | relative_url }}" class="btn btn-primary">Read the Quickstart Guide</a>
+  <a href="{{ '/getting-started/quickstart/' | relative_url }}" class="btn btn-primary">Read the Quickstart</a>
+  <a href="{{ '/guides/yaml-examples/' | relative_url }}" class="btn btn-outline">YAML Examples</a>
   <a href="{{ '/guides/agents/' | relative_url }}" class="btn btn-outline">Explore the Docs</a>
 </div>
