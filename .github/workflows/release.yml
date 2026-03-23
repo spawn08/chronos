@@ -165,7 +165,11 @@ jobs:
           BINARY_NAME="chronos-${{ matrix.goos }}-${{ matrix.goarch }}"
           ARCHIVE_NAME="chronos-${{ steps.meta.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz"
 
-          tar czf "${ARCHIVE_NAME}" "${BINARY_NAME}" LICENSE README.md
+          FILES="${BINARY_NAME}"
+          [ -f LICENSE ] && FILES="${FILES} LICENSE"
+          [ -f README.md ] && FILES="${FILES} README.md"
+
+          tar czf "${ARCHIVE_NAME}" ${FILES}
           echo "Archive: ${ARCHIVE_NAME}"
           ls -lh "${ARCHIVE_NAME}"
 
@@ -175,7 +179,10 @@ jobs:
         run: |
           $version = "${{ steps.meta.outputs.version }}"
           $archiveName = "chronos-${version}-${{ matrix.goos }}-${{ matrix.goarch }}.zip"
-          Compress-Archive -Path "chronos-${{ matrix.goos }}-${{ matrix.goarch }}.exe", "LICENSE", "README.md" -DestinationPath $archiveName
+          $files = @("chronos-${{ matrix.goos }}-${{ matrix.goarch }}.exe")
+          if (Test-Path "LICENSE") { $files += "LICENSE" }
+          if (Test-Path "README.md") { $files += "README.md" }
+          Compress-Archive -Path $files -DestinationPath $archiveName
           Write-Host "Archive: $archiveName"
 
       - name: Upload artifact
