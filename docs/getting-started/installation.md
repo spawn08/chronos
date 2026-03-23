@@ -1,78 +1,50 @@
----
-title: "Installation"
-permalink: /getting-started/installation/
-sidebar:
-  nav: "docs"
-toc: true
-toc_sticky: true
----
+# Installation
 
-## Prerequisites
+## Requirements
 
-- **Go 1.24+** — Chronos requires Go 1.24 or later. Verify with `go version`.
-- **C compiler** — Required for SQLite CGO bindings (`github.com/mattn/go-sqlite3`). On macOS, Xcode Command Line Tools provide this. On Linux, install `build-essential` or equivalent.
+- **Go 1.24+** — [Download Go](https://go.dev/dl/)
+- **C compiler** — Required for SQLite via CGO (gcc on Linux, Xcode Command Line Tools on macOS)
 
-## Install the module
+## Install as a Go Module
 
-Add Chronos to your Go module:
+Add Chronos to your project:
 
 ```bash
 go get github.com/spawn08/chronos
 ```
 
-The module path is `github.com/spawn08/chronos`. Import it in your code:
-
-```go
-import "github.com/spawn08/chronos/sdk/agent"
-```
-
-## Build from source
-
-Clone the repository and build:
+## Build from Source
 
 ```bash
 git clone https://github.com/spawn08/chronos.git
 cd chronos
-make build
-```
-
-- **`make build`** — Compiles all packages and builds the CLI binary at `bin/chronos`.
-- **`make build-all`** — Compiles every package, including examples.
-
-To install the CLI binary to `$GOPATH/bin`:
-
-```bash
-make install
-```
-
-## Binary installation
-
-Cross-compiled binaries are available for common platforms. Build them with:
-
-```bash
-make build-cross
-```
-
-This produces binaries in `bin/` for:
-
-- `linux/amd64`
-- `linux/arm64`
-- `darwin/amd64`
-- `darwin/arm64`
-
-Binaries are named `chronos-<os>-<arch>` (e.g., `chronos-darwin-arm64`).
-
-## Verify installation
-
-From the project root:
-
-```bash
 go build ./...
-go vet ./...
 ```
 
-Both commands should complete without errors. Run the test suite:
+## Verify Installation
+
+Run the quickstart example (no API keys needed):
 
 ```bash
-make test
+go run ./examples/quickstart/
 ```
+
+Expected output:
+
+```
+Result: map[greeting:Hello, World! intent:general_question response:I classified your intent as "general_question". How can I help? user:World]
+```
+
+## CLI Binary
+
+Build the CLI for interactive use:
+
+```bash
+go build -o bin/chronos ./cli/main.go
+./bin/chronos version
+```
+
+## Next Steps
+
+- [Quickstart Guide](quickstart.md) — Build your first agent
+- [Examples](../guides/examples.md) — Browse all runnable examples
