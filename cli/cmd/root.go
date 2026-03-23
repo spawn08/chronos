@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -17,6 +18,13 @@ import (
 	"github.com/spawn08/chronos/sdk/team"
 	"github.com/spawn08/chronos/storage"
 	"github.com/spawn08/chronos/storage/adapters/sqlite"
+)
+
+// Build-time variables set via -ldflags.
+var (
+	Version   = "dev"
+	Commit    = "none"
+	BuildDate = "unknown"
 )
 
 // Execute runs the root CLI command.
@@ -44,8 +52,7 @@ func Execute() error {
 	case "config":
 		return runConfig()
 	case "version":
-		fmt.Println("chronos v0.1.0")
-		return nil
+		return printVersion()
 	case "help", "--help", "-h":
 		return printUsage()
 	default:
@@ -84,6 +91,15 @@ Environment:
   CHRONOS_CONFIG    Path to agents YAML config file
   CHRONOS_DB_PATH   SQLite database path (default: chronos.db)
   CHRONOS_API_KEY   Default API key for model providers`)
+	return nil
+}
+
+func printVersion() error {
+	fmt.Printf("chronos %s\n", Version)
+	fmt.Printf("  commit:    %s\n", Commit)
+	fmt.Printf("  built:     %s\n", BuildDate)
+	fmt.Printf("  go:        %s\n", runtime.Version())
+	fmt.Printf("  os/arch:   %s/%s\n", runtime.GOOS, runtime.GOARCH)
 	return nil
 }
 
