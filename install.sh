@@ -4,7 +4,7 @@
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/spawn08/chronos/main/install.sh | bash
-#   curl -fsSL https://raw.githubusercontent.com/spawn08/chronos/main/install.sh | bash -s -- v0.2.0
+#   curl -fsSL https://raw.githubusercontent.com/spawn08/chronos/main/install.sh | bash -s -- v0.2.1
 #   curl -fsSL https://raw.githubusercontent.com/spawn08/chronos/main/install.sh | bash -s -- --dir /opt/bin
 #
 # Supported platforms:
@@ -91,9 +91,9 @@ get_latest_version() {
   local version
 
   if command -v curl &>/dev/null; then
-    version=$(curl -fsSL "$url" 2>/dev/null | grep '"tag_name"' | head -1 | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/')
+    version=$(curl -fsSL "$url" 2>/dev/null | grep '"tag_name"' | head -1 | sed -E 's/.*"tag_name":[[:space:]]*"([^"]+)".*/\1/')
   elif command -v wget &>/dev/null; then
-    version=$(wget -qO- "$url" 2>/dev/null | grep '"tag_name"' | head -1 | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/')
+    version=$(wget -qO- "$url" 2>/dev/null | grep '"tag_name"' | head -1 | sed -E 's/.*"tag_name":[[:space:]]*"([^"]+)".*/\1/')
   else
     error "Neither curl nor wget found. Please install one of them."
     exit 1

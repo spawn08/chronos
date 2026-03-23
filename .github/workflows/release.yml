@@ -223,7 +223,11 @@ jobs:
       - name: Generate checksums
         run: |
           cd artifacts
-          find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' -o -name 'chronos-linux-*' -o -name 'chronos-darwin-*' -o -name 'chronos-windows-*' \) -exec sha256sum {} + | sort > checksums-sha256.txt
+          sha256sum chronos-*.tar.gz chronos-*.zip chronos-linux-* chronos-darwin-* chronos-windows-* 2>/dev/null | sort > checksums-sha256.txt || true
+          if [ ! -s checksums-sha256.txt ]; then
+            echo "WARNING: No files matched for checksums"
+            exit 1
+          fi
           echo "=== SHA-256 Checksums ==="
           cat checksums-sha256.txt
 
