@@ -74,7 +74,7 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"sessions": sessions})
+	_ = json.NewEncoder(w).Encode(map[string]any{"sessions": sessions})
 }
 
 func (s *Server) handleListTraces(w http.ResponseWriter, r *http.Request) {
@@ -90,7 +90,7 @@ func (s *Server) handleListTraces(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"traces": traces})
+	_ = json.NewEncoder(w).Encode(map[string]any{"traces": traces})
 }
 
 // Start begins serving the control plane.

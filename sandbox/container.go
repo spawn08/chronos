@@ -117,8 +117,8 @@ func (c *ContainerSandbox) Execute(ctx context.Context, command string, args []s
 	var createResp struct {
 		ID string `json:"Id"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&createResp); err != nil {
-		return nil, fmt.Errorf("container create decode: %w", err)
+	if decodeErr := json.NewDecoder(resp.Body).Decode(&createResp); decodeErr != nil {
+		return nil, fmt.Errorf("container create decode: %w", decodeErr)
 	}
 	containerID := createResp.ID
 
@@ -153,7 +153,7 @@ func (c *ContainerSandbox) Execute(ctx context.Context, command string, args []s
 	}, nil
 }
 
-func (c *ContainerSandbox) collectLogs(ctx context.Context, containerID string) (string, string) {
+func (c *ContainerSandbox) collectLogs(ctx context.Context, containerID string) (stdout, stderr string) {
 	stdoutResp, err := c.dockerAPI(ctx, http.MethodGet, fmt.Sprintf("/v1.41/containers/%s/logs?stdout=1&stderr=0", containerID), nil)
 	if err != nil {
 		return "", ""

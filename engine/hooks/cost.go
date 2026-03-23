@@ -127,13 +127,6 @@ func (ct *CostTracker) GetSessionCost(sessionID string) CostReport {
 // the Output field (expected to be a *ChatResponse or compatible struct with
 // Usage) and also checks metadata.
 func extractUsage(evt *Event) (prompt, completion int) {
-	type usageHolder struct {
-		Usage struct {
-			PromptTokens     int `json:"prompt_tokens"`
-			CompletionTokens int `json:"completion_tokens"`
-		} `json:"usage"`
-	}
-
 	if evt.Metadata != nil {
 		if p, ok := evt.Metadata["prompt_tokens"].(int); ok {
 			prompt = p

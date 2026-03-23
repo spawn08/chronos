@@ -47,7 +47,7 @@ func (s *Store) rawCmd(args ...string) (string, error) {
 		return "", fmt.Errorf("redisvector read: %w", readErr)
 	}
 	resp := string(buf[:n])
-	if len(resp) > 0 && resp[0] == '-' {
+	if resp != "" && resp[0] == '-' {
 		return "", fmt.Errorf("redisvector error: %s", strings.TrimSpace(resp[1:]))
 	}
 	return resp, nil
@@ -111,7 +111,7 @@ func (s *Store) Search(_ context.Context, collection string, query []float32, to
 //	$<len>         — next document key
 //	*<fields>      — next document's fields
 //	...
-func ParseSearchResponse(resp string, collection string) []storage.SearchResult {
+func ParseSearchResponse(resp, collection string) []storage.SearchResult {
 	if resp == "" {
 		return nil
 	}
@@ -126,7 +126,7 @@ func ParseSearchResponse(resp string, collection string) []storage.SearchResult 
 
 	// Skip the array header (*N) and total count (:N)
 	for i < len(lines) {
-		if len(lines[i]) > 0 && lines[i][0] == ':' {
+		if lines[i] != "" && lines[i][0] == ':' {
 			i++
 			break
 		}
@@ -135,7 +135,7 @@ func ParseSearchResponse(resp string, collection string) []storage.SearchResult 
 
 	prefix := collection + ":"
 	for i < len(lines) {
-		if i+1 < len(lines) && len(lines[i]) > 0 && lines[i][0] == '$' {
+		if i+1 < len(lines) && lines[i] != "" && lines[i][0] == '$' {
 			docKey := lines[i+1]
 			i += 2
 
@@ -152,7 +152,7 @@ func ParseSearchResponse(resp string, collection string) []storage.SearchResult 
 			}
 
 			// Parse the field array: *N means N elements (N/2 name-value pairs)
-			if i < len(lines) && len(lines[i]) > 0 && lines[i][0] == '*' {
+			if i < len(lines) && lines[i] != "" && lines[i][0] == '*' {
 				numElements := 0
 				if n, err := strconv.Atoi(lines[i][1:]); err == nil {
 					numElements = n
