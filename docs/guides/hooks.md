@@ -1,3 +1,10 @@
+---
+title: "Hooks & Observability"
+permalink: /guides/hooks/
+sidebar:
+  nav: "docs"
+---
+
 # Hooks & Observability
 
 Hooks are middleware that intercept model calls, tool calls, and session events. They provide a composable way to add caching, retry logic, cost tracking, rate limiting, metrics, and logging without modifying agent code.

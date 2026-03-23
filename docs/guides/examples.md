@@ -1,3 +1,10 @@
+---
+title: "Examples"
+permalink: /guides/examples/
+sidebar:
+  nav: "docs"
+---
+
 # Examples Guide
 
 Chronos ships with 12+ runnable examples covering every major feature. Most require **no API keys** and run entirely with mock providers and SQLite.
