@@ -16,7 +16,7 @@ env:
 
 jobs:
   # ────────────────────────────────────────────────────────────
-  # Test (gate before release)
+  # Test gate
   # ────────────────────────────────────────────────────────────
   test:
     name: Test
@@ -58,9 +58,6 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      # Go modules are published automatically via the Go module proxy
-      # when a tag is pushed. This step requests the proxy to fetch the
-      # new version so it becomes available immediately.
       - name: Request proxy to fetch new version
         run: |
           VERSION=${GITHUB_REF#refs/tags/}
@@ -69,25 +66,54 @@ jobs:
             go list -m github.com/spawn08/chronos@${VERSION} || true
 
   # ────────────────────────────────────────────────────────────
-  # Build & publish cross-platform binaries
+  # Build cross-platform binaries
+  # Targets: Linux (amd64/arm64), macOS Intel (amd64),
+  #          macOS Apple Silicon (arm64), Windows (amd64/arm64)
   # ────────────────────────────────────────────────────────────
   build-binaries:
-    name: Build Binaries
-    runs-on: ubuntu-latest
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
     needs: test
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - goos: linux
+          # Linux amd64 (Ubuntu, Debian, RHEL, CentOS, Fedora, Alpine)
+          - target: linux-amd64
+            runner: ubuntu-latest
+            goos: linux
             goarch: amd64
-          - goos: linux
+
+          # Linux arm64 (Ubuntu arm64, AWS Graviton, Raspberry Pi 64-bit)
+          - target: linux-arm64
+            runner: ubuntu-latest
+            goos: linux
             goarch: arm64
-          - goos: darwin
+
+          # macOS Intel (x86_64)
+          - target: darwin-amd64
+            runner: macos-13
+            goos: darwin
             goarch: amd64
-          - goos: darwin
+
+          # macOS Apple Silicon (M1/M2/M3/M4)
+          - target: darwin-arm64
+            runner: macos-latest
+            goos: darwin
             goarch: arm64
-          - goos: windows
+
+          # Windows amd64
+          - target: windows-amd64
+            runner: windows-latest
+            goos: windows
             goarch: amd64
+
+          # Windows arm64
+          - target: windows-arm64
+            runner: windows-latest
+            goos: windows
+            goarch: arm64
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -100,36 +126,70 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - name: Build binary
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: 0
+      - name: Determine version metadata
+        id: meta
+        shell: bash
         run: |
           VERSION=${GITHUB_REF#refs/tags/}
           COMMIT=$(git rev-parse --short HEAD)
           BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+          echo "build_date=$BUILD_DATE" >> "$GITHUB_OUTPUT"
 
-          BINARY_NAME=chronos-${{ matrix.goos }}-${{ matrix.goarch }}
+      - name: Build binary
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          BINARY_NAME="chronos-${{ matrix.goos }}-${{ matrix.goarch }}"
           if [ "${{ matrix.goos }}" = "windows" ]; then
             BINARY_NAME="${BINARY_NAME}.exe"
           fi
 
-          go build -ldflags "-s -w \
-            -X github.com/spawn08/chronos/cli/cmd.Version=${VERSION} \
-            -X github.com/spawn08/chronos/cli/cmd.Commit=${COMMIT} \
-            -X github.com/spawn08/chronos/cli/cmd.BuildDate=${BUILD_DATE}" \
-            -o ${BINARY_NAME} ./cli/main.go
+          go build -trimpath -ldflags "-s -w \
+            -X github.com/spawn08/chronos/cli/cmd.Version=${{ steps.meta.outputs.version }} \
+            -X github.com/spawn08/chronos/cli/cmd.Commit=${{ steps.meta.outputs.commit }} \
+            -X github.com/spawn08/chronos/cli/cmd.BuildDate=${{ steps.meta.outputs.build_date }}" \
+            -o "${BINARY_NAME}" ./cli/main.go
 
-      - name: Upload binary artifact
+          echo "Built: ${BINARY_NAME}"
+          ls -lh "${BINARY_NAME}"
+
+      - name: Create tarball (Linux/macOS)
+        if: matrix.goos != 'windows'
+        shell: bash
+        run: |
+          BINARY_NAME="chronos-${{ matrix.goos }}-${{ matrix.goarch }}"
+          ARCHIVE_NAME="chronos-${{ steps.meta.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz"
+
+          tar czf "${ARCHIVE_NAME}" "${BINARY_NAME}" LICENSE README.md
+          echo "Archive: ${ARCHIVE_NAME}"
+          ls -lh "${ARCHIVE_NAME}"
+
+      - name: Create zip (Windows)
+        if: matrix.goos == 'windows'
+        shell: pwsh
+        run: |
+          $version = "${{ steps.meta.outputs.version }}"
+          $archiveName = "chronos-${version}-${{ matrix.goos }}-${{ matrix.goarch }}.zip"
+          Compress-Archive -Path "chronos-${{ matrix.goos }}-${{ matrix.goarch }}.exe", "LICENSE", "README.md" -DestinationPath $archiveName
+          Write-Host "Archive: $archiveName"
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: chronos-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: chronos-*
+          name: chronos-${{ matrix.target }}
+          path: |
+            chronos-*.tar.gz
+            chronos-*.zip
+            chronos-${{ matrix.goos }}-${{ matrix.goarch }}*
           retention-days: 1
 
   # ────────────────────────────────────────────────────────────
-  # GitHub Release
+  # GitHub Release with all artifacts
   # ────────────────────────────────────────────────────────────
   github-release:
     name: GitHub Release
@@ -150,16 +210,58 @@ jobs:
       - name: Generate checksums
         run: |
           cd artifacts
-          sha256sum chronos-* > checksums.txt
-          cat checksums.txt
+          sha256sum chronos-*.tar.gz chronos-*.zip chronos-linux-* chronos-darwin-* chronos-windows-* 2>/dev/null | sort > checksums-sha256.txt
+          echo "=== SHA-256 Checksums ==="
+          cat checksums-sha256.txt
+
+      - name: Determine version
+        id: version
+        run: echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          name: Chronos ${{ steps.version.outputs.tag }}
           generate_release_notes: true
+          body: |
+            ## Installation
+
+            ### Quick Install (Linux / macOS)
+
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | bash
+            ```
+
+            Or install a specific version:
+
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | bash -s -- ${{ steps.version.outputs.tag }}
+            ```
+
+            ### Manual Download
+
+            | Platform | Architecture | Download |
+            |----------|-------------|----------|
+            | **Linux** | x86_64 (amd64) | [chronos-${{ steps.version.outputs.tag }}-linux-amd64.tar.gz](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/chronos-${{ steps.version.outputs.tag }}-linux-amd64.tar.gz) |
+            | **Linux** | ARM64 | [chronos-${{ steps.version.outputs.tag }}-linux-arm64.tar.gz](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/chronos-${{ steps.version.outputs.tag }}-linux-arm64.tar.gz) |
+            | **macOS** | Intel (x86_64) | [chronos-${{ steps.version.outputs.tag }}-darwin-amd64.tar.gz](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/chronos-${{ steps.version.outputs.tag }}-darwin-amd64.tar.gz) |
+            | **macOS** | Apple Silicon (M1+) | [chronos-${{ steps.version.outputs.tag }}-darwin-arm64.tar.gz](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/chronos-${{ steps.version.outputs.tag }}-darwin-arm64.tar.gz) |
+            | **Windows** | x86_64 (amd64) | [chronos-${{ steps.version.outputs.tag }}-windows-amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/chronos-${{ steps.version.outputs.tag }}-windows-amd64.zip) |
+            | **Windows** | ARM64 | [chronos-${{ steps.version.outputs.tag }}-windows-arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/chronos-${{ steps.version.outputs.tag }}-windows-arm64.zip) |
+
+            ### Verify Checksum
+
+            ```bash
+            sha256sum -c checksums-sha256.txt
+            ```
+
           files: |
-            artifacts/chronos-*
-            artifacts/checksums.txt
+            artifacts/chronos-*.tar.gz
+            artifacts/chronos-*.zip
+            artifacts/chronos-linux-*
+            artifacts/chronos-darwin-*
+            artifacts/chronos-windows-*
+            artifacts/checksums-sha256.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

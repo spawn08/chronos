@@ -175,8 +175,10 @@ func TestExecuteVersion(t *testing.T) {
 			t.Fatalf("Execute() error: %v", err)
 		}
 	})
-	if !strings.Contains(output, "chronos v") {
-		t.Errorf("version output missing version string: %q", output)
+	for _, keyword := range []string{"chronos ", "commit:", "built:", "go:", "os/arch:"} {
+		if !strings.Contains(output, keyword) {
+			t.Errorf("version output missing %q: %q", keyword, output)
+		}
 	}
 }
 
