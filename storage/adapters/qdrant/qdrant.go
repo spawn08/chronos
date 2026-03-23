@@ -133,7 +133,7 @@ func (s *Store) post(ctx context.Context, path string, body any) ([]byte, error)
 	}
 	defer resp.Body.Close()
 	var buf bytes.Buffer
-	buf.ReadFrom(resp.Body)
+	_, _ = buf.ReadFrom(resp.Body)
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("qdrant POST %s: status %d: %s", path, resp.StatusCode, buf.String())
 	}

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -69,13 +68,13 @@ func (s *Store) rawCmdResp(args ...string) (string, error) {
 		return "", fmt.Errorf("redis read: %w", err)
 	}
 	resp := string(buf[:n])
-	if len(resp) > 0 && resp[0] == '-' {
+	if resp != "" && resp[0] == '-' {
 		return "", fmt.Errorf("redis error: %s", strings.TrimSpace(resp[1:]))
 	}
 	return resp, nil
 }
 
-func (s *Store) set(ctx context.Context, key string, value any) error {
+func (s *Store) set(_ context.Context, key string, value any) error {
 	data, err := json.Marshal(value)
 	if err != nil {
 		return fmt.Errorf("redis marshal: %w", err)
@@ -110,69 +109,28 @@ func (s *Store) del(_ context.Context, key string) error {
 	return err
 }
 
-// scanKeys uses SCAN to find all keys matching a pattern.
-func (s *Store) scanKeys(pattern string) ([]string, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	var keys []string
-	cursor := "0"
-	for {
-		resp, err := s.rawCmdResp("SCAN", cursor, "MATCH", pattern, "COUNT", "100")
-		if err != nil {
-			return nil, fmt.Errorf("redis scan: %w", err)
-		}
-		newCursor, scannedKeys := parseScanResponse(resp)
-		keys = append(keys, scannedKeys...)
-		cursor = newCursor
-		if cursor == "0" {
-			break
-		}
-	}
-	return keys, nil
-}
-
-// getMulti fetches multiple keys and unmarshals them into the target type.
-// The caller provides a factory function to create new instances.
-func (s *Store) getMulti(keys []string) ([][]byte, error) {
-	result := make([][]byte, 0, len(keys))
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, key := range keys {
-		resp, err := s.rawCmdResp("GET", key)
-		if err != nil {
-			continue
-		}
-		jsonData := extractJSON(resp)
-		if jsonData == "" {
-			continue
-		}
-		result = append(result, []byte(jsonData))
-	}
-	return result, nil
-}
-
 // extractJSON finds the first JSON object or array in a RESP bulk string response.
 func extractJSON(resp string) string {
 	for i, c := range resp {
-		if c == '{' || c == '[' {
-			depth := 0
-			open, close := '{', '}'
-			if c == '[' {
-				open, close = '[', ']'
-			}
-			for j := i; j < len(resp); j++ {
-				if rune(resp[j]) == open {
-					depth++
-				} else if rune(resp[j]) == close {
-					depth--
-					if depth == 0 {
-						return resp[i : j+1]
-					}
+		if c != '{' && c != '[' {
+			continue
+		}
+		depth := 0
+		opener, closer := '{', '}'
+		if c == '[' {
+			opener, closer = '[', ']'
+		}
+		for j := i; j < len(resp); j++ {
+			if rune(resp[j]) == opener {
+				depth++
+			} else if rune(resp[j]) == closer {
+				depth--
+				if depth == 0 {
+					return resp[i : j+1]
 				}
 			}
-			return resp[i:]
 		}
+		return resp[i:]
 	}
 	return ""
 }
@@ -182,7 +140,7 @@ func parseScanResponse(resp string) (cursor string, keys []string) {
 	lines := strings.Split(resp, "\r\n")
 	cursor = "0"
 	for i, line := range lines {
-		if len(line) > 0 && line[0] == '$' && i+1 < len(lines) {
+		if line != "" && line[0] == '$' && i+1 < len(lines) {
 			if cursor == "0" && !strings.HasPrefix(lines[i+1], "chronos:") {
 				cursor = lines[i+1]
 			} else if strings.HasPrefix(lines[i+1], "chronos:") {
@@ -249,7 +207,7 @@ func parseArrayResponse(resp string) []string {
 	var result []string
 	lines := strings.Split(resp, "\r\n")
 	for i, line := range lines {
-		if len(line) > 0 && line[0] == '$' && i+1 < len(lines) {
+		if line != "" && line[0] == '$' && i+1 < len(lines) {
 			val := lines[i+1]
 			if val != "" {
 				result = append(result, val)
@@ -316,7 +274,7 @@ func (s *Store) GetMemory(ctx context.Context, agentID, key string) (*storage.Me
 	return &m, nil
 }
 
-func (s *Store) ListMemory(_ context.Context, agentID string, kind string) ([]*storage.MemoryRecord, error) {
+func (s *Store) ListMemory(_ context.Context, agentID, kind string) ([]*storage.MemoryRecord, error) {
 	ids, err := s.getAllFromIndex(memoryIndexKey(agentID, kind))
 	if err != nil {
 		return nil, fmt.Errorf("redis list memory: %w", err)
@@ -478,6 +436,3 @@ func (s *Store) Close() error {
 
 // Ensure Store implements storage.Storage at compile time.
 var _ storage.Storage = (*Store)(nil)
-
-// suppress unused import warnings
-var _ = strconv.Itoa

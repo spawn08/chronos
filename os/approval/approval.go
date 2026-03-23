@@ -53,7 +53,7 @@ func (s *Service) HandlePending(w http.ResponseWriter, _ *http.Request) {
 	for _, r := range s.pending {
 		reqs = append(reqs, r)
 	}
-	json.NewEncoder(w).Encode(map[string]any{"pending": reqs})
+	_ = json.NewEncoder(w).Encode(map[string]any{"pending": reqs})
 }
 
 // HandleRespond processes an approval response.

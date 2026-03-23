@@ -5,35 +5,57 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/spawn08/chronos/engine/stream"
+	"github.com/spawn08/chronos/os/trace"
 	"github.com/spawn08/chronos/storage"
 )
 
 // Runner executes a CompiledGraph with durable checkpointing.
 type Runner struct {
-	graph  *CompiledGraph
-	store  storage.Storage
-	stream chan StreamEvent
+	graph    *CompiledGraph
+	store    storage.Storage
+	broker   *stream.Broker
+	tracer   *trace.Collector
+	localCh  chan StreamEvent
 }
 
 // NewRunner creates a runner for the given compiled graph.
 func NewRunner(g *CompiledGraph, store storage.Storage) *Runner {
 	return &Runner{
-		graph:  g,
-		store:  store,
-		stream: make(chan StreamEvent, 256),
+		graph:   g,
+		store:   store,
+		localCh: make(chan StreamEvent, 256),
 	}
+}
+
+// WithBroker attaches an SSE Broker so the runner publishes events to SSE subscribers.
+func (r *Runner) WithBroker(b *stream.Broker) *Runner {
+	r.broker = b
+	return r
+}
+
+// WithTracer attaches a trace.Collector for span-based execution tracing.
+func (r *Runner) WithTracer(t *trace.Collector) *Runner {
+	r.tracer = t
+	return r
 }
 
 // Stream returns a channel of execution events for real-time observability.
 func (r *Runner) Stream() <-chan StreamEvent {
-	return r.stream
+	return r.localCh
 }
 
 func (r *Runner) emit(evt StreamEvent) {
 	evt.Timestamp = time.Now()
 	select {
-	case r.stream <- evt:
+	case r.localCh <- evt:
 	default:
+	}
+	if r.broker != nil {
+		r.broker.Publish(stream.Event{
+			Type: evt.Type,
+			Data: evt,
+		})
 	}
 }
 
@@ -98,10 +120,23 @@ func (r *Runner) ResumeFromCheckpoint(ctx context.Context, checkpointID string) 
 }
 
 func (r *Runner) execute(ctx context.Context, rs *RunState) (*RunState, error) {
+	// Start a top-level graph execution span
+	var graphSpan *storage.Trace
+	if r.tracer != nil {
+		var spanErr error
+		graphSpan, spanErr = r.tracer.StartSpan(ctx, rs.SessionID, "graph:"+r.graph.ID, "graph")
+		if spanErr != nil {
+			graphSpan = nil
+		}
+	}
+
 	for rs.Status == RunStatusRunning {
 		node, ok := r.graph.Nodes[rs.CurrentNode]
 		if !ok {
 			rs.Status = RunStatusFailed
+			if graphSpan != nil {
+				_ = r.tracer.EndSpan(ctx, graphSpan, nil, fmt.Sprintf("node %q not found", rs.CurrentNode))
+			}
 			return rs, fmt.Errorf("node %q not found", rs.CurrentNode)
 		}
 
@@ -113,7 +148,20 @@ func (r *Runner) execute(ctx context.Context, rs *RunState) (*RunState, error) {
 			if err := r.checkpoint(ctx, rs); err != nil {
 				return rs, fmt.Errorf("checkpoint on interrupt: %w", err)
 			}
+			if graphSpan != nil {
+				_ = r.tracer.EndSpan(ctx, graphSpan, rs.State, "paused at interrupt node "+node.ID)
+			}
 			return rs, nil
+		}
+
+		// Start node-level trace span
+		var nodeSpan *storage.Trace
+		if r.tracer != nil {
+			var spanErr error
+			nodeSpan, spanErr = r.tracer.StartSpan(ctx, rs.SessionID, "node:"+node.ID, "node")
+			if spanErr != nil {
+				nodeSpan = nil
+			}
 		}
 
 		// Execute node
@@ -122,12 +170,22 @@ func (r *Runner) execute(ctx context.Context, rs *RunState) (*RunState, error) {
 		if err != nil {
 			rs.Status = RunStatusFailed
 			r.emit(StreamEvent{Type: "error", NodeID: node.ID, Error: err.Error()})
+			if nodeSpan != nil {
+				_ = r.tracer.EndSpan(ctx, nodeSpan, nil, err.Error())
+			}
+			if graphSpan != nil {
+				_ = r.tracer.EndSpan(ctx, graphSpan, nil, fmt.Sprintf("node %q failed: %s", node.ID, err.Error()))
+			}
 			return rs, fmt.Errorf("node %q: %w", node.ID, err)
 		}
 		rs.State = newState
 		rs.SeqNum++
 		rs.UpdatedAt = time.Now()
 		r.emit(StreamEvent{Type: "node_end", NodeID: node.ID, State: rs.State})
+
+		if nodeSpan != nil {
+			_ = r.tracer.EndSpan(ctx, nodeSpan, rs.State, "")
+		}
 
 		// Checkpoint after each node
 		if err := r.checkpoint(ctx, rs); err != nil {
@@ -155,7 +213,11 @@ func (r *Runner) execute(ctx context.Context, rs *RunState) (*RunState, error) {
 		}
 	}
 
-	defer close(r.stream)
+	if graphSpan != nil {
+		_ = r.tracer.EndSpan(ctx, graphSpan, rs.State, "")
+	}
+
+	defer close(r.localCh)
 	return rs, nil
 }
 

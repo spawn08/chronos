@@ -84,7 +84,7 @@ func (s *Store) findOne(ctx context.Context, collection string, filter map[strin
 	return json.Unmarshal(wrapper.Document, out)
 }
 
-func (s *Store) find(ctx context.Context, collection string, filter map[string]any, sort map[string]any, limit int) (json.RawMessage, error) {
+func (s *Store) find(ctx context.Context, collection string, filter, sort map[string]any, limit int) (json.RawMessage, error) {
 	body := map[string]any{"filter": filter}
 	if sort != nil {
 		body["sort"] = sort

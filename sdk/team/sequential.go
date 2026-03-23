@@ -18,7 +18,7 @@ func (t *Team) runSequential(ctx context.Context, state graph.State) (graph.Stat
 	current := state
 	for i, agentID := range t.Order {
 		if err := ctx.Err(); err != nil {
-			return nil, fmt.Errorf("team %q: cancelled before agent %q: %w", t.ID, agentID, err)
+			return nil, fmt.Errorf("team %q: canceled before agent %q: %w", t.ID, agentID, err)
 		}
 
 		a, ok := t.Agents[agentID]

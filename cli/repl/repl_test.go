@@ -159,7 +159,7 @@ func TestSlashQuit(t *testing.T) {
 	case <-r.ctx.Done():
 		// expected
 	default:
-		t.Error("expected context to be cancelled after /quit")
+		t.Error("expected context to be canceled after /quit")
 	}
 }
 

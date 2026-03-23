@@ -54,7 +54,7 @@ func (f *FallbackProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatRes
 			f.OnFallback(i, p.Name(), err)
 		}
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("fallback provider: context cancelled after %d attempts: %w", i+1, ctx.Err())
+			return nil, fmt.Errorf("fallback provider: context canceled after %d attempts: %w", i+1, ctx.Err())
 		}
 	}
 	return nil, fmt.Errorf("fallback provider: all %d providers failed, last error: %w", len(f.providers), lastErr)
@@ -73,7 +73,7 @@ func (f *FallbackProvider) StreamChat(ctx context.Context, req *ChatRequest) (<-
 			f.OnFallback(i, p.Name(), err)
 		}
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("fallback provider: context cancelled after %d attempts: %w", i+1, ctx.Err())
+			return nil, fmt.Errorf("fallback provider: context canceled after %d attempts: %w", i+1, ctx.Err())
 		}
 	}
 	return nil, fmt.Errorf("fallback provider: all %d providers failed, last error: %w", len(f.providers), lastErr)

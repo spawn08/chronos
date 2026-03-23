@@ -37,7 +37,7 @@ func (c *EstimatingCounter) CountTokens(messages []Message) int {
 }
 
 func (c *EstimatingCounter) CountString(s string) int {
-	if len(s) == 0 {
+	if s == "" {
 		return 0
 	}
 	cpt := c.CharsPerToken

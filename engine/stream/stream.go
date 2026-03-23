@@ -8,6 +8,21 @@ import (
 	"sync"
 )
 
+// Standard event types published during graph and agent execution.
+const (
+	EventNodeStart      = "node_start"
+	EventNodeEnd        = "node_end"
+	EventEdgeTransition = "edge_transition"
+	EventToolCall       = "tool_call"
+	EventToolResult     = "tool_result"
+	EventModelCall      = "model_call"
+	EventModelResponse  = "model_response"
+	EventCheckpoint     = "checkpoint"
+	EventInterrupt      = "interrupt"
+	EventCompleted      = "completed"
+	EventError          = "error"
+)
+
 // Event is a server-sent event.
 type Event struct {
 	Type string `json:"type"`

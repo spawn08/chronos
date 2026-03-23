@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -577,8 +578,7 @@ func runSessions() error {
 		if len(os.Args) < 4 {
 			return fmt.Errorf("usage: chronos sessions resume <session_id>")
 		}
-		fmt.Printf("Resuming session %s (requires agent configuration)\n", os.Args[3])
-		return nil
+		return sessionsResume(ctx, store, os.Args[3])
 	case "export":
 		if len(os.Args) < 4 {
 			return fmt.Errorf("usage: chronos sessions export <session_id>")
@@ -602,6 +602,47 @@ func sessionsList(ctx context.Context, store storage.Storage, agentID string) er
 	fmt.Println(strings.Repeat("-", 80))
 	for _, s := range sessions {
 		fmt.Printf("%-30s %-15s %-12s %s\n", s.ID, s.AgentID, s.Status, s.CreatedAt.Format(time.RFC3339))
+	}
+	return nil
+}
+
+func sessionsResume(ctx context.Context, store storage.Storage, sessionID string) error {
+	sess, err := store.GetSession(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("session %q not found: %w", sessionID, err)
+	}
+	if sess.Status != "running" && sess.Status != "paused" && sess.Status != "active" {
+		fmt.Printf("Session %s is in state %q and cannot be resumed.\n", sessionID, sess.Status)
+		return nil
+	}
+
+	cp, err := store.GetLatestCheckpoint(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("no checkpoint found for session %q: %w", sessionID, err)
+	}
+
+	fmt.Printf("Session: %s\n", sess.ID)
+	fmt.Printf("Agent:   %s\n", sess.AgentID)
+	fmt.Printf("Status:  %s\n", sess.Status)
+	fmt.Printf("Checkpoint: node=%s seq=%d\n", cp.NodeID, cp.SeqNum)
+
+	a, loadErr := loadAgentByID(sess.AgentID)
+	if loadErr != nil {
+		return fmt.Errorf("load agent %q: %w", sess.AgentID, loadErr)
+	}
+
+	a.Storage = store
+
+	fmt.Println("\nResuming execution...")
+	result, err := a.Resume(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("resume: %w", err)
+	}
+
+	fmt.Printf("\nStatus: %s\n", result.Status)
+	if result.State != nil {
+		stateJSON, _ := json.MarshalIndent(result.State, "", "  ")
+		fmt.Printf("State:\n%s\n", string(stateJSON))
 	}
 	return nil
 }
@@ -779,25 +820,97 @@ func runConfig() error {
 		if len(os.Args) < 5 {
 			return fmt.Errorf("usage: chronos config set <key> <value>")
 		}
-		fmt.Printf("Set %s = %s (env var only, use export to persist)\n", os.Args[3], os.Args[4])
-		return nil
+		return configSet(os.Args[3], os.Args[4])
 	case "model":
 		if len(os.Args) < 4 {
 			fmt.Printf("Current model: %s\n", envOrDefault("CHRONOS_MODEL", "gpt-4o"))
 			return nil
 		}
-		fmt.Printf("Model set to: %s (use CHRONOS_MODEL env var to persist)\n", os.Args[3])
-		return nil
+		return configSet("model", os.Args[3])
 	default:
 		return fmt.Errorf("unknown config subcommand: %s\nUsage: chronos config [show|set|model]", sub)
 	}
+}
+
+// configSet persists a key=value pair to ~/.chronos/config.yaml.
+func configSet(key, value string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("cannot determine home directory: %w", err)
+	}
+	configDir := filepath.Join(home, ".chronos")
+	configPath := filepath.Join(configDir, "config.yaml")
+
+	existing := make(map[string]string)
+	if data, readErr := os.ReadFile(configPath); readErr == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				existing[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+			}
+		}
+	}
+
+	existing[key] = value
+
+	if mkErr := os.MkdirAll(configDir, 0o755); mkErr != nil {
+		return fmt.Errorf("create config dir: %w", mkErr)
+	}
+
+	var buf strings.Builder
+	buf.WriteString("# Chronos CLI configuration\n")
+	for k, v := range existing {
+		fmt.Fprintf(&buf, "%s: %s\n", k, v)
+	}
+
+	if writeErr := os.WriteFile(configPath, []byte(buf.String()), 0o644); writeErr != nil {
+		return fmt.Errorf("write config: %w", writeErr)
+	}
+
+	fmt.Printf("Set %s = %s (saved to %s)\n", key, value, configPath)
+	return nil
 }
 
 func envOrDefault(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
 	}
+	if v := configLookup(key); v != "" {
+		return v
+	}
 	return def
+}
+
+// configLookup reads a value from ~/.chronos/config.yaml by key.
+// It maps env-style keys (e.g. "CHRONOS_MODEL") to config-style keys
+// (e.g. "model") and does a case-insensitive match.
+func configLookup(key string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".chronos", "config.yaml"))
+	if err != nil {
+		return ""
+	}
+
+	normalized := strings.ToLower(strings.TrimPrefix(key, "CHRONOS_"))
+
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) == 2 && strings.ToLower(strings.TrimSpace(parts[0])) == normalized {
+			return strings.TrimSpace(parts[1])
+		}
+	}
+	return ""
 }
 
 func maskEnv(key string) string {

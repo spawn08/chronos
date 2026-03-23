@@ -101,7 +101,7 @@ func TestMemoryCRUD(t *testing.T) {
 		t.Fatalf("expected 1 memory, got %d", len(mems))
 	}
 
-	if err := store.DeleteMemory(ctx, "m1"); err != nil {
+	if delErr := store.DeleteMemory(ctx, "m1"); delErr != nil {
 		t.Fatalf("DeleteMemory: %v", err)
 	}
 

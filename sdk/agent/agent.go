@@ -12,7 +12,9 @@ import (
 	"github.com/spawn08/chronos/engine/guardrails"
 	"github.com/spawn08/chronos/engine/hooks"
 	"github.com/spawn08/chronos/engine/model"
+	"github.com/spawn08/chronos/engine/stream"
 	"github.com/spawn08/chronos/engine/tool"
+	chronostrace "github.com/spawn08/chronos/os/trace"
 	"github.com/spawn08/chronos/sdk/knowledge"
 	"github.com/spawn08/chronos/sdk/memory"
 	"github.com/spawn08/chronos/sdk/skill"
@@ -39,6 +41,8 @@ type Agent struct {
 	MemoryManager  *memory.Manager
 	Hooks          hooks.Chain
 	Guardrails     *guardrails.Engine
+	Broker         *stream.Broker         // SSE broker for real-time event streaming
+	Tracer         *chronostrace.Collector // execution tracer for span-based observability
 	SessionState   map[string]any // persistent cross-turn state
 	OutputSchema   map[string]any // JSON Schema for structured output
 	NumHistoryRuns int            // number of past runs to inject into context
@@ -92,6 +96,8 @@ func (b *Builder) WithMemoryManager(m *memory.Manager) *Builder { b.agent.Memory
 func (b *Builder) WithOutputSchema(s map[string]any) *Builder   { b.agent.OutputSchema = s; return b }
 func (b *Builder) WithHistoryRuns(n int) *Builder               { b.agent.NumHistoryRuns = n; return b }
 func (b *Builder) WithContextConfig(cfg ContextConfig) *Builder { b.agent.ContextCfg = cfg; return b }
+func (b *Builder) WithBroker(br *stream.Broker) *Builder               { b.agent.Broker = br; return b }
+func (b *Builder) WithTracer(t *chronostrace.Collector) *Builder       { b.agent.Tracer = t; return b }
 func (b *Builder) WithSystemPrompt(prompt string) *Builder      { b.agent.SystemPrompt = prompt; return b }
 
 func (b *Builder) AddInstruction(instruction string) *Builder {
@@ -241,6 +247,21 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 		return nil, fmt.Errorf("hook before model call: %w", err)
 	}
 
+	if a.Broker != nil {
+		a.Broker.Publish(stream.Event{Type: stream.EventModelCall, Data: map[string]any{
+			"agent": a.ID, "model": a.Model.Name(), "messages": len(req.Messages),
+		}})
+	}
+
+	var modelSpan *storage.Trace
+	if a.Tracer != nil {
+		var spanErr error
+		modelSpan, spanErr = a.Tracer.StartSpan(ctx, a.ID, "model:"+a.Model.Name(), "model_call")
+		if spanErr != nil {
+			modelSpan = nil
+		}
+	}
+
 	resp, err := a.Model.Chat(ctx, req)
 
 	modelEvt.Type = hooks.EventModelCallAfter
@@ -255,7 +276,25 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 	}
 
 	if err != nil {
+		if modelSpan != nil {
+			_ = a.Tracer.EndSpan(ctx, modelSpan, nil, err.Error())
+		}
+		if a.Broker != nil {
+			a.Broker.Publish(stream.Event{Type: stream.EventError, Data: map[string]any{
+				"agent": a.ID, "error": err.Error(),
+			}})
+		}
 		return nil, fmt.Errorf("agent %q chat: %w", a.ID, err)
+	}
+
+	if modelSpan != nil {
+		_ = a.Tracer.EndSpan(ctx, modelSpan, map[string]any{"stop_reason": string(resp.StopReason)}, "")
+	}
+
+	if a.Broker != nil {
+		a.Broker.Publish(stream.Event{Type: stream.EventModelResponse, Data: map[string]any{
+			"agent": a.ID, "stop_reason": string(resp.StopReason),
+		}})
 	}
 
 	// Handle tool calls if the model wants to use tools
@@ -300,6 +339,12 @@ func (a *Agent) handleToolCalls(ctx context.Context, messages []model.Message, r
 		var args map[string]any
 		_ = json.Unmarshal([]byte(tc.Arguments), &args)
 
+		if a.Broker != nil {
+			a.Broker.Publish(stream.Event{Type: stream.EventToolCall, Data: map[string]any{
+				"agent": a.ID, "tool": tc.Name, "args": args,
+			}})
+		}
+
 		// Fire tool call hooks
 		toolEvt := &hooks.Event{Type: hooks.EventToolCallBefore, Name: tc.Name, Input: args}
 		if err := a.Hooks.Before(ctx, toolEvt); err != nil {
@@ -312,6 +357,16 @@ func (a *Agent) handleToolCalls(ctx context.Context, messages []model.Message, r
 		toolEvt.Output = result
 		toolEvt.Error = err
 		_ = a.Hooks.After(ctx, toolEvt)
+
+		if a.Broker != nil {
+			toolResultData := map[string]any{"agent": a.ID, "tool": tc.Name}
+			if err != nil {
+				toolResultData["error"] = err.Error()
+			} else {
+				toolResultData["result"] = result
+			}
+			a.Broker.Publish(stream.Event{Type: stream.EventToolResult, Data: toolResultData})
+		}
 
 		var content string
 		if err != nil {
@@ -401,6 +456,12 @@ func (a *Agent) Run(ctx context.Context, input map[string]any) (*graph.RunState,
 	}
 
 	runner := graph.NewRunner(a.Graph, a.Storage)
+	if a.Broker != nil {
+		runner.WithBroker(a.Broker)
+	}
+	if a.Tracer != nil {
+		runner.WithTracer(a.Tracer)
+	}
 	result, err := runner.Run(ctx, sess.ID, graph.State(input))
 
 	evt.Type = hooks.EventNodeAfter
@@ -442,6 +503,12 @@ func (a *Agent) Resume(ctx context.Context, sessionID string) (*graph.RunState, 
 		return nil, fmt.Errorf("agent %q: graph or storage not set", a.ID)
 	}
 	runner := graph.NewRunner(a.Graph, a.Storage)
+	if a.Broker != nil {
+		runner.WithBroker(a.Broker)
+	}
+	if a.Tracer != nil {
+		runner.WithTracer(a.Tracer)
+	}
 	return runner.Resume(ctx, sessionID)
 }
 
