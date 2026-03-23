@@ -161,3 +161,7 @@ flowchart LR
 - **Scale sandbox:** Use `.claude/commands/scale-sandbox.md` for container sandbox work.
 
 Cursor rules in `.cursor/rules/` apply when editing matching paths (chronos-go, storage-adapters, cli-commands, model-providers).
+
+## Full Roadmap & Tracker
+
+For the complete prioritized implementation plan (101 items across P0–P3) with checkboxes for agent tracking, see **[ROADMAP.md](ROADMAP.md)**. That file was generated from a gap analysis against Agno, LangGraph, and DeepAgents frameworks and covers: bug fixes, wiring gaps, testing, MCP, subgraphs, time travel, streaming, HITL, context management, auth, evals, toolkits, multimodal, visualization, scheduling, interfaces, and more.

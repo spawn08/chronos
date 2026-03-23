@@ -60,8 +60,11 @@ type ChatRequest struct {
 	Stream      bool             `json:"stream,omitempty"`
 	Tools       []ToolDefinition `json:"tools,omitempty"`
 	Stop        []string         `json:"stop,omitempty"`
-	// ResponseFormat optionally forces JSON output. Set to "json_object" for JSON mode.
-	ResponseFormat string `json:"response_format,omitempty"`
+	// ResponseFormat controls output format. Values:
+	//   "json_object"  — model returns valid JSON (no schema enforcement)
+	//   "json_schema"  — model returns JSON conforming to Metadata["json_schema"]
+	ResponseFormat string         `json:"response_format,omitempty"`
+	Metadata       map[string]any `json:"metadata,omitempty"`
 }
 
 // ChatResponse is the output of a chat completion.
