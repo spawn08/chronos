@@ -528,7 +528,7 @@ dc.AtoB <- &protocol.Envelope{
 msg := <-dc.AtoB // writer receives
 ```
 
-See the [Multi-Agent Teams guide](docs/guides/teams.md) for complete documentation with runnable examples.
+See the [Multi-Agent Teams guide](docs/guides/teams.md) for complete documentation.
 
 ---
 
@@ -643,10 +643,10 @@ Validate inputs and outputs before they reach the model or the user.
 ```go
 agent.New("safe", "Safe Agent").
     AddInputGuardrail("blocklist", &guardrails.BlocklistGuardrail{
-        Words: []string{"hack", "exploit"},
+        Blocklist: []string{"hack", "exploit"},
     }).
     AddOutputGuardrail("max_length", &guardrails.MaxLengthGuardrail{
-        MaxLength: 4096,
+        MaxChars: 4096,
     })
 ```
 
@@ -710,13 +710,21 @@ Non-command input is sent directly to the loaded agent for chat.
 
 ## Examples
 
-| Example | Description | Run |
-|---------|-------------|-----|
-| [quickstart](examples/quickstart/) | Minimal agent with SQLite and a 3-node graph | `go run ./examples/quickstart/main.go` |
-| [multi_provider](examples/multi_provider/) | Connect to OpenAI, Anthropic, Gemini, Mistral, Ollama | `go run ./examples/multi_provider/main.go` |
-| [multi_agent](examples/multi_agent/) | All 4 team strategies, direct channels, bus delegation | `go run ./examples/multi_agent/main.go` |
-| [yaml-configs](examples/yaml-configs/) | YAML agent and team configs for real-world use cases | See [guide](docs/guides/yaml-examples.md) |
-| [azure](examples/azure/) | Azure OpenAI provider usage | `go run ./examples/azure/main.go` |
+| Example | Description | API Keys? | Run |
+|---------|-------------|-----------|-----|
+| [quickstart](examples/quickstart/) | Minimal agent with SQLite and a 3-node graph | No | `go run ./examples/quickstart/` |
+| [tools_and_guardrails](examples/tools_and_guardrails/) | Tool registry with permissions (allow/deny/approval) and input/output guardrails | No | `go run ./examples/tools_and_guardrails/` |
+| [hooks_observability](examples/hooks_observability/) | All hooks: metrics, cost tracking, rate limiting, caching, retry, logging | No | `go run ./examples/hooks_observability/` |
+| [graph_patterns](examples/graph_patterns/) | Conditional edges, interrupt nodes, checkpoints, stream events | No | `go run ./examples/graph_patterns/` |
+| [memory_and_sessions](examples/memory_and_sessions/) | Short/long-term memory, multi-turn sessions with persistence | No | `go run ./examples/memory_and_sessions/` |
+| [streaming_sse](examples/streaming_sse/) | Event broker pub/sub, graph stream events, SSE HTTP handler | No | `go run ./examples/streaming_sse/` |
+| [chat_with_tools](examples/chat_with_tools/) | Agent chat with tool definitions and direct tool execution | No | `go run ./examples/chat_with_tools/` |
+| [fallback_provider](examples/fallback_provider/) | Provider chain with automatic failover (primary → secondary → local) | No | `go run ./examples/fallback_provider/` |
+| [sandbox_execution](examples/sandbox_execution/) | Process sandbox with timeouts, I/O capture, exit codes | No | `go run ./examples/sandbox_execution/` |
+| [multi_agent](examples/multi_agent/) | All 4 team strategies, direct channels, bus delegation | Optional | `go run ./examples/multi_agent/` |
+| [multi_provider](examples/multi_provider/) | Connect to OpenAI, Anthropic, Gemini, Mistral, Ollama | Yes | `go run ./examples/multi_provider/` |
+| [azure](examples/azure/) | Azure OpenAI provider (standard + streaming) | Yes | `go run ./examples/azure/` |
+| [yaml-configs](examples/yaml-configs/) | YAML agent and team configs for real-world use cases | Yes | See configs |
 
 ### YAML Agent Examples
 
@@ -729,7 +737,7 @@ Complete YAML configurations for real-world use cases, with step-by-step instruc
 | [coding-team](examples/yaml-configs/coding-team.yaml) | Coordinator | Tech lead delegates to backend, frontend, and reviewer |
 | [multi-provider](examples/yaml-configs/multi-provider.yaml) | Any | Mix OpenAI, Anthropic, Gemini, Ollama, Groq, and DeepSeek |
 
-See the **[YAML Agent Examples guide](docs/guides/yaml-examples.md)** for detailed setup and execution instructions.
+See the **[Examples Guide](docs/guides/examples.md)** for detailed descriptions of every example.
 
 ---
 
@@ -885,7 +893,7 @@ type VectorStore interface {
 
 // Guardrail for input/output validation
 type Guardrail interface {
-    Check(ctx context.Context, content string) *Result
+    Check(ctx context.Context, content string) Result
 }
 
 // Sandbox for isolated execution
@@ -894,6 +902,29 @@ type Sandbox interface {
     Close() error
 }
 ```
+
+---
+
+## Documentation
+
+Full documentation is in the [`docs/`](docs/) directory:
+
+### Getting Started
+
+- [Installation](docs/getting-started/installation.md) — Requirements, install, verify
+- [Quickstart](docs/getting-started/quickstart.md) — Build your first agent in 5 minutes
+
+### Guides
+
+- [Examples](docs/guides/examples.md) — All 12+ runnable examples with descriptions
+- [Multi-Agent Teams](docs/guides/teams.md) — Team strategies, communication, coordination
+- [Hooks & Observability](docs/guides/hooks.md) — Metrics, cost tracking, caching, retry, rate limiting
+
+### Reference
+
+- [Architecture](docs/reference/architecture.md) — System design, layers, data flow
+- [Model Providers](docs/reference/providers.md) — All supported LLM providers
+- [Storage](docs/reference/storage.md) — Storage and vector store interfaces, adapters
 
 ---
 

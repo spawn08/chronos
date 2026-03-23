@@ -108,6 +108,7 @@ func (r *Runner) execute(ctx context.Context, rs *RunState) (*RunState, error) {
 		// Check for interrupt (human-in-the-loop pause)
 		if node.Interrupt {
 			rs.Status = RunStatusPaused
+			rs.SeqNum++
 			r.emit(StreamEvent{Type: "interrupt", NodeID: node.ID, State: rs.State})
 			if err := r.checkpoint(ctx, rs); err != nil {
 				return rs, fmt.Errorf("checkpoint on interrupt: %w", err)
