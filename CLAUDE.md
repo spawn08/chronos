@@ -132,6 +132,8 @@ go mod tidy
 
 Re-run a full gap report with the **gap-analysis** slash command (see below).
 
+- **Full Roadmap:** See [ROADMAP.md](ROADMAP.md) for 101 prioritized items (P0–P3) with checkboxes. When completing an item, change `[ ]` to `[x]` and append `<!-- done: YYYY-MM-DD -->` in that file. Also add an entry to the Completion Log table at the bottom.
+
 ## Development Workflow
 
 - **Roadmap:** See [DEVELOPMENT.md](DEVELOPMENT.md) for the seven-tier implementation plan, acceptance criteria, and dependency order (Tier 1 → 4 → 2 → 5 → 3 → 6 → 7).

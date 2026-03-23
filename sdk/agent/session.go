@@ -223,9 +223,7 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 	}
 
 	req := &model.ChatRequest{Messages: messages}
-	if a.OutputSchema != nil {
-		req.ResponseFormat = "json_object"
-	}
+	applyOutputSchema(req, a.OutputSchema)
 
 	// Add tool definitions
 	tools := a.Tools.List()
@@ -242,8 +240,16 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 		}
 	}
 
-	// Fire model call hooks
-	modelEvt := &hooks.Event{Type: hooks.EventModelCallBefore, Name: a.Model.Name(), Input: req}
+	// Fire model call hooks, passing provider and request for retry hook
+	modelEvt := &hooks.Event{
+		Type:  hooks.EventModelCallBefore,
+		Name:  a.Model.Name(),
+		Input: req,
+		Metadata: map[string]any{
+			"provider": a.Model,
+			"request":  req,
+		},
+	}
 	if err := a.Hooks.Before(ctx, modelEvt); err != nil {
 		return nil, fmt.Errorf("hook before model call: %w", err)
 	}
@@ -254,6 +260,12 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 	modelEvt.Output = resp
 	modelEvt.Error = err
 	_ = a.Hooks.After(ctx, modelEvt)
+
+	// If retry hook succeeded, use its output
+	if err != nil && modelEvt.Error == nil {
+		resp, _ = modelEvt.Output.(*model.ChatResponse)
+		err = nil
+	}
 
 	if err != nil {
 		return nil, fmt.Errorf("agent %q session chat: %w", a.ID, err)
@@ -271,6 +283,13 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 	if resp != nil && resp.Content != "" {
 		if result := a.Guardrails.CheckOutput(ctx, resp.Content); result != nil {
 			return nil, fmt.Errorf("output guardrail failed: %s", result.Reason)
+		}
+	}
+
+	// Validate response against output schema
+	if a.OutputSchema != nil && resp != nil && resp.Content != "" {
+		if valErr := validateAgainstSchema(resp.Content, a.OutputSchema); valErr != nil {
+			return nil, fmt.Errorf("output schema validation failed: %w", valErr)
 		}
 	}
 

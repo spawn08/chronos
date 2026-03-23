@@ -187,6 +187,17 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 		}
 	}
 
+	// P0-004: Inject past run history from storage
+	if a.NumHistoryRuns > 0 && a.Storage != nil {
+		historyMsgs := a.loadHistoryRuns(ctx)
+		if len(historyMsgs) > 0 {
+			messages = append(messages, model.Message{
+				Role:    model.RoleSystem,
+				Content: "Previous conversation history:\n" + formatHistoryMessages(historyMsgs),
+			})
+		}
+	}
+
 	messages = append(messages, model.Message{Role: model.RoleUser, Content: userMessage})
 
 	// Check input guardrails
@@ -198,10 +209,8 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 		Messages: messages,
 	}
 
-	// Apply output schema for structured output
-	if a.OutputSchema != nil {
-		req.ResponseFormat = "json_object"
-	}
+	// P0-005: Apply output schema — pass the full JSON Schema, not just json_object mode
+	applyOutputSchema(req, a.OutputSchema)
 
 	// Add tool definitions if any are registered
 	tools := a.Tools.List()
@@ -218,8 +227,16 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 		}
 	}
 
-	// Fire model call hooks
-	modelEvt := &hooks.Event{Type: hooks.EventModelCallBefore, Name: a.Model.Name(), Input: req}
+	// Fire model call hooks, passing provider and request for retry hook
+	modelEvt := &hooks.Event{
+		Type:  hooks.EventModelCallBefore,
+		Name:  a.Model.Name(),
+		Input: req,
+		Metadata: map[string]any{
+			"provider": a.Model,
+			"request":  req,
+		},
+	}
 	if err := a.Hooks.Before(ctx, modelEvt); err != nil {
 		return nil, fmt.Errorf("hook before model call: %w", err)
 	}
@@ -230,6 +247,12 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 	modelEvt.Output = resp
 	modelEvt.Error = err
 	_ = a.Hooks.After(ctx, modelEvt)
+
+	// If retry hook succeeded, use its output
+	if err != nil && modelEvt.Error == nil {
+		resp, _ = modelEvt.Output.(*model.ChatResponse)
+		err = nil
+	}
 
 	if err != nil {
 		return nil, fmt.Errorf("agent %q chat: %w", a.ID, err)
@@ -247,6 +270,13 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 	if resp != nil && resp.Content != "" {
 		if result := a.Guardrails.CheckOutput(ctx, resp.Content); result != nil {
 			return nil, fmt.Errorf("output guardrail failed: %s", result.Reason)
+		}
+	}
+
+	// P0-005: Validate response against output schema
+	if a.OutputSchema != nil && resp != nil && resp.Content != "" {
+		if valErr := validateAgainstSchema(resp.Content, a.OutputSchema); valErr != nil {
+			return nil, fmt.Errorf("output schema validation failed: %w", valErr)
 		}
 	}
 
@@ -413,4 +443,135 @@ func (a *Agent) Resume(ctx context.Context, sessionID string) (*graph.RunState, 
 	}
 	runner := graph.NewRunner(a.Graph, a.Storage)
 	return runner.Resume(ctx, sessionID)
+}
+
+// loadHistoryRuns retrieves past conversation messages from storage for context injection.
+// It loads events from the most recent sessions up to NumHistoryRuns.
+func (a *Agent) loadHistoryRuns(ctx context.Context) []model.Message {
+	if a.Storage == nil || a.NumHistoryRuns <= 0 {
+		return nil
+	}
+
+	sessions, err := a.Storage.ListSessions(ctx, a.ID, a.NumHistoryRuns, 0)
+	if err != nil || len(sessions) == 0 {
+		return nil
+	}
+
+	var history []model.Message
+	for _, sess := range sessions {
+		events, err := a.Storage.ListEvents(ctx, sess.ID, 0)
+		if err != nil {
+			continue
+		}
+		cs := chatSessionFromEvents(events)
+		for _, msg := range cs.Messages {
+			if msg.Role == model.RoleUser || msg.Role == model.RoleAssistant {
+				history = append(history, msg)
+			}
+		}
+	}
+	return history
+}
+
+// formatHistoryMessages converts a slice of messages into a readable string.
+func formatHistoryMessages(msgs []model.Message) string {
+	var b strings.Builder
+	for _, m := range msgs {
+		switch m.Role {
+		case model.RoleUser:
+			b.WriteString("User: ")
+		case model.RoleAssistant:
+			b.WriteString("Assistant: ")
+		default:
+			b.WriteString(m.Role + ": ")
+		}
+		b.WriteString(m.Content)
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// applyOutputSchema sets the request's response format using the full JSON Schema
+// rather than just requesting json_object mode.
+func applyOutputSchema(req *model.ChatRequest, schema map[string]any) {
+	if schema == nil {
+		return
+	}
+	req.ResponseFormat = "json_schema"
+	if req.Metadata == nil {
+		req.Metadata = make(map[string]any)
+	}
+	req.Metadata["json_schema"] = schema
+}
+
+// validateAgainstSchema performs basic structural validation of a JSON response
+// against the provided JSON Schema. It checks required fields and basic types.
+func validateAgainstSchema(content string, schema map[string]any) error {
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(content), &parsed); err != nil {
+		return fmt.Errorf("response is not valid JSON: %w", err)
+	}
+
+	props, _ := schema["properties"].(map[string]any)
+	if props == nil {
+		return nil
+	}
+
+	required, _ := schema["required"].([]any)
+	for _, r := range required {
+		fieldName, ok := r.(string)
+		if !ok {
+			continue
+		}
+		if _, exists := parsed[fieldName]; !exists {
+			return fmt.Errorf("required field %q is missing from response", fieldName)
+		}
+	}
+
+	for fieldName, fieldSpec := range props {
+		val, exists := parsed[fieldName]
+		if !exists {
+			continue
+		}
+		specMap, ok := fieldSpec.(map[string]any)
+		if !ok {
+			continue
+		}
+		expectedType, _ := specMap["type"].(string)
+		if expectedType == "" {
+			continue
+		}
+		if typeErr := checkJSONType(fieldName, val, expectedType); typeErr != nil {
+			return typeErr
+		}
+	}
+
+	return nil
+}
+
+// checkJSONType validates that a JSON value matches the expected JSON Schema type.
+func checkJSONType(field string, val any, expected string) error {
+	switch expected {
+	case "string":
+		if _, ok := val.(string); !ok {
+			return fmt.Errorf("field %q: expected string, got %T", field, val)
+		}
+	case "number", "integer":
+		if _, ok := val.(float64); !ok {
+			return fmt.Errorf("field %q: expected number, got %T", field, val)
+		}
+	case "boolean":
+		if _, ok := val.(bool); !ok {
+			return fmt.Errorf("field %q: expected boolean, got %T", field, val)
+		}
+	case "array":
+		if _, ok := val.([]any); !ok {
+			return fmt.Errorf("field %q: expected array, got %T", field, val)
+		}
+	case "object":
+		if _, ok := val.(map[string]any); !ok {
+			return fmt.Errorf("field %q: expected object, got %T", field, val)
+		}
+	}
+	return nil
 }
