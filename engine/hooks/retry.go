@@ -97,7 +97,7 @@ func (h *RetryHook) After(ctx context.Context, evt *Event) error {
 		sleepFn(delay)
 
 		if ctx.Err() != nil {
-			return fmt.Errorf("retry cancelled: %w", ctx.Err())
+			return fmt.Errorf("retry canceled: %w", ctx.Err())
 		}
 
 		resp, err := provider.Chat(ctx, req)

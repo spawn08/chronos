@@ -103,14 +103,15 @@ func (a *Anthropic) buildRequestBody(req *ChatRequest, stream bool) map[string]a
 		}
 		msg := map[string]any{"role": m.Role}
 
-		if m.Role == RoleTool {
+		switch {
+		case m.Role == RoleTool:
 			msg["role"] = RoleUser
 			msg["content"] = []map[string]any{{
 				"type":        "tool_result",
 				"tool_use_id": m.ToolCallID,
 				"content":     m.Content,
 			}}
-		} else if len(m.ToolCalls) > 0 {
+		case len(m.ToolCalls) > 0:
 			content := make([]map[string]any, 0, len(m.ToolCalls)+1)
 			if m.Content != "" {
 				content = append(content, map[string]any{"type": "text", "text": m.Content})
@@ -126,7 +127,7 @@ func (a *Anthropic) buildRequestBody(req *ChatRequest, stream bool) map[string]a
 				})
 			}
 			msg["content"] = content
-		} else {
+		default:
 			msg["content"] = m.Content
 		}
 		messages = append(messages, msg)

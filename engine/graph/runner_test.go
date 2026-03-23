@@ -146,7 +146,7 @@ func (s *runnerTestStorage) GetMemory(_ context.Context, _, _ string) (*storage.
 	return nil, errors.New("not found")
 }
 
-func (s *runnerTestStorage) ListMemory(_ context.Context, _ string, _ string) ([]*storage.MemoryRecord, error) {
+func (s *runnerTestStorage) ListMemory(_ context.Context, _, _ string) ([]*storage.MemoryRecord, error) {
 	return nil, nil
 }
 
@@ -512,9 +512,6 @@ func TestRunner_TracesNodeFailure(t *testing.T) {
 	for _, tr := range traces {
 		if tr.Error != "" {
 			foundErrorSpan = true
-			if tr.Error != "kaboom" && tr.Error != `node "boom" failed: kaboom` {
-				// The node span gets "kaboom", the graph span gets the wrapped message
-			}
 		}
 	}
 	if !foundErrorSpan {

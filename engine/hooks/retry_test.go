@@ -148,10 +148,10 @@ func TestRetryHook_ContextCancelled(t *testing.T) {
 	}
 
 	hook := NewRetryHook(3)
-	cancelled := false
+	canceled := false
 	hook.SleepFn = func(_ time.Duration) {
-		if !cancelled {
-			cancelled = true
+		if !canceled {
+			canceled = true
 		}
 	}
 

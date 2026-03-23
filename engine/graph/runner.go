@@ -223,13 +223,14 @@ func (r *Runner) execute(ctx context.Context, rs *RunState) (*RunState, error) {
 
 func (r *Runner) findNext(from string, state State) string {
 	edges := r.graph.AdjList[from]
-	for _, e := range edges {
-		if e.Condition != nil {
-			return e.Condition(state)
-		}
-		return e.To
+	if len(edges) == 0 {
+		return ""
 	}
-	return ""
+	e := edges[0]
+	if e.Condition != nil {
+		return e.Condition(state)
+	}
+	return e.To
 }
 
 func (r *Runner) checkpoint(ctx context.Context, rs *RunState) error {

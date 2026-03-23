@@ -105,8 +105,8 @@ func (s *testStorage) GetMemory(_ context.Context, _, key string) (*storage.Memo
 	return nil, errors.New("memory not found")
 }
 
-func (s *testStorage) ListMemory(_ context.Context, _ string, _ string) ([]*storage.MemoryRecord, error) {
-	var result []*storage.MemoryRecord
+func (s *testStorage) ListMemory(_ context.Context, _, _ string) ([]*storage.MemoryRecord, error) {
+	result := make([]*storage.MemoryRecord, 0, len(s.memory))
 	for _, m := range s.memory {
 		result = append(result, m)
 	}
@@ -234,7 +234,7 @@ func TestChat_WithNumHistoryRuns(t *testing.T) {
 
 	foundHistory := false
 	for _, msg := range provider.lastReq.Messages {
-		if msg.Role == model.RoleSystem && len(msg.Content) > 0 {
+		if msg.Role == model.RoleSystem && msg.Content != "" {
 			if contains(msg.Content, "Previous conversation history") {
 				foundHistory = true
 				if !contains(msg.Content, "What is Go?") {
@@ -777,13 +777,8 @@ func TestChat_WithSystemPrompt(t *testing.T) {
 }
 
 func TestChat_RetryHookIntegration(t *testing.T) {
-	callCount := 0
 	provider := &testProvider{}
 	provider.err = errors.New("transient")
-
-	retryProvider := &testProvider{
-		response: &model.ChatResponse{Content: "retried"},
-	}
 
 	hook := hooks.NewRetryHook(2)
 	hook.SleepFn = func(_ time.Duration) {}
@@ -791,12 +786,6 @@ func TestChat_RetryHookIntegration(t *testing.T) {
 	agent := newTestAgent("test", provider)
 	agent.Hooks = hooks.Chain{hook}
 
-	_ = callCount
-	_ = retryProvider
-	// The retry hook needs provider in metadata to work.
-	// In the agent.Chat flow, we now pass the provider.
-	// Since testProvider always returns an error, the retry will also fail
-	// and the chat will return an error.
 	_, err := agent.Chat(context.Background(), "hello")
 	if err == nil {
 		t.Fatal("expected error when provider always fails")

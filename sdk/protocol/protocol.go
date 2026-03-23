@@ -60,7 +60,8 @@ var envelopePool = sync.Pool{
 
 // AcquireEnvelope returns a pooled envelope. Call ReleaseEnvelope when done.
 func AcquireEnvelope() *Envelope {
-	return envelopePool.Get().(*Envelope)
+	e, _ := envelopePool.Get().(*Envelope)
+	return e
 }
 
 // ReleaseEnvelope returns an envelope to the pool after clearing it.
@@ -318,7 +319,7 @@ func (b *Bus) Send(ctx context.Context, env *Envelope) error {
 	return b.deliverTo(ctx, env, env.To)
 }
 
-// SendAndWait sends an envelope and blocks until a reply is received or the context is cancelled.
+// SendAndWait sends an envelope and blocks until a reply is received or the context is canceled.
 func (b *Bus) SendAndWait(ctx context.Context, env *Envelope) (*Envelope, error) {
 	if err := b.Send(ctx, env); err != nil {
 		return nil, err
@@ -482,7 +483,7 @@ func (b *Bus) deliverToLocked(_ context.Context, env *Envelope, agentID string) 
 				}
 				b.recordHistory(reply)
 				b.mu.RLock()
-				if ch, ok := b.inbox[env.From]; ok {
+				if ch, exists := b.inbox[env.From]; exists {
 					select {
 					case ch <- reply:
 					default:

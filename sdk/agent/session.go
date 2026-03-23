@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -155,8 +154,8 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 	userMsg := model.Message{Role: model.RoleUser, Content: userMessage}
 	cs.Messages = append(cs.Messages, userMsg)
 	seqNum := int64(len(events) + 1)
-	if err := persistMessage(ctx, a.Storage, sessionID, seqNum, userMsg); err != nil {
-		return nil, fmt.Errorf("persist user message: %w", err)
+	if persistErr := persistMessage(ctx, a.Storage, sessionID, seqNum, userMsg); persistErr != nil {
+		return nil, fmt.Errorf("persist user message: %w", persistErr)
 	}
 
 	// Build the system context (prompt, instructions, memories, knowledge)
@@ -192,8 +191,8 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 		cs.Messages = result.PreservedMessages
 
 		seqNum++
-		if err := persistSummary(ctx, a.Storage, sessionID, seqNum, cs.Summary); err != nil {
-			return nil, fmt.Errorf("persist summary: %w", err)
+		if sumPersistErr := persistSummary(ctx, a.Storage, sessionID, seqNum, cs.Summary); sumPersistErr != nil {
+			return nil, fmt.Errorf("persist summary: %w", sumPersistErr)
 		}
 
 		_ = a.Hooks.After(ctx, &hooks.Event{
@@ -250,8 +249,8 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 			"request":  req,
 		},
 	}
-	if err := a.Hooks.Before(ctx, modelEvt); err != nil {
-		return nil, fmt.Errorf("hook before model call: %w", err)
+	if hookErr := a.Hooks.Before(ctx, modelEvt); hookErr != nil {
+		return nil, fmt.Errorf("hook before model call: %w", hookErr)
 	}
 
 	resp, err := a.Model.Chat(ctx, req)
@@ -347,60 +346,4 @@ func (a *Agent) resolveContextLimit() int {
 		return a.ContextCfg.MaxContextTokens
 	}
 	return model.ContextLimit(a.Model.Model(), 0)
-}
-
-// chatMessagePayload is used for JSON marshalling of chat message events.
-type chatMessagePayload struct {
-	Role       string         `json:"role"`
-	Content    string         `json:"content"`
-	Name       string         `json:"name,omitempty"`
-	ToolCallID string         `json:"tool_call_id,omitempty"`
-	ToolCalls  []toolCallJSON `json:"tool_calls,omitempty"`
-}
-
-type toolCallJSON struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"`
-}
-
-// marshalChatPayload produces a JSON-safe payload from a message.
-func marshalChatPayload(msg model.Message) map[string]any {
-	p := map[string]any{"role": msg.Role, "content": msg.Content}
-	if msg.Name != "" {
-		p["name"] = msg.Name
-	}
-	if msg.ToolCallID != "" {
-		p["tool_call_id"] = msg.ToolCallID
-	}
-	if len(msg.ToolCalls) > 0 {
-		tcs := make([]map[string]any, len(msg.ToolCalls))
-		for i, tc := range msg.ToolCalls {
-			tcs[i] = map[string]any{"id": tc.ID, "name": tc.Name, "arguments": tc.Arguments}
-		}
-		p["tool_calls"] = tcs
-	}
-	return p
-}
-
-// unmarshalChatPayload reconstructs a Message from a JSON payload map.
-func unmarshalChatPayload(data []byte) (model.Message, error) {
-	var p chatMessagePayload
-	if err := json.Unmarshal(data, &p); err != nil {
-		return model.Message{}, err
-	}
-	msg := model.Message{
-		Role:       p.Role,
-		Content:    p.Content,
-		Name:       p.Name,
-		ToolCallID: p.ToolCallID,
-	}
-	for _, tc := range p.ToolCalls {
-		msg.ToolCalls = append(msg.ToolCalls, model.ToolCall{
-			ID:        tc.ID,
-			Name:      tc.Name,
-			Arguments: tc.Arguments,
-		})
-	}
-	return msg, nil
 }

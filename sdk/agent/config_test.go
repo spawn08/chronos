@@ -26,7 +26,7 @@ agents:
 `
 	dir := t.TempDir()
 	path := filepath.Join(dir, "agents.yaml")
-	if err := os.WriteFile(path, []byte(yaml), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
 		t.Fatalf("write test config: %v", err)
 	}
 
@@ -83,7 +83,7 @@ agents:
 `
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
-	os.WriteFile(path, []byte(yaml), 0644)
+	os.WriteFile(path, []byte(yaml), 0o644)
 
 	fc, err := LoadFile(path)
 	if err != nil {
@@ -167,7 +167,7 @@ agents:
 `
 	dir := t.TempDir()
 	path := filepath.Join(dir, "agents.yaml")
-	os.WriteFile(path, []byte(yaml), 0644)
+	os.WriteFile(path, []byte(yaml), 0o644)
 
 	fc, err := LoadFile(path)
 	if err != nil {

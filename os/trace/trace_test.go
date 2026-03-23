@@ -99,7 +99,7 @@ func (s *traceTestStorage) PutMemory(_ context.Context, _ *storage.MemoryRecord)
 func (s *traceTestStorage) GetMemory(_ context.Context, _, _ string) (*storage.MemoryRecord, error) {
 	return nil, errors.New("not implemented")
 }
-func (s *traceTestStorage) ListMemory(_ context.Context, _ string, _ string) ([]*storage.MemoryRecord, error) {
+func (s *traceTestStorage) ListMemory(_ context.Context, _, _ string) ([]*storage.MemoryRecord, error) {
 	return nil, nil
 }
 func (s *traceTestStorage) DeleteMemory(_ context.Context, _ string) error { return nil }

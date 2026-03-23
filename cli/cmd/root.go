@@ -273,16 +273,16 @@ func agentList() error {
 	}
 	fmt.Printf("%-15s %-20s %-15s %-15s %s\n", "ID", "NAME", "PROVIDER", "MODEL", "DESCRIPTION")
 	fmt.Println(strings.Repeat("-", 85))
-	for _, cfg := range fc.Agents {
-		desc := cfg.Description
+	for i := range fc.Agents {
+		desc := fc.Agents[i].Description
 		if len(desc) > 30 {
 			desc = desc[:27] + "..."
 		}
-		modelName := cfg.Model.Model
+		modelName := fc.Agents[i].Model.Model
 		if modelName == "" {
 			modelName = "(default)"
 		}
-		fmt.Printf("%-15s %-20s %-15s %-15s %s\n", cfg.ID, cfg.Name, cfg.Model.Provider, modelName, desc)
+		fmt.Printf("%-15s %-20s %-15s %-15s %s\n", fc.Agents[i].ID, fc.Agents[i].Name, fc.Agents[i].Model.Provider, modelName, desc)
 	}
 	return nil
 }
@@ -488,9 +488,9 @@ func teamRun() error {
 		t.SetMaxIterations(tc.MaxIterations)
 	}
 	if tc.ErrorStrategy != "" {
-		es, err := parseErrorStrategy(tc.ErrorStrategy)
-		if err != nil {
-			return err
+		es, esErr := parseErrorStrategy(tc.ErrorStrategy)
+		if esErr != nil {
+			return esErr
 		}
 		t.SetErrorStrategy(es)
 	}
@@ -809,8 +809,8 @@ func runConfig() error {
 		fc, err := loadAgentConfig()
 		if err == nil && len(fc.Agents) > 0 {
 			fmt.Printf("  Agents (%d):\n", len(fc.Agents))
-			for _, a := range fc.Agents {
-				fmt.Printf("    - %s (%s / %s)\n", a.ID, a.Model.Provider, a.Model.Model)
+			for j := range fc.Agents {
+				fmt.Printf("    - %s (%s / %s)\n", fc.Agents[j].ID, fc.Agents[j].Model.Provider, fc.Agents[j].Model.Model)
 			}
 		} else {
 			fmt.Println("  Agents: none (create .chronos/agents.yaml)")

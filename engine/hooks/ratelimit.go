@@ -84,7 +84,7 @@ func (h *RateLimitHook) waitOrFail(ctx context.Context, tb *tokenBucket, n int) 
 	if !h.WaitOnLimit {
 		return fmt.Errorf("limit exceeded, try again later")
 	}
-	// Wait until tokens are available or context is cancelled
+	// Wait until tokens are available or context is canceled
 	for {
 		wait := tb.timeUntilAvailable(n)
 		select {

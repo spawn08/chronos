@@ -171,7 +171,7 @@ func TestBroker_SSEHandler(t *testing.T) {
 
 	handler := b.SSEHandler("sse-sub")
 
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequest(http.MethodGet, "/events", http.NoBody)
 	ctx, cancel := context.WithCancel(req.Context())
 	req = req.WithContext(ctx)
 	w := httptest.NewRecorder()

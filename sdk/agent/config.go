@@ -96,9 +96,8 @@ type FileConfig struct {
 
 // FindTeam looks up a team by ID (case-insensitive) within a FileConfig.
 func (fc *FileConfig) FindTeam(id string) (*TeamConfig, error) {
-	lower := strings.ToLower(id)
 	for i := range fc.Teams {
-		if strings.ToLower(fc.Teams[i].ID) == lower {
+		if strings.EqualFold(fc.Teams[i].ID, id) {
 			return &fc.Teams[i], nil
 		}
 	}
@@ -139,9 +138,8 @@ func LoadFile(path string) (*FileConfig, error) {
 
 // FindAgent looks up an agent by ID or name (case-insensitive) within a FileConfig.
 func (fc *FileConfig) FindAgent(idOrName string) (*AgentConfig, error) {
-	lower := strings.ToLower(idOrName)
 	for i := range fc.Agents {
-		if strings.ToLower(fc.Agents[i].ID) == lower || strings.ToLower(fc.Agents[i].Name) == lower {
+		if strings.EqualFold(fc.Agents[i].ID, idOrName) || strings.EqualFold(fc.Agents[i].Name, idOrName) {
 			return &fc.Agents[i], nil
 		}
 	}
@@ -150,10 +148,10 @@ func (fc *FileConfig) FindAgent(idOrName string) (*AgentConfig, error) {
 
 func (fc *FileConfig) agentNames() string {
 	names := make([]string, len(fc.Agents))
-	for i, a := range fc.Agents {
-		names[i] = a.ID
-		if a.Name != "" && a.Name != a.ID {
-			names[i] += " (" + a.Name + ")"
+	for i := range fc.Agents {
+		names[i] = fc.Agents[i].ID
+		if fc.Agents[i].Name != "" && fc.Agents[i].Name != fc.Agents[i].ID {
+			names[i] += " (" + fc.Agents[i].Name + ")"
 		}
 	}
 	return strings.Join(names, ", ")
@@ -218,23 +216,23 @@ func BuildAgent(ctx context.Context, cfg *AgentConfig) (*Agent, error) {
 // BuildAll constructs all agents from a FileConfig.
 func BuildAll(ctx context.Context, fc *FileConfig) (map[string]*Agent, error) {
 	agents := make(map[string]*Agent, len(fc.Agents))
-	for _, cfg := range fc.Agents {
-		a, err := BuildAgent(ctx, &cfg)
+	for i := range fc.Agents {
+		a, err := BuildAgent(ctx, &fc.Agents[i])
 		if err != nil {
 			return nil, err
 		}
 		agents[a.ID] = a
 	}
 	// Wire sub-agents
-	for _, cfg := range fc.Agents {
-		if len(cfg.SubAgents) == 0 {
+	for i := range fc.Agents {
+		if len(fc.Agents[i].SubAgents) == 0 {
 			continue
 		}
-		parent := agents[cfg.ID]
-		for _, subID := range cfg.SubAgents {
+		parent := agents[fc.Agents[i].ID]
+		for _, subID := range fc.Agents[i].SubAgents {
 			sub, ok := agents[subID]
 			if !ok {
-				return nil, fmt.Errorf("agent %q: sub-agent %q not defined", cfg.ID, subID)
+				return nil, fmt.Errorf("agent %q: sub-agent %q not defined", fc.Agents[i].ID, subID)
 			}
 			parent.SubAgents = append(parent.SubAgents, sub)
 		}
@@ -359,7 +357,7 @@ func buildStorage(cfg StorageConfig) (storage.Storage, error) {
 	}
 }
 
-func readConfigFile(path string) ([]byte, string, error) {
+func readConfigFile(path string) (data []byte, resolvedPath string, err error) {
 	candidates := []string{path}
 	if path == "" {
 		candidates = []string{
@@ -414,7 +412,7 @@ func expandEnv(s string) string {
 	return os.ExpandEnv(s)
 }
 
-func applyDefaults(cfg *AgentConfig, defaults *AgentConfig) {
+func applyDefaults(cfg, defaults *AgentConfig) {
 	if cfg.Model.Provider == "" {
 		cfg.Model.Provider = defaults.Model.Provider
 	}
