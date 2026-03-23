@@ -1,3 +1,10 @@
+---
+title: "Quickstart"
+permalink: /getting-started/quickstart/
+sidebar:
+  nav: "docs"
+---
+
 # Quickstart
 
 This guide walks you through building your first Chronos agent in under 5 minutes. No API keys required.

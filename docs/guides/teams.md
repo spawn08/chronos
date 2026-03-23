@@ -1,3 +1,10 @@
+---
+title: "Multi-Agent Teams"
+permalink: /guides/teams/
+sidebar:
+  nav: "docs"
+---
+
 # Multi-Agent Teams
 
 Chronos supports four team orchestration strategies for composing agents into collaborative workflows.
