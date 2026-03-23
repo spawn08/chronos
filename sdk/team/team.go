@@ -40,9 +40,9 @@ type MergeFunc func(results []graph.State) graph.State
 type ErrorStrategy int
 
 const (
-	ErrorStrategyFailFast  ErrorStrategy = iota // abort on first error
-	ErrorStrategyCollect                        // collect all errors, return combined
-	ErrorStrategyBestEffort                     // ignore errors, return successful results
+	ErrorStrategyFailFast   ErrorStrategy = iota // abort on first error
+	ErrorStrategyCollect                         // collect all errors, return combined
+	ErrorStrategyBestEffort                      // ignore errors, return successful results
 )
 
 // AgentInfo is a lightweight descriptor exposed to routing functions.

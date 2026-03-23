@@ -174,8 +174,8 @@ type Bus struct {
 	peers map[string]*Peer
 	inbox map[string]chan *Envelope
 
-	directMu   sync.RWMutex
-	directs    map[string]*DirectChannel // directKey -> channel
+	directMu sync.RWMutex
+	directs  map[string]*DirectChannel // directKey -> channel
 
 	histMu  sync.Mutex
 	history []*Envelope

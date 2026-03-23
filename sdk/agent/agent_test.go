@@ -464,16 +464,16 @@ func TestChat_WithoutOutputSchema(t *testing.T) {
 
 func TestApplyOutputSchema(t *testing.T) {
 	tests := []struct {
-		name           string
-		schema         map[string]any
-		wantFormat     string
-		wantHasSchema  bool
+		name          string
+		schema        map[string]any
+		wantFormat    string
+		wantHasSchema bool
 	}{
 		{
-			name:           "nil schema",
-			schema:         nil,
-			wantFormat:     "",
-			wantHasSchema:  false,
+			name:          "nil schema",
+			schema:        nil,
+			wantFormat:    "",
+			wantHasSchema: false,
 		},
 		{
 			name: "with schema",
