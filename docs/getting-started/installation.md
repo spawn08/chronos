@@ -1,27 +1,54 @@
+---
+title: "Installation"
+permalink: /getting-started/installation/
+sidebar:
+  nav: "docs"
+---
+
 # Installation
 
-## Requirements
+## Option 1: Install CLI (recommended)
 
-- **Go 1.24+** — [Download Go](https://go.dev/dl/)
-- **C compiler** — Required for SQLite via CGO (gcc on Linux, Xcode Command Line Tools on macOS)
+Pre-built binaries for Linux, macOS, and Windows:
 
-## Install as a Go Module
+```bash
+curl -fsSL https://raw.githubusercontent.com/spawn08/chronos/main/install.sh | bash
+```
 
-Add Chronos to your project:
+Verify:
+
+```bash
+chronos version
+```
+
+See [CLI Install]({{ '/getting-started/cli-install/' | relative_url }}) for platform-specific details and manual download options.
+
+## Option 2: Go Module
+
+Add Chronos as a library to your Go project:
 
 ```bash
 go get github.com/spawn08/chronos
 ```
 
-## Build from Source
+**Requirements:** Go 1.24+, C compiler (for SQLite via CGO).
+
+## Option 3: Build from Source
 
 ```bash
 git clone https://github.com/spawn08/chronos.git
 cd chronos
-go build ./...
+make build    # outputs to bin/chronos
 ```
 
-## Verify Installation
+Or directly:
+
+```bash
+go build -o chronos ./cli/main.go
+./chronos version
+```
+
+## Verify
 
 Run the quickstart example (no API keys needed):
 
@@ -29,22 +56,7 @@ Run the quickstart example (no API keys needed):
 go run ./examples/quickstart/
 ```
 
-Expected output:
-
-```
-Result: map[greeting:Hello, World! intent:general_question response:I classified your intent as "general_question". How can I help? user:World]
-```
-
-## CLI Binary
-
-Build the CLI for interactive use:
-
-```bash
-go build -o bin/chronos ./cli/main.go
-./bin/chronos version
-```
-
 ## Next Steps
 
-- [Quickstart Guide](quickstart.md) — Build your first agent
-- [Examples](../guides/examples.md) — Browse all runnable examples
+- [Quickstart]({{ '/getting-started/quickstart/' | relative_url }}) — Build your first agent
+- [Examples]({{ '/guides/examples/' | relative_url }}) — Browse all runnable examples

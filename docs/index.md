@@ -21,6 +21,9 @@ classes: wide
     </a>
   </div>
   <div class="install-command">
+    <span class="prompt">$ </span>curl -fsSL https://raw.githubusercontent.com/spawn08/chronos/main/install.sh | bash
+  </div>
+  <div class="install-command" style="margin-top: 0.5rem; font-size: 0.85em; opacity: 0.8;">
     <span class="prompt">$ </span>go get github.com/spawn08/chronos
   </div>
 </div>

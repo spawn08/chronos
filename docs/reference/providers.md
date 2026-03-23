@@ -1,3 +1,10 @@
+---
+title: "Model Providers"
+permalink: /reference/providers/
+sidebar:
+  nav: "docs"
+---
+
 # Model Providers
 
 Chronos supports every major LLM provider through a single `Provider` interface. All providers implement both `Chat` (full response) and `StreamChat` (token-by-token streaming).

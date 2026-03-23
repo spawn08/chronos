@@ -1,3 +1,10 @@
+---
+title: "Architecture"
+permalink: /reference/architecture/
+sidebar:
+  nav: "docs"
+---
+
 # Architecture
 
 Chronos is organized into four layers, each with clear responsibilities and boundaries.

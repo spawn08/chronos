@@ -1,71 +1,60 @@
 <p align="center">
   <h1 align="center">Chronos</h1>
   <p align="center">
-    A Go framework for building durable, scalable AI agents.
-    <br />
+    A Go framework for building durable, scalable AI agents.<br />
     Define agents. Connect any LLM. Let them collaborate.
   </p>
   <p align="center">
+    <a href="#install">Install</a> &middot;
     <a href="#quickstart">Quickstart</a> &middot;
-    <a href="#agent-configuration-yaml">YAML Config</a> &middot;
-    <a href="#architecture">Architecture</a> &middot;
-    <a href="#model-providers">Providers</a> &middot;
-    <a href="#cli">CLI</a> &middot;
-    <a href="#multi-agent-protocol">Protocol</a> &middot;
-    <a href="#deployment">Deployment</a>
+    <a href="https://spawn08.github.io/chronos/">Docs</a> &middot;
+    <a href="#examples">Examples</a> &middot;
+    <a href="ROADMAP.md">Roadmap</a>
   </p>
 </p>
 
 ---
 
-## Why Chronos
-
-Agentic software is fundamentally different from traditional request–response systems. Agents reason, call tools, pause for human approval, and resume later. They collaborate with other agents, maintain memory across sessions, and make decisions under uncertainty.
-
-Chronos provides the full stack for building this kind of software in Go:
-
-| Layer | Responsibility |
-|-------|---------------|
-| **SDK** | Agent builder, skills, memory, knowledge, teams, inter-agent protocol |
-| **Engine** | StateGraph runtime, model providers, tool registry, guardrails, streaming |
-| **ChronosOS** | HTTP control plane, auth, tracing, audit logs, approval enforcement |
-| **Storage** | Pluggable persistence for sessions, checkpoints, memory, vectors |
-
----
-
 ## Features
 
-- **YAML-First Configuration** — Define agents, models, and storage in `.chronos/agents.yaml` with `${ENV_VAR}` expansion and defaults inheritance
-- **Multi-Provider LLM Support** — OpenAI, Anthropic, Google Gemini, Mistral, Ollama, Azure OpenAI, and any OpenAI-compatible endpoint (Together, Groq, DeepSeek, OpenRouter, Fireworks, and more)
-- **Embedding Providers** — OpenAI and Ollama embeddings for RAG pipelines, with a caching layer
-- **Agent Communication Protocol** — Agents delegate tasks, share results, ask questions, broadcast updates, and hand off conversations via a typed message bus
-- **Durable Execution** — StateGraph runtime with checkpointing, interrupt nodes, and resume-from-checkpoint
-- **Function Calling** — Automatic tool-call loop with before/after hooks on every tool and model call
-- **Multi-Agent Teams** — Sequential, parallel, router, and coordinator strategies with shared context
-- **Human-in-the-Loop** — Interrupt nodes and approval API for high-risk tool calls
-- **Pluggable Storage** — Single interface with adapters for SQLite, PostgreSQL, Redis, MongoDB, DynamoDB
-- **Vector Stores** — Qdrant, Pinecone, Weaviate, Milvus, Redis Vector adapters
-- **Guardrails** — Input and output validation with blocklist, max-length, and custom guardrail support
-- **Knowledge (RAG)** — Vector-backed retrieval automatically injected into agent context
-- **Memory** — Short-term and long-term memory with LLM-powered extraction, injected into every conversation
-- **Observability** — Full tracing of node transitions, tool calls, and model responses; SSE streaming
-- **CLI** — Interactive REPL with agent chat, shell escape, slash commands, session/memory management, and headless batch mode
-- **Sandbox** — Process-level and Docker container isolation with resource limits
-- **Production Ready** — Docker, Helm chart (with HPA, Ingress, Secrets), horizontal scaling
+| Layer | What it does |
+|-------|-------------|
+| **SDK** | Agent builder, teams (sequential/parallel/router/coordinator), memory, knowledge (RAG), inter-agent protocol bus |
+| **Engine** | StateGraph runtime with checkpointing and interrupt nodes, 14+ LLM providers, tool registry, guardrails, hooks, SSE streaming |
+| **ChronosOS** | HTTP control plane — auth, RBAC, tracing, audit logs, approval API |
+| **Storage** | SQLite, PostgreSQL, Redis, MongoDB, DynamoDB, Qdrant, Pinecone, Weaviate, Milvus |
+| **CLI** | Interactive REPL, headless batch mode, session/memory management, YAML-first config |
 
 ---
 
-## Quickstart
+## Install
 
-### Install
+### CLI Binary (Linux / macOS / Windows)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/spawn08/chronos/main/install.sh | bash
+```
+
+Pre-built binaries for `linux/amd64`, `linux/arm64`, `darwin/amd64` (Intel), `darwin/arm64` (Apple Silicon), `windows/amd64`, and `windows/arm64` are published to [GitHub Releases](https://github.com/spawn08/chronos/releases).
+
+### Go Module
 
 ```bash
 go get github.com/spawn08/chronos
 ```
 
-### Option A: YAML Config (recommended)
+### Build from Source
 
-Create `.chronos/agents.yaml` in your project:
+```bash
+git clone https://github.com/spawn08/chronos.git && cd chronos
+make build    # outputs bin/chronos
+```
+
+---
+
+## Quickstart
+
+**YAML config** — create `.chronos/agents.yaml`:
 
 ```yaml
 defaults:
@@ -81,64 +70,30 @@ agents:
     name: Dev Agent
     model:
       model: gpt-4o
-    system_prompt: You are a senior software engineer. Be concise.
+    system_prompt: You are a senior software engineer.
 ```
-
-Then use the CLI:
 
 ```bash
-# Chat interactively
-go run ./cli/main.go repl
-
-# One-shot query
-go run ./cli/main.go run "explain Go interfaces"
-
-# List configured agents
-go run ./cli/main.go agent list
+chronos repl                            # interactive chat
+chronos run "explain Go interfaces"     # headless one-shot
 ```
 
-Or load from Go code:
+**Go builder API:**
 
 ```go
-fc, _ := agent.LoadFile("")  // auto-discovers .chronos/agents.yaml
-cfg, _ := fc.FindAgent("dev")
-a, _ := agent.BuildAgent(ctx, cfg)
+a, _ := agent.New("chat", "Chat Agent").
+    WithModel(model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))).
+    WithSystemPrompt("You are a helpful assistant.").
+    Build()
+
 resp, _ := a.Chat(ctx, "What is the capital of France?")
+fmt.Println(resp.Content)
 ```
 
-### Option B: Go Builder API
+**Graph-based agent:**
 
 ```go
-package main
-
-import (
-    "context"
-    "fmt"
-    "os"
-
-    "github.com/spawn08/chronos/engine/model"
-    "github.com/spawn08/chronos/sdk/agent"
-)
-
-func main() {
-    a, _ := agent.New("chat-agent", "Chat Agent").
-        WithModel(model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))).
-        WithSystemPrompt("You are a helpful assistant.").
-        Build()
-
-    resp, _ := a.Chat(context.Background(), "What is the capital of France?")
-    fmt.Println(resp.Content)
-}
-```
-
-### Graph-Based Agent
-
-```go
-store, _ := sqlite.New("myagent.db")
-defer store.Close()
-store.Migrate(ctx)
-
-g := graph.New("hello").
+g := graph.New("pipeline").
     AddNode("greet", func(_ context.Context, s graph.State) (graph.State, error) {
         s["message"] = fmt.Sprintf("Hello, %s!", s["user"])
         return s, nil
@@ -146,800 +101,95 @@ g := graph.New("hello").
     SetEntryPoint("greet").
     SetFinishPoint("greet")
 
-a, _ := agent.New("hello-agent", "Hello Agent").
-    WithStorage(store).
-    WithGraph(g).
-    Build()
-
+a, _ := agent.New("hello", "Hello Agent").WithGraph(g).Build()
 result, _ := a.Run(ctx, map[string]any{"user": "World"})
-fmt.Println(result.State["message"]) // Hello, World!
 ```
-
----
-
-## Architecture
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│                   ChronosOS  (Control Plane)                 │
-│   Auth & RBAC  │  Tracing & Audit  │  Approval  │  HTTP API │
-└────────────────────────────┬─────────────────────────────────┘
-                             │
-┌────────────────────────────▼─────────────────────────────────┐
-│                         Engine                               │
-│  StateGraph Runtime │ Model Providers │ Tools │ Guardrails   │
-│  Hooks & Middleware │ SSE Streaming                          │
-└────────────────────────────┬─────────────────────────────────┘
-                             │
-┌────────────────────────────▼─────────────────────────────────┐
-│                          SDK                                 │
-│  Agent Builder │ Teams │ Protocol Bus │ Skills │ Memory/RAG  │
-└────────────────────────────┬─────────────────────────────────┘
-                             │
-┌────────────────────────────▼─────────────────────────────────┐
-│                    Storage  (Pluggable)                       │
-│  SQLite │ PostgreSQL │ Redis │ MongoDB │ DynamoDB            │
-│  Qdrant │ Pinecone │ Weaviate │ Milvus                      │
-└──────────────────────────────────────────────────────────────┘
-```
-
-### Project Structure
-
-```
-chronos/
-├── engine/                    # Runtime layer
-│   ├── graph/                 # StateGraph: nodes, edges, checkpoints, resume
-│   ├── model/                 # LLM provider implementations
-│   │   ├── provider.go        # Provider interface and shared types
-│   │   ├── openai.go          # OpenAI (GPT-4o, o1, o3)
-│   │   ├── anthropic.go       # Anthropic (Claude)
-│   │   ├── gemini.go          # Google Gemini
-│   │   ├── mistral.go         # Mistral AI
-│   │   ├── ollama.go          # Ollama (local models)
-│   │   ├── azure.go           # Azure OpenAI
-│   │   ├── compatible.go      # Any OpenAI-compatible API
-│   │   ├── openai_embeddings.go  # OpenAI embeddings provider
-│   │   ├── ollama_embeddings.go  # Ollama embeddings provider
-│   │   ├── embeddings.go      # EmbeddingsProvider interface + caching
-│   │   └── httpclient.go      # Shared HTTP transport
-│   ├── tool/                  # Tool registry with permissions
-│   ├── guardrails/            # Input/output validation
-│   ├── hooks/                 # Before/after middleware chain
-│   └── stream/                # SSE event broker
-├── sdk/                       # User-facing API layer
-│   ├── agent/
-│   │   ├── agent.go           # Agent definition and fluent builder
-│   │   └── config.go          # YAML config parser and agent loader
-│   ├── team/                  # Multi-agent orchestration strategies
-│   ├── protocol/              # Agent-to-agent communication bus
-│   ├── skill/                 # Skill metadata and registry
-│   ├── memory/                # Short/long-term memory + LLM manager
-│   └── knowledge/             # RAG: Knowledge interface, VectorKnowledge
-├── storage/                   # Persistence layer
-│   ├── storage.go             # Storage interface (18 methods)
-│   ├── vector.go              # VectorStore interface
-│   └── adapters/
-│       ├── sqlite/            # SQLite (dev/test)
-│       ├── postgres/          # PostgreSQL (production)
-│       ├── qdrant/            # Qdrant vector store
-│       ├── redis/             # Redis key-value storage
-│       ├── redisvector/       # Redis vector store (RediSearch)
-│       ├── mongo/             # MongoDB document storage
-│       ├── dynamo/            # DynamoDB serverless storage
-│       ├── pinecone/          # Pinecone vector store
-│       ├── weaviate/          # Weaviate vector store
-│       └── milvus/            # Milvus vector store
-├── os/                        # ChronosOS control plane
-│   ├── server.go              # HTTP API server
-│   ├── auth/                  # RBAC and authentication
-│   ├── trace/                 # Span collector and audit logging
-│   └── approval/              # Human-in-the-loop approval service
-├── cli/                       # Command-line interface
-│   ├── main.go                # Entry point
-│   ├── cmd/                   # CLI commands (repl, serve, run, agent, sessions, memory, db, config)
-│   └── repl/                  # Interactive REPL with agent chat and slash commands
-├── sandbox/
-│   ├── sandbox.go             # Sandbox interface + ProcessSandbox
-│   └── container.go           # ContainerSandbox (Docker API)
-├── .chronos/
-│   └── agents.yaml            # Example agent configuration
-├── examples/
-├── deploy/
-│   ├── docker/
-│   └── helm/chronos/          # Helm chart (Deployment, Service, Secret, Ingress, HPA, ServiceAccount)
-├── go.mod
-└── README.md
-```
-
----
-
-## Agent Configuration (YAML)
-
-Chronos agents can be defined entirely in YAML — no Go code required for basic setups. The CLI auto-discovers config files in this order:
-
-1. `.chronos/agents.yaml` (project-level)
-2. `agents.yaml` (current directory)
-3. `~/.chronos/agents.yaml` (global)
-
-Override with `CHRONOS_CONFIG=/path/to/config.yaml`.
-
-```yaml
-defaults:
-  model:
-    provider: openai
-    api_key: ${OPENAI_API_KEY}      # Environment variable expansion
-  storage:
-    backend: sqlite
-    dsn: chronos.db
-
-agents:
-  - id: dev
-    name: Dev Agent
-    description: General-purpose coding assistant
-    model:
-      model: gpt-4o
-    system_prompt: |
-      You are a senior software engineer. Be concise.
-    instructions:
-      - Always use context.Context as the first parameter.
-    capabilities: [code, review]
-
-  - id: researcher
-    name: Research Agent
-    model:
-      provider: anthropic                # Override the default provider
-      model: claude-sonnet-4-6
-      api_key: ${ANTHROPIC_API_KEY}
-    system_prompt: You are a research analyst.
-
-  - id: local
-    name: Local Agent
-    model:
-      provider: ollama
-      model: llama3.3
-    storage:
-      backend: sqlite
-      dsn: local.db
-
-  - id: coordinator
-    name: Team Lead
-    model:
-      model: gpt-4o
-    sub_agents: [dev, researcher]        # Wires sub-agent references
-```
-
-### Supported Providers in YAML
-
-`openai`, `anthropic`, `gemini`, `mistral`, `ollama`, `azure`, `groq`, `together`, `deepseek`, `openrouter`, `fireworks`, `perplexity`, `anyscale`, `compatible`
-
-### Loading from Go
-
-```go
-fc, _ := agent.LoadFile("")                    // auto-discover
-cfg, _ := fc.FindAgent("dev")                  // lookup by ID or name
-a, _ := agent.BuildAgent(ctx, cfg)             // fully wired agent
-
-agents, _ := agent.BuildAll(ctx, fc)           // build all, wire sub-agents
-coordinator := agents["coordinator"]
-```
-
----
-
-## Model Providers
-
-Chronos supports every major LLM provider through a single `Provider` interface. Swap providers with one line — no code changes needed.
-
-### Supported Providers
-
-| Provider | Constructor | Models |
-|----------|------------|--------|
-| **OpenAI** | `model.NewOpenAI(key)` | GPT-4o, GPT-4, GPT-3.5-turbo, o1, o3 |
-| **Anthropic** | `model.NewAnthropic(key)` | Claude Sonnet, Opus, Haiku |
-| **Google Gemini** | `model.NewGemini(key)` | Gemini 2.0 Flash, Gemini Pro |
-| **Mistral** | `model.NewMistral(key)` | Mistral Large, Medium, Small |
-| **Ollama** | `model.NewOllama(host, model)` | Llama 3, Mistral, CodeLlama, any local model |
-| **Azure OpenAI** | `model.NewAzureOpenAI(endpoint, key, deployment)` | Any Azure-deployed model |
-| **OpenAI-Compatible** | `model.NewOpenAICompatible(name, url, key, model)` | vLLM, TGI, LiteLLM, any custom server |
-
-### Convenience Constructors
-
-```go
-model.NewTogether(key, model)      // Together AI
-model.NewGroq(key, model)          // Groq
-model.NewDeepSeek(key, model)      // DeepSeek
-model.NewOpenRouter(key, model)    // OpenRouter
-model.NewFireworks(key, model)     // Fireworks AI
-model.NewPerplexity(key, model)    // Perplexity
-model.NewAnyscale(key, model)      // Anyscale Endpoints
-```
-
-### Usage
-
-```go
-// OpenAI
-a, _ := agent.New("a1", "Agent").
-    WithModel(model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))).
-    Build()
-
-// Anthropic
-a, _ := agent.New("a2", "Agent").
-    WithModel(model.NewAnthropic(os.Getenv("ANTHROPIC_API_KEY"))).
-    Build()
-
-// Local Ollama
-a, _ := agent.New("a3", "Agent").
-    WithModel(model.NewOllama("http://localhost:11434", "llama3.2")).
-    Build()
-
-// Custom endpoint (e.g., self-hosted vLLM)
-a, _ := agent.New("a4", "Agent").
-    WithModel(model.NewOpenAICompatible("vllm", "http://gpu-server:8000/v1", "", "meta-llama/Llama-3.1-70B")).
-    Build()
-
-// Full configuration
-a, _ := agent.New("a5", "Agent").
-    WithModel(model.NewOpenAIWithConfig(model.ProviderConfig{
-        APIKey:     os.Getenv("OPENAI_API_KEY"),
-        Model:      "gpt-4o",
-        MaxRetries: 3,
-        TimeoutSec: 60,
-    })).
-    Build()
-```
-
-### Embedding Providers
-
-Used for RAG pipelines and knowledge base search.
-
-```go
-// OpenAI embeddings
-emb := model.NewOpenAIEmbeddings(os.Getenv("OPENAI_API_KEY"))
-
-// Ollama local embeddings
-emb := model.NewOllamaEmbeddings("http://localhost:11434", "nomic-embed-text")
-
-// With caching
-emb := model.NewCachedEmbeddings(model.NewOpenAIEmbeddings(key))
-
-resp, _ := emb.Embed(ctx, &model.EmbeddingRequest{
-    Input: []string{"Hello world", "Goodbye world"},
-})
-// resp.Embeddings contains [][]float32
-```
-
-### Streaming
-
-Every provider supports streaming via `StreamChat`:
-
-```go
-ch, _ := provider.StreamChat(ctx, &model.ChatRequest{
-    Messages: []model.Message{{Role: "user", Content: "Tell me a story"}},
-})
-for chunk := range ch {
-    fmt.Print(chunk.Content) // prints tokens as they arrive
-}
-```
-
----
-
-## Multi-Agent Teams
-
-Multiple agents can work together as a team. Each agent is a lightweight specialist — just a model and a system prompt, no graph or storage required.
-
-### Creating Agents
-
-```go
-researcher, _ := agent.New("researcher", "Researcher").
-    Description("Researches topics and gathers facts").
-    WithModel(model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))).
-    WithSystemPrompt("You are a research specialist. Provide key facts on any topic.").
-    AddCapability("research").
-    Build()
-
-writer, _ := agent.New("writer", "Writer").
-    Description("Writes polished content from research").
-    WithModel(model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))).
-    WithSystemPrompt("You are a writer. Produce clear, engaging articles.").
-    AddCapability("writing").
-    Build()
-```
-
-### Team Strategies
-
-```go
-// Sequential: agents run in order, each builds on the previous output
-t := team.New("pipeline", "Content Pipeline", team.StrategySequential).
-    AddAgent(researcher).
-    AddAgent(writer).
-    AddAgent(reviewer)
-result, _ := t.Run(ctx, graph.State{"message": "Write about renewable energy"})
-
-// Parallel: agents run concurrently with bounded concurrency and error handling
-t := team.New("analysis", "Analysis", team.StrategyParallel).
-    AddAgent(optimist).
-    AddAgent(pessimist).
-    AddAgent(realist).
-    SetMaxConcurrency(2).                       // limit concurrent API calls
-    SetErrorStrategy(team.ErrorStrategyBestEffort) // ignore failures, use what succeeds
-
-// Router: dispatches to the best agent for the input
-t := team.New("support", "Support", team.StrategyRouter).
-    AddAgent(billing).
-    AddAgent(technical).
-    AddAgent(sales).
-    SetRouter(func(state graph.State) string {
-        msg, _ := state["message"].(string)
-        if strings.Contains(msg, "invoice") { return "billing" }
-        if strings.Contains(msg, "error")   { return "technical" }
-        return "sales"
-    })
-
-// Coordinator: supervisor LLM decomposes tasks and delegates to specialists
-t := team.New("project", "Project Team", team.StrategyCoordinator).
-    SetCoordinator(supervisor).  // LLM-powered planner
-    AddAgent(researcher).
-    AddAgent(writer).
-    SetMaxIterations(2)          // allow re-planning after seeing results
-```
-
-### Agent Communication
-
-```
-┌──────────┐     TaskRequest     ┌──────────┐
-│Researcher├────────────────────►│  Writer  │
-│          │◄────────────────────┤          │
-└──────────┘     TaskResult      └──────────┘
-      │                                │
-      │  Broadcast("done")             │  Broadcast("done")
-      ▼                                ▼
-┌──────────────────────────────────────────┐
-│              Protocol Bus                │
-│  Typed messages · History · Back-pressure│
-└──────────────────────────────────────────┘
-```
-
-**Bus messaging** — delegate tasks, ask questions, broadcast updates:
-
-```go
-// Delegate a task and wait for the result
-result, _ := t.DelegateTask(ctx, "researcher", "writer", "draft",
-    protocol.TaskPayload{
-        Description: "Write a summary about solar energy",
-        Input:       map[string]any{"message": "Write about solar energy"},
-    })
-
-// Ask a question
-answer, _ := t.Bus.Ask(ctx, "writer", "researcher", "What are the latest stats?")
-
-// Broadcast to all agents
-t.Broadcast(ctx, "researcher", "update", map[string]any{"progress": 0.5})
-```
-
-**Direct channels** — bypass the bus for low-latency point-to-point messaging:
-
-```go
-dc := t.DirectChannel("researcher", "writer", 128)
-
-// Send directly (no bus routing overhead)
-dc.AtoB <- &protocol.Envelope{
-    Type: protocol.TypeTaskResult, From: "researcher", To: "writer",
-    Subject: "findings", Body: json.RawMessage(`{"data": "..."}`),
-}
-msg := <-dc.AtoB // writer receives
-```
-
-See the [Multi-Agent Teams guide](docs/guides/teams.md) for complete documentation.
-
----
-
-## StateGraph Runtime
-
-The engine provides a durable graph runtime where each node is a function that transforms state. Execution is checkpointed after every node, enabling pause/resume and time-travel debugging.
-
-```go
-g := graph.New("pipeline").
-    AddNode("extract", extractFn).
-    AddNode("transform", transformFn).
-    AddNode("validate", validateFn).
-    AddInterruptNode("approve", approveFn). // pauses for human approval
-    AddNode("load", loadFn).
-    SetEntryPoint("extract").
-    AddEdge("extract", "transform").
-    AddEdge("transform", "validate").
-    AddConditionalEdge("validate", func(s graph.State) string {
-        if s["valid"].(bool) {
-            return "approve"
-        }
-        return "transform" // retry
-    }).
-    AddEdge("approve", "load").
-    SetFinishPoint("load")
-```
-
-### Features
-
-- **Checkpointing** — State saved after every node for crash recovery
-- **Interrupt Nodes** — Pause execution for human-in-the-loop approval
-- **Conditional Edges** — Dynamic routing based on state
-- **Resume** — Continue from the latest checkpoint or any historical checkpoint
-- **Stream Events** — Real-time `node_start`, `node_end`, `edge_transition`, `interrupt`, `error`, `completed` events
-
----
-
-## Tools & Function Calling
-
-Register tools that the LLM can call. Chronos handles the full tool-call loop automatically.
-
-```go
-a, _ := agent.New("assistant", "Assistant").
-    WithModel(model.NewOpenAI(key)).
-    WithSystemPrompt("You are a helpful assistant with access to tools.").
-    AddTool(&tool.Definition{
-        Name:        "get_weather",
-        Description: "Get current weather for a city",
-        Parameters: map[string]any{
-            "type": "object",
-            "properties": map[string]any{
-                "city": map[string]string{"type": "string", "description": "City name"},
-            },
-            "required": []string{"city"},
-        },
-        Permission: tool.PermAllow,
-        Handler: func(ctx context.Context, args map[string]any) (any, error) {
-            return map[string]string{"temp": "22°C", "city": args["city"].(string)}, nil
-        },
-    }).
-    Build()
-
-// The model will automatically call get_weather if relevant
-resp, _ := a.Chat(ctx, "What's the weather in Tokyo?")
-```
-
-### Permissions
-
-| Level | Behavior |
-|-------|----------|
-| `PermAllow` | Executed immediately |
-| `PermRequireApproval` | Paused until a human approves via the approval API |
-| `PermDeny` | Blocked — the model is told the tool is unavailable |
-
----
-
-## Storage
-
-All storage adapters implement the same `Storage` interface (18 methods covering sessions, memory, audit logs, traces, events, and checkpoints). Swap backends with zero code changes.
-
-```go
-// Development
-store, _ := sqlite.New("dev.db")
-
-// Production
-store, _ := postgres.New("postgres://user:pass@host:5432/chronos")
-
-// Vector store for RAG
-vectors := qdrant.New("http://localhost:6333")
-vectors.CreateCollection(ctx, "docs", 1536)
-```
-
-| Adapter | Type | Status |
-|---------|------|--------|
-| SQLite | Storage | Production-ready |
-| PostgreSQL | Storage | Production-ready |
-| Qdrant | VectorStore | Production-ready |
-| Redis | Storage | Available |
-| Redis Vector | VectorStore | Available (RediSearch) |
-| MongoDB | Storage | Available |
-| DynamoDB | Storage | Available |
-| Pinecone | VectorStore | Available |
-| Weaviate | VectorStore | Available |
-| Milvus | VectorStore | Available |
-
----
-
-## Guardrails
-
-Validate inputs and outputs before they reach the model or the user.
-
-```go
-agent.New("safe", "Safe Agent").
-    AddInputGuardrail("blocklist", &guardrails.BlocklistGuardrail{
-        Blocklist: []string{"hack", "exploit"},
-    }).
-    AddOutputGuardrail("max_length", &guardrails.MaxLengthGuardrail{
-        MaxChars: 4096,
-    })
-```
-
----
-
-## CLI
-
-The CLI auto-loads agents from `.chronos/agents.yaml` when available.
-
-```bash
-# Interactive REPL (loads default agent from config)
-chronos repl
-
-# Chat with a specific agent
-chronos agent chat dev
-
-# One-shot message (headless)
-chronos run "explain Go interfaces"
-chronos run --agent researcher "compare React vs Svelte"
-
-# Agent management
-chronos agent list                   # List all configured agents
-chronos agent show dev               # Show agent details
-
-# Team management
-chronos team list                    # List all configured teams
-chronos team show dev-team           # Show team details
-chronos team run dev-team "Build a login feature"  # Run a team
-
-# Session management
-chronos sessions list                # List past sessions
-chronos sessions export <id>        # Export session as markdown
-
-# Memory, storage, config
-chronos memory list <agent_id>       # Show stored memories
-chronos db init                      # Initialize database
-chronos db status                    # Show database info
-chronos config show                  # Show config and loaded agents
-
-# Control plane server
-chronos serve :8420
-```
-
-### REPL Commands
-
-```
-dev> /help           Show available commands
-dev> /agent          Show current agent info
-dev> /model          Show current model info
-dev> /sessions       List recent sessions
-dev> /memory         List memories for current agent
-dev> /history        Show conversation history
-dev> /clear          Clear conversation history
-dev> /quit           Exit
-dev> ! ls -la        Run a shell command
-```
-
-Non-command input is sent directly to the loaded agent for chat.
 
 ---
 
 ## Examples
 
-| Example | Description | API Keys? | Run |
-|---------|-------------|-----------|-----|
-| [quickstart](examples/quickstart/) | Minimal agent with SQLite and a 3-node graph | No | `go run ./examples/quickstart/` |
-| [tools_and_guardrails](examples/tools_and_guardrails/) | Tool registry with permissions (allow/deny/approval) and input/output guardrails | No | `go run ./examples/tools_and_guardrails/` |
-| [hooks_observability](examples/hooks_observability/) | All hooks: metrics, cost tracking, rate limiting, caching, retry, logging | No | `go run ./examples/hooks_observability/` |
-| [graph_patterns](examples/graph_patterns/) | Conditional edges, interrupt nodes, checkpoints, stream events | No | `go run ./examples/graph_patterns/` |
-| [memory_and_sessions](examples/memory_and_sessions/) | Short/long-term memory, multi-turn sessions with persistence | No | `go run ./examples/memory_and_sessions/` |
-| [streaming_sse](examples/streaming_sse/) | Event broker pub/sub, graph stream events, SSE HTTP handler | No | `go run ./examples/streaming_sse/` |
-| [chat_with_tools](examples/chat_with_tools/) | Agent chat with tool definitions and direct tool execution | No | `go run ./examples/chat_with_tools/` |
-| [fallback_provider](examples/fallback_provider/) | Provider chain with automatic failover (primary → secondary → local) | No | `go run ./examples/fallback_provider/` |
-| [sandbox_execution](examples/sandbox_execution/) | Process sandbox with timeouts, I/O capture, exit codes | No | `go run ./examples/sandbox_execution/` |
-| [multi_agent](examples/multi_agent/) | All 4 team strategies, direct channels, bus delegation | Optional | `go run ./examples/multi_agent/` |
-| [multi_provider](examples/multi_provider/) | Connect to OpenAI, Anthropic, Gemini, Mistral, Ollama | Yes | `go run ./examples/multi_provider/` |
-| [azure](examples/azure/) | Azure OpenAI provider (standard + streaming) | Yes | `go run ./examples/azure/` |
-| [yaml-configs](examples/yaml-configs/) | YAML agent and team configs for real-world use cases | Yes | See configs |
+All examples with **No** API keys run with mock providers — no external calls.
 
-### YAML Agent Examples
+| Example | Description | Needs Keys? |
+|---------|-------------|:-----------:|
+| [quickstart](examples/quickstart/) | Minimal agent with SQLite and 3-node graph | No |
+| [tools_and_guardrails](examples/tools_and_guardrails/) | Tool permissions + input/output guardrails | No |
+| [hooks_observability](examples/hooks_observability/) | Metrics, cost tracking, caching, retry, rate limiting | No |
+| [graph_patterns](examples/graph_patterns/) | Conditional edges, interrupt nodes, checkpoints | No |
+| [memory_and_sessions](examples/memory_and_sessions/) | Short/long-term memory, multi-turn sessions | No |
+| [streaming_sse](examples/streaming_sse/) | Pub/sub broker, graph events, SSE HTTP server | No |
+| [chat_with_tools](examples/chat_with_tools/) | Agent chat with calculator and lookup tools | No |
+| [fallback_provider](examples/fallback_provider/) | Provider chain with automatic failover | No |
+| [sandbox_execution](examples/sandbox_execution/) | Process sandbox with timeouts and I/O capture | No |
+| [multi_agent](examples/multi_agent/) | All 4 team strategies, bus delegation | Optional |
+| [multi_provider](examples/multi_provider/) | OpenAI, Anthropic, Gemini, Mistral, Ollama | Yes |
 
-Complete YAML configurations for real-world use cases, with step-by-step instructions:
-
-| YAML Example | Strategy | Description |
-|-------------|----------|-------------|
-| [customer-support](examples/yaml-configs/customer-support.yaml) | Router | Routes customer queries to billing, technical, or sales agents |
-| [content-pipeline](examples/yaml-configs/content-pipeline.yaml) | Sequential | Research → Write → Edit article pipeline |
-| [coding-team](examples/yaml-configs/coding-team.yaml) | Coordinator | Tech lead delegates to backend, frontend, and reviewer |
-| [multi-provider](examples/yaml-configs/multi-provider.yaml) | Any | Mix OpenAI, Anthropic, Gemini, Ollama, Groq, and DeepSeek |
-
-See the **[Examples Guide](docs/guides/examples.md)** for detailed descriptions of every example.
+Run any example: `go run ./examples/<name>/`
 
 ---
 
-## Deployment
+## Supported Providers
 
-### Docker
-
-```bash
-docker build -f deploy/docker/Dockerfile -t chronos .
-docker run -p 8420:8420 chronos
-```
-
-### Kubernetes (Helm)
-
-The Helm chart includes Deployment, Service, Secret, Ingress, HPA, and ServiceAccount templates.
-
-```bash
-helm install chronos deploy/helm/chronos/ \
-  --set image.tag=latest \
-  --set secrets.storageDSN="postgres://user:pass@db:5432/chronos" \
-  --set ingress.enabled=true \
-  --set autoscaling.enabled=true
-```
-
-### Container Sandbox
-
-For isolated execution of untrusted code, Chronos provides a Docker-based sandbox with resource limits:
-
-```go
-sandbox := sandbox.NewContainerSandbox(sandbox.ContainerConfig{
-    Image:       "python:3.12-slim",
-    MemoryBytes: 256 * 1024 * 1024,  // 256 MiB
-    CPUQuota:    50000,               // 50% of one core
-    NetworkMode: "none",              // no network access
-})
-
-result, _ := sandbox.Execute(ctx, "python", []string{"-c", "print('hello')"}, 30*time.Second)
-fmt.Println(result.Stdout) // hello
-```
-
----
-
-## Build from Source
-
-```bash
-git clone https://github.com/spawn08/chronos.git
-cd chronos
-```
-
-Use `make` for all common tasks:
-
-```bash
-make build          # Compile the CLI binary to bin/chronos
-make build-all      # Compile every package (including examples)
-make test           # Run all tests with race detector
-make test-cover     # Tests + HTML coverage report
-make lint           # Run golangci-lint
-make fmt            # Format all source files
-make vet            # Run go vet
-make tidy           # go mod tidy + verify
-make all            # fmt + vet + lint + build (default CI pipeline)
-make docker-build   # Build the Docker image
-make build-cross    # Cross-compile for linux/darwin amd64/arm64
-make clean          # Remove build artifacts
-make help           # Show all available targets
-```
-
-Or use `go` directly:
-
-```bash
-go build ./...
-go vet ./...
-go test -race ./...
-go run ./examples/quickstart/main.go
-```
-
-**Requirements:** Go 1.24+ and a C compiler (for SQLite via CGO).
-
----
-
-## CI/CD
-
-The project includes GitHub Actions workflows for continuous integration and releases.
-
-### CI (`.github/workflows/ci.yml`)
-
-Runs on every push to `main` and on pull requests:
-
-- **Lint** — `golangci-lint` with the project `.golangci.yml` config
-- **Build & Test** — compiles all packages, runs tests with race detector on Ubuntu and macOS
-- **Examples** — smoke-tests all example programs
-- **Docker** — verifies the Docker image builds successfully
-
-### Release (`.github/workflows/release.yml`)
-
-Triggered when a semver tag (`v*.*.*`) is pushed:
-
-1. **Tests** gate the release
-2. **Go module** is published to the Go module proxy
-3. **Cross-platform binaries** are built for Linux, macOS, and Windows (amd64 + arm64)
-4. **GitHub Release** is created with binaries and SHA-256 checksums
-5. **Docker image** is built for `linux/amd64` and `linux/arm64` and pushed to GitHub Container Registry (`ghcr.io`)
-
-To cut a release:
-
-```bash
-git tag v0.2.0
-git push origin v0.2.0
-```
-
-### Dependabot
-
-Automated dependency updates are configured for Go modules, GitHub Actions, and Docker base images.
-
----
-
-## Key Interfaces
-
-When extending Chronos, implement these interfaces:
-
-```go
-// LLM provider
-type Provider interface {
-    Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error)
-    StreamChat(ctx context.Context, req *ChatRequest) (<-chan *ChatResponse, error)
-    Name() string
-    Model() string
-}
-
-// Embedding provider for RAG
-type EmbeddingsProvider interface {
-    Embed(ctx context.Context, req *EmbeddingRequest) (*EmbeddingResponse, error)
-}
-
-// Persistent storage (18 methods total)
-type Storage interface {
-    CreateSession(ctx, *Session) error
-    GetSession(ctx, id) (*Session, error)
-    SaveCheckpoint(ctx, *Checkpoint) error
-    // ... sessions, memory, audit logs, traces, events, checkpoints
-    Migrate(ctx) error
-    Close() error
-}
-
-// Vector store for RAG
-type VectorStore interface {
-    Upsert(ctx, collection string, embeddings []Embedding) error
-    Search(ctx, collection string, query []float32, topK int) ([]SearchResult, error)
-    Delete(ctx, collection string, ids []string) error
-    CreateCollection(ctx, name string, dimension int) error
-    Close() error
-}
-
-// Guardrail for input/output validation
-type Guardrail interface {
-    Check(ctx context.Context, content string) Result
-}
-
-// Sandbox for isolated execution
-type Sandbox interface {
-    Execute(ctx context.Context, command string, args []string, timeout time.Duration) (*Result, error)
-    Close() error
-}
-```
+OpenAI, Anthropic, Google Gemini, Mistral, Ollama, Azure OpenAI, and any OpenAI-compatible endpoint (Together, Groq, DeepSeek, OpenRouter, Fireworks, Perplexity, Anyscale, vLLM, LiteLLM).
 
 ---
 
 ## Documentation
 
-Full documentation is in the [`docs/`](docs/) directory:
+Full docs at **[spawn08.github.io/chronos](https://spawn08.github.io/chronos/)**:
 
-### Getting Started
+- [Installation](https://spawn08.github.io/chronos/getting-started/installation/) — CLI binary, Go module, build from source
+- [CLI Install](https://spawn08.github.io/chronos/getting-started/cli-install/) — curl install for all platforms
+- [Quickstart](https://spawn08.github.io/chronos/getting-started/quickstart/) — First agent in 5 minutes
+- [Agents](https://spawn08.github.io/chronos/guides/agents/) — Agent builder, YAML config, capabilities
+- [Teams](https://spawn08.github.io/chronos/guides/teams/) — Multi-agent orchestration strategies
+- [StateGraph](https://spawn08.github.io/chronos/guides/stategraph/) — Durable execution with checkpointing
+- [Tools](https://spawn08.github.io/chronos/guides/tools/) — Function calling and permissions
+- [Hooks](https://spawn08.github.io/chronos/guides/hooks/) — Middleware: retry, cache, cost, rate limit
+- [Storage](https://spawn08.github.io/chronos/guides/storage/) — All 10 storage and vector adapters
 
-- [Installation](docs/getting-started/installation.md) — Requirements, install, verify
-- [Quickstart](docs/getting-started/quickstart.md) — Build your first agent in 5 minutes
+---
 
-### Guides
+## Roadmap
 
-- [Examples](docs/guides/examples.md) — All 12+ runnable examples with descriptions
-- [Multi-Agent Teams](docs/guides/teams.md) — Team strategies, communication, coordination
-- [Hooks & Observability](docs/guides/hooks.md) — Metrics, cost tracking, caching, retry, rate limiting
+Active development tracked in [ROADMAP.md](ROADMAP.md). Key upcoming work:
 
-### Reference
+| Priority | Area | Status |
+|----------|------|--------|
+| **P0** | Bug fixes, CLI wiring, test foundation | 5/16 done |
+| **P1** | MCP support, subgraphs, time travel, advanced HITL | Planned |
+| **P2** | A2A protocol, cron triggers, multi-modal, graph visualization | Planned |
+| **P3** | Workflow DSL, plugin marketplace, distributed execution | Planned |
 
-- [Architecture](docs/reference/architecture.md) — System design, layers, data flow
-- [Model Providers](docs/reference/providers.md) — All supported LLM providers
-- [Storage](docs/reference/storage.md) — Storage and vector store interfaces, adapters
+### What's Next (P1 highlights)
+
+- **MCP (Model Context Protocol)** — Connect to MCP servers, use MCP tools natively
+- **Subgraphs** — Compose graphs as nodes, parallel fan-out/fan-in with state reducers
+- **Time Travel** — Replay from any checkpoint, fork execution with modified state
+- **Advanced Streaming** — Multiple stream modes (values, updates, debug), custom event emission
+- **Structured Output** — Response models with automatic validation and retry
+- **Agentic Loops** — ReAct, iterative refinement, self-correcting tool call patterns
+
+---
+
+## CI/CD
+
+| Workflow | Trigger | What it does |
+|----------|---------|-------------|
+| **CI** | Push/PR to `main` | Lint, build, test (Ubuntu + macOS), example smoke tests, Docker build |
+| **Release** | Tag `v*.*.*` | Test gate, build 6 platform binaries, create GitHub Release with checksums, publish Go module, push Docker image to GHCR |
+
+Cut a release: `git tag v0.2.0 && git push origin v0.2.0`
 
 ---
 
 ## Contributing
 
-We welcome contributions. Please follow these guidelines:
-
-1. **Fork and branch** — create a feature branch from `main`
-2. **Follow Go conventions** — `go vet`, `gofmt`, meaningful error wrapping
-3. **No `init()` functions** — use explicit constructors
-4. **No global state** — pass dependencies via constructors
-5. **Wrap errors** — always `fmt.Errorf("context: %w", err)`
-6. **JSON tags** — on all exported struct fields
-7. **`context.Context` first** — on all I/O methods
-8. **Tests** — table-driven tests in `*_test.go` files
+1. Fork and create a feature branch from `main`
+2. Follow Go conventions — `go vet`, `gofmt`, wrap errors with `%w`
+3. No `init()` functions, no global state, `context.Context` first on I/O methods
+4. Table-driven tests in `*_test.go` files
 
 ---
 

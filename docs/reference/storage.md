@@ -1,3 +1,10 @@
+---
+title: "Storage"
+permalink: /reference/storage/
+sidebar:
+  nav: "docs"
+---
+
 # Storage
 
 Chronos uses pluggable storage adapters for persistent state. All adapters implement the same interface, allowing you to swap backends with zero code changes.
