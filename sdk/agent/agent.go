@@ -41,12 +41,12 @@ type Agent struct {
 	MemoryManager  *memory.Manager
 	Hooks          hooks.Chain
 	Guardrails     *guardrails.Engine
-	Broker         *stream.Broker         // SSE broker for real-time event streaming
+	Broker         *stream.Broker          // SSE broker for real-time event streaming
 	Tracer         *chronostrace.Collector // execution tracer for span-based observability
-	SessionState   map[string]any // persistent cross-turn state
-	OutputSchema   map[string]any // JSON Schema for structured output
-	NumHistoryRuns int            // number of past runs to inject into context
-	ContextCfg     ContextConfig  // context window management and summarization
+	SessionState   map[string]any          // persistent cross-turn state
+	OutputSchema   map[string]any          // JSON Schema for structured output
+	NumHistoryRuns int                     // number of past runs to inject into context
+	ContextCfg     ContextConfig           // context window management and summarization
 
 	// System prompt and instructions
 	SystemPrompt string
@@ -86,19 +86,19 @@ func New(id, name string) *Builder {
 	}
 }
 
-func (b *Builder) Description(d string) *Builder                { b.agent.Description = d; return b }
-func (b *Builder) WithUserID(id string) *Builder                { b.agent.UserID = id; return b }
-func (b *Builder) WithModel(p model.Provider) *Builder          { b.agent.Model = p; return b }
-func (b *Builder) WithStorage(s storage.Storage) *Builder       { b.agent.Storage = s; return b }
-func (b *Builder) WithMemory(m *memory.Store) *Builder          { b.agent.Memory = m; return b }
-func (b *Builder) WithKnowledge(k knowledge.Knowledge) *Builder { b.agent.Knowledge = k; return b }
-func (b *Builder) WithMemoryManager(m *memory.Manager) *Builder { b.agent.MemoryManager = m; return b }
-func (b *Builder) WithOutputSchema(s map[string]any) *Builder   { b.agent.OutputSchema = s; return b }
-func (b *Builder) WithHistoryRuns(n int) *Builder               { b.agent.NumHistoryRuns = n; return b }
-func (b *Builder) WithContextConfig(cfg ContextConfig) *Builder { b.agent.ContextCfg = cfg; return b }
-func (b *Builder) WithBroker(br *stream.Broker) *Builder               { b.agent.Broker = br; return b }
-func (b *Builder) WithTracer(t *chronostrace.Collector) *Builder       { b.agent.Tracer = t; return b }
-func (b *Builder) WithSystemPrompt(prompt string) *Builder      { b.agent.SystemPrompt = prompt; return b }
+func (b *Builder) Description(d string) *Builder                 { b.agent.Description = d; return b }
+func (b *Builder) WithUserID(id string) *Builder                 { b.agent.UserID = id; return b }
+func (b *Builder) WithModel(p model.Provider) *Builder           { b.agent.Model = p; return b }
+func (b *Builder) WithStorage(s storage.Storage) *Builder        { b.agent.Storage = s; return b }
+func (b *Builder) WithMemory(m *memory.Store) *Builder           { b.agent.Memory = m; return b }
+func (b *Builder) WithKnowledge(k knowledge.Knowledge) *Builder  { b.agent.Knowledge = k; return b }
+func (b *Builder) WithMemoryManager(m *memory.Manager) *Builder  { b.agent.MemoryManager = m; return b }
+func (b *Builder) WithOutputSchema(s map[string]any) *Builder    { b.agent.OutputSchema = s; return b }
+func (b *Builder) WithHistoryRuns(n int) *Builder                { b.agent.NumHistoryRuns = n; return b }
+func (b *Builder) WithContextConfig(cfg ContextConfig) *Builder  { b.agent.ContextCfg = cfg; return b }
+func (b *Builder) WithBroker(br *stream.Broker) *Builder         { b.agent.Broker = br; return b }
+func (b *Builder) WithTracer(t *chronostrace.Collector) *Builder { b.agent.Tracer = t; return b }
+func (b *Builder) WithSystemPrompt(prompt string) *Builder       { b.agent.SystemPrompt = prompt; return b }
 
 func (b *Builder) AddInstruction(instruction string) *Builder {
 	b.agent.Instructions = append(b.agent.Instructions, instruction)

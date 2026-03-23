@@ -12,11 +12,11 @@ import (
 
 // Runner executes a CompiledGraph with durable checkpointing.
 type Runner struct {
-	graph    *CompiledGraph
-	store    storage.Storage
-	broker   *stream.Broker
-	tracer   *trace.Collector
-	localCh  chan StreamEvent
+	graph   *CompiledGraph
+	store   storage.Storage
+	broker  *stream.Broker
+	tracer  *trace.Collector
+	localCh chan StreamEvent
 }
 
 // NewRunner creates a runner for the given compiled graph.
