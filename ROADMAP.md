@@ -393,23 +393,23 @@
 
 ### P3-A: Additional Model Providers
 
-- [ ] **P3-001** — AWS Bedrock provider
+- [x] **P3-001** — AWS Bedrock provider <!-- done: 2026-03-24 -->
   - **Location:** `engine/model/bedrock.go` (new file)
   - **Criteria:** Implement `Provider` using AWS Bedrock InvokeModel API. Support Claude, Titan, Llama models via Bedrock. Constructor takes AWS region + credentials.
 
-- [ ] **P3-002** — Groq provider
+- [x] **P3-002** — Groq provider <!-- done: 2026-03-24 -->
   - **Location:** `engine/model/groq.go` (new file)
   - **Criteria:** Implement `Provider` using Groq API (OpenAI-compatible). Constructor takes API key. Support Llama, Mixtral models.
 
-- [ ] **P3-003** — Together AI provider
+- [x] **P3-003** — Together AI provider <!-- done: 2026-03-24 -->
   - **Location:** `engine/model/together.go` (new file)
   - **Criteria:** Implement `Provider` using Together API (OpenAI-compatible). Constructor takes API key.
 
-- [ ] **P3-004** — Cohere provider
+- [x] **P3-004** — Cohere provider <!-- done: 2026-03-24 -->
   - **Location:** `engine/model/cohere.go` (new file)
   - **Criteria:** Implement `Provider` for Cohere Chat API. Support Command models. Implement `EmbeddingsProvider` for Cohere embeddings.
 
-- [ ] **P3-005** — DeepSeek provider
+- [x] **P3-005** — DeepSeek provider <!-- done: 2026-03-24 -->
   - **Location:** `engine/model/deepseek.go` (new file)
   - **Criteria:** Implement `Provider` using DeepSeek API (OpenAI-compatible). Constructor takes API key. Support DeepSeek-V3 and reasoning models.
 
@@ -433,15 +433,15 @@
 
 ### P3-C: Additional Embeddings Providers
 
-- [ ] **P3-010** — Cohere embeddings provider
+- [x] **P3-010** — Cohere embeddings provider <!-- done: 2026-03-24 -->
   - **Location:** `engine/model/cohere_embeddings.go` (new file)
   - **Criteria:** Implement `EmbeddingsProvider` using Cohere Embed API. Constructor takes API key and model name.
 
-- [ ] **P3-011** — Azure OpenAI embeddings provider
+- [x] **P3-011** — Azure OpenAI embeddings provider <!-- done: 2026-03-24 -->
   - **Location:** `engine/model/azure_embeddings.go` (new file)
   - **Criteria:** Implement `EmbeddingsProvider` using Azure OpenAI Embeddings API. Constructor takes endpoint, API key, deployment name.
 
-- [ ] **P3-012** — Google embeddings provider
+- [x] **P3-012** — Google embeddings provider <!-- done: 2026-03-24 -->
   - **Location:** `engine/model/google_embeddings.go` (new file)
   - **Criteria:** Implement `EmbeddingsProvider` using Google textembedding-gecko model. Constructor takes API key or service account.
 
