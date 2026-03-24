@@ -26,3 +26,4 @@ bc4f4c4	0.092	48	54.5	103/104	Comprehensive tests for providers, graph, registry
 bbb276b	0.066	48/48	80.2	KEPT	iter4: 63 tests across 22 files — guardrails hooks model stream knowledge memory protocol sandbox
 bd71ec7	0.065	48/48	80.7	KEPT	iter5: 23 targeted tests + fix hanging MCP test — team/protocol/agent/mcp
 3effd28	0.065	48/48	81.5	KEPT	iter6: 38 tests — sandbox container mocks, storage adapter errors, repl
+a8de364	0.064	48/48	81.9	KEPT	iter7: 32 tests — agent branches/schema/config, MCP connect, graph subgraph, protocol bus, CLI cmd
