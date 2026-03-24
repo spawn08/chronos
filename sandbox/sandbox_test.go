@@ -279,3 +279,76 @@ func TestPoolReleaseFullPool(t *testing.T) {
 		t.Errorf("expected 1 available, got %d", p.Size())
 	}
 }
+
+func TestPoolWarmup_ExceedsMax(t *testing.T) {
+	p, err := NewPool(PoolConfig{
+		MaxSize: 2,
+		Factory: func() (Sandbox, error) {
+			return NewProcessSandbox(os.TempDir()), nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewPool failed: %v", err)
+	}
+	defer p.Close()
+
+	// Warmup with n > maxSize should cap at maxSize
+	if err := p.Warmup(context.Background(), 5); err != nil {
+		t.Fatalf("Warmup failed: %v", err)
+	}
+	if p.Size() != 2 {
+		t.Errorf("expected 2 (maxSize) available, got %d", p.Size())
+	}
+}
+
+func TestPoolAcquire_FromAvailable(t *testing.T) {
+	p, err := NewPool(PoolConfig{
+		MaxSize: 3,
+		Factory: func() (Sandbox, error) {
+			return NewProcessSandbox(os.TempDir()), nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewPool failed: %v", err)
+	}
+	defer p.Close()
+
+	// Warmup so there are available containers
+	p.Warmup(context.Background(), 2)
+	if p.Size() != 2 {
+		t.Fatalf("expected 2 warm, got %d", p.Size())
+	}
+
+	// Acquire should return one from pool
+	sb, err := p.Acquire()
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	if p.Size() != 1 {
+		t.Errorf("expected 1 available after acquire, got %d", p.Size())
+	}
+	p.Release(sb)
+}
+
+func TestPoolClose_WithInUse(t *testing.T) {
+	p, err := NewPool(PoolConfig{
+		MaxSize: 3,
+		Factory: func() (Sandbox, error) {
+			return NewProcessSandbox(os.TempDir()), nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewPool failed: %v", err)
+	}
+
+	// Acquire a sandbox but don't release it before close
+	_, err = p.Acquire()
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+
+	// Close with in-use sandboxes should not hang
+	if err := p.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+}

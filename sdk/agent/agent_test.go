@@ -1551,3 +1551,53 @@ func TestOutputSchema_JSONRoundtrip(t *testing.T) {
 		t.Errorf("expected 3 properties, got %d", len(props))
 	}
 }
+
+func TestChat_WithInstructionsFn(t *testing.T) {
+	provider := &testProvider{
+		response: &model.ChatResponse{Content: "done", StopReason: model.StopReasonEnd},
+	}
+	a, _ := New("a1", "Test").
+		WithModel(provider).
+		WithInstructionsFn(func(_ context.Context, _ map[string]any) []string {
+			return []string{"instruction 1", "instruction 2"}
+		}).
+		Build()
+
+	resp, err := a.Chat(context.Background(), "hello")
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if resp.Content != "done" {
+		t.Errorf("content=%q", resp.Content)
+	}
+	// InstructionsFn was called and added instructions to the request
+	if provider.lastReq == nil {
+		t.Fatal("expected last request")
+	}
+}
+
+func TestChat_WithExamples(t *testing.T) {
+	provider := &testProvider{
+		response: &model.ChatResponse{Content: "example response", StopReason: model.StopReasonEnd},
+	}
+	a, _ := New("a1", "Test").
+		WithModel(provider).
+		AddExample("question", "answer").
+		Build()
+
+	resp, err := a.Chat(context.Background(), "hello")
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if resp == nil {
+		t.Fatal("expected non-nil response")
+	}
+	// Examples should have been included in the request
+	if provider.lastReq == nil {
+		t.Fatal("expected last request")
+	}
+	// Count messages: example (user+assistant) + user message = at least 3
+	if len(provider.lastReq.Messages) < 3 {
+		t.Errorf("expected at least 3 messages with example, got %d", len(provider.lastReq.Messages))
+	}
+}

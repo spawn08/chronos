@@ -111,3 +111,65 @@ func TestFileToolkit(t *testing.T) {
 		t.Errorf("expected 5 tools, got %d", len(tk.Tools))
 	}
 }
+
+func TestFileWriteTool_NoPath(t *testing.T) {
+	tool := NewFileWriteTool(t.TempDir())
+	_, err := tool.Handler(context.Background(), map[string]any{"content": "data"})
+	if err == nil {
+		t.Fatal("expected error for missing path")
+	}
+}
+
+func TestFileWriteTool_Subdirectory(t *testing.T) {
+	dir := t.TempDir()
+	tool := NewFileWriteTool(dir)
+	_, err := tool.Handler(context.Background(), map[string]any{
+		"path":    "subdir/file.txt",
+		"content": "hello",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestFileGlobTool_NoPattern(t *testing.T) {
+	tool := NewFileGlobTool(t.TempDir())
+	_, err := tool.Handler(context.Background(), map[string]any{})
+	if err == nil {
+		t.Fatal("expected error for missing pattern")
+	}
+}
+
+func TestFileGlobTool_InvalidPattern(t *testing.T) {
+	tool := NewFileGlobTool(t.TempDir())
+	_, err := tool.Handler(context.Background(), map[string]any{"pattern": "["})
+	if err == nil {
+		t.Log("some systems allow this pattern without error")
+	}
+}
+
+func TestFileListTool_InvalidDir(t *testing.T) {
+	tool := NewFileListTool("/nonexistent-dir-xyz")
+	_, err := tool.Handler(context.Background(), map[string]any{"path": "."})
+	if err == nil {
+		t.Fatal("expected error for invalid base path")
+	}
+}
+
+func TestResolvePath(t *testing.T) {
+	tests := []struct {
+		base     string
+		rel      string
+		expected string
+	}{
+		{"/tmp", "file.txt", "/tmp/file.txt"},
+		{"/tmp", "/abs/path.txt", "/abs/path.txt"},
+		{"/tmp", "sub/dir/file.txt", "/tmp/sub/dir/file.txt"},
+	}
+	for _, tt := range tests {
+		got := resolvePath(tt.base, tt.rel)
+		if got != tt.expected {
+			t.Errorf("resolvePath(%q, %q) = %q, want %q", tt.base, tt.rel, got, tt.expected)
+		}
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestWebLoader_BasicPage(t *testing.T) {
@@ -125,4 +126,12 @@ func searchString(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func TestWebLoader_WithTimeout(t *testing.T) {
+	loader := NewWebLoader([]string{}, 0, 0)
+	result := loader.WithTimeout(5 * time.Second)
+	if result != loader {
+		t.Error("WithTimeout should return the same loader for chaining")
+	}
 }

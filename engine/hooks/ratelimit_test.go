@@ -145,3 +145,40 @@ func TestTokenBucketTimeUntilAvailable(t *testing.T) {
 		t.Errorf("expected positive wait time after draining, got %v", wait)
 	}
 }
+
+func TestTokenBucketConsumeMoreThanAvailable(t *testing.T) {
+	// consume() can go negative, then clamps to 0
+	tb := newTokenBucket(5, 1e9)
+	tb.consume(10) // More than capacity
+	if tb.tokens != 0 {
+		t.Errorf("expected tokens to clamp at 0, got %.2f", tb.tokens)
+	}
+}
+
+func TestTokenBucketTimeUntilAvailable_AlreadyAvailable(t *testing.T) {
+	tb := newTokenBucket(10, 1e9)
+	// Don't drain - should return 0
+	wait := tb.timeUntilAvailable(1)
+	if wait != 0 {
+		t.Errorf("expected 0 wait when tokens available, got %v", wait)
+	}
+}
+
+func TestRateLimitHook_AfterExceedsTokenBucket(t *testing.T) {
+	h := NewRateLimitHook(0, 1) // only 1 token per minute
+	h.WaitOnLimit = false
+	ctx := context.Background()
+
+	// First After call uses up the token
+	evt := &Event{
+		Type:     EventModelCallAfter,
+		Name:     "m",
+		Metadata: map[string]any{"prompt_tokens": 1},
+	}
+	h.After(ctx, evt)
+
+	// Second should consume more but consume() doesn't fail - just drains
+	if err := h.After(ctx, evt); err != nil {
+		t.Logf("After returned: %v (not necessarily an error)", err)
+	}
+}

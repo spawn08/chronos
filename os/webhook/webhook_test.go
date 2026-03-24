@@ -2,6 +2,7 @@ package webhook
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -80,6 +81,22 @@ func TestServer_MethodNotAllowed(t *testing.T) {
 	s.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405, got %d", w.Code)
+	}
+}
+
+func TestServer_HandlerError(t *testing.T) {
+	s := NewServer("")
+	s.On("test", func(_ context.Context, e Event) error {
+		return fmt.Errorf("handler failed")
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(`{}`))
+	req.Header.Set("X-Event-Type", "test")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 on handler error, got %d", w.Code)
 	}
 }
 

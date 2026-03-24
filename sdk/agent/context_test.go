@@ -126,3 +126,24 @@ func TestCompressToolCalls_ZeroLimit(t *testing.T) {
 		t.Error("zero limit should return original")
 	}
 }
+
+func TestReadStoredResult_NonStringValue(t *testing.T) {
+	store := memory.New()
+	ctx := context.Background()
+	// Store a large string (>1000 bytes) and retrieve it
+	largeData := strings.Repeat("abc", 400)
+	evicted, err := EvictLargeResult(ctx, store, "sess2", "mytool", largeData)
+	if err != nil {
+		t.Fatalf("evict: %v", err)
+	}
+	if evicted == nil {
+		t.Fatal("expected eviction for large data")
+	}
+	result, err := ReadStoredResult(ctx, store, "sess2", evicted.StorageKey)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if result == "" {
+		t.Error("expected non-empty result")
+	}
+}

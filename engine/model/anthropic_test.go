@@ -301,7 +301,7 @@ func TestAnthropic_ConvertResponse_StopSequence(t *testing.T) {
 	raw := &anthropicResponse{
 		ID:         "msg_05",
 		StopReason: "stop_sequence",
-		Content:    []struct {
+		Content: []struct {
 			Type  string `json:"type"`
 			Text  string `json:"text,omitempty"`
 			ID    string `json:"id,omitempty"`
@@ -339,5 +339,16 @@ func TestAnthropic_BuildRequestBody_AllParams(t *testing.T) {
 	}
 	if body["stream"] != true {
 		t.Errorf("stream=%v, want true", body["stream"])
+	}
+}
+
+func TestNewAnthropicWithConfig_DefaultsApplied(t *testing.T) {
+	// Empty BaseURL and Model should get defaults
+	p := NewAnthropicWithConfig(ProviderConfig{APIKey: "test"})
+	if p.config.BaseURL != "https://api.anthropic.com" {
+		t.Errorf("BaseURL=%q, want default", p.config.BaseURL)
+	}
+	if p.config.Model == "" {
+		t.Error("Model should have a default")
 	}
 }

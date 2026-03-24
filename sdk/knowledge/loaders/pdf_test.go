@@ -104,3 +104,47 @@ func TestPDFLoader_MultipleFiles(t *testing.T) {
 		t.Fatalf("expected 2 docs, got %d", len(docs))
 	}
 }
+
+func TestIsReadableText(t *testing.T) {
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{"", false},
+		{"a", false},
+		{"hello world", true},
+		{"\x00\x01\x02\x03", false},
+		{"hello\x00\x01", true}, // 5/7 readable > 0.7
+	}
+	for _, tt := range tests {
+		got := isReadableText(tt.input)
+		if got != tt.want {
+			t.Errorf("isReadableText(%q) = %v, want %v", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestExtractFromStreams(t *testing.T) {
+	// A line with parenthesized text
+	data := []byte("BT (Hello World) Tj ET\n(Another) Tj\n")
+	parts := extractFromStreams(data)
+	if len(parts) == 0 {
+		t.Error("expected extracted text parts")
+	}
+	found := false
+	for _, p := range parts {
+		if p == "Hello World" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected 'Hello World' in parts, got %v", parts)
+	}
+}
+
+func TestExtractFromStreams_Empty(t *testing.T) {
+	parts := extractFromStreams([]byte{})
+	if len(parts) != 0 {
+		t.Errorf("expected empty parts, got %v", parts)
+	}
+}

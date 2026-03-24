@@ -175,3 +175,40 @@ func TestCostTrackerDefaultPriceTable(t *testing.T) {
 		t.Error("expected gpt-4o in default price table")
 	}
 }
+
+type usageOutput struct {
+	prompt     int
+	completion int
+}
+
+func (u *usageOutput) GetUsage() (int, int) { return u.prompt, u.completion }
+
+func TestExtractUsage_FromOutputInterface(t *testing.T) {
+	ct := NewCostTracker(map[string]ModelPrice{
+		"m": {PromptPricePerToken: 0.001, CompletionPricePerToken: 0.002},
+	})
+	ctx := context.Background()
+
+	evt := &Event{
+		Type:   EventModelCallAfter,
+		Name:   "m",
+		Output: &usageOutput{prompt: 50, completion: 25},
+	}
+	ct.After(ctx, evt)
+	report := ct.GetGlobalCost()
+	if report.PromptTokens != 50 {
+		t.Errorf("PromptTokens=%d, want 50", report.PromptTokens)
+	}
+	if report.CompletionTokens != 25 {
+		t.Errorf("CompletionTokens=%d, want 25", report.CompletionTokens)
+	}
+}
+
+func TestCostTracker_BeforeNonModelEvent(t *testing.T) {
+	ct := NewCostTracker(nil)
+	ct.Budget = 1.0
+	err := ct.Before(context.Background(), &Event{Type: EventToolCallBefore, Name: "tool"})
+	if err != nil {
+		t.Errorf("non-model event should not be checked: %v", err)
+	}
+}

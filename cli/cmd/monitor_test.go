@@ -277,6 +277,24 @@ func TestHTTPGet_Failure(t *testing.T) {
 	}
 }
 
+func TestHTTPGet_InvalidURL(t *testing.T) {
+	client := &http.Client{}
+	// Provide URL with invalid characters that fail NewRequestWithContext
+	_, err := httpGet(t.Context(), client, "://invalid-url")
+	if err == nil {
+		t.Fatal("expected error for invalid URL")
+	}
+}
+
+func TestSplitPrometheusLine_EmptyRestAfterBrace(t *testing.T) {
+	// "{}" at the end with no value should return ok=false
+	line := `metric_name{labels=x}`
+	_, _, ok := splitPrometheusLine(line)
+	if ok {
+		t.Error("expected ok=false when no value after labels")
+	}
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a

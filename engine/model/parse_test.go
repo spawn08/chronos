@@ -55,3 +55,24 @@ func TestProviderFromString_NoFactory(t *testing.T) {
 		t.Fatal("expected error for unregistered provider")
 	}
 }
+
+func TestRegisterProviderFactory(t *testing.T) {
+	RegisterProviderFactory("testprovider", func(ref ModelRef) (Provider, error) {
+		return NewOpenAI("fake-key"), nil
+	})
+
+	p, err := ProviderFromString("testprovider:gpt-4o")
+	if err != nil {
+		t.Fatalf("ProviderFromString: %v", err)
+	}
+	if p == nil {
+		t.Fatal("expected non-nil provider")
+	}
+}
+
+func TestProviderFromString_UnknownProvider(t *testing.T) {
+	_, err := ProviderFromString("totally-unknown-xyz:model")
+	if err == nil {
+		t.Fatal("expected error for unknown provider")
+	}
+}

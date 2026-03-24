@@ -212,7 +212,7 @@ func TestScheduler_Start_StopsOnStop(t *testing.T) {
 func TestNextCronTime_DoW_Monday(t *testing.T) {
 	// Find next Monday at 9am from a Wednesday
 	now := time.Date(2026, 3, 25, 10, 0, 0, 0, time.UTC) // Wednesday
-	got := nextCronTime("0 9 * * 1", now)                  // Monday 9am
+	got := nextCronTime("0 9 * * 1", now)                // Monday 9am
 
 	if got.Weekday() != time.Monday {
 		t.Errorf("expected Monday, got %v", got.Weekday())
@@ -321,5 +321,87 @@ func TestScheduler_MultipleSchedules(t *testing.T) {
 
 	if atomic.LoadInt64(&callCount) != 5 {
 		t.Errorf("expected 5 calls, got %d", callCount)
+	}
+}
+
+func TestParseCronField_StepWithRange(t *testing.T) {
+	// "1-30/5" means values 1, 6, 11, 16, 21, 26
+	cf, err := parseCronField("1-30/5", 0, 59)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cf.values[1] {
+		t.Error("expected 1 to be set")
+	}
+	if !cf.values[6] {
+		t.Error("expected 6 to be set")
+	}
+	if !cf.values[11] {
+		t.Error("expected 11 to be set")
+	}
+}
+
+func TestParseCronField_StepWithRangeInvalidStart(t *testing.T) {
+	_, err := parseCronField("abc-30/5", 0, 59)
+	if err == nil {
+		t.Error("expected error for invalid step range start")
+	}
+}
+
+func TestParseCronField_StepWithRangeInvalidEnd(t *testing.T) {
+	_, err := parseCronField("1-abc/5", 0, 59)
+	if err == nil {
+		t.Error("expected error for invalid step range end")
+	}
+}
+
+func TestParseCronField_StepInvalidStepValue(t *testing.T) {
+	_, err := parseCronField("*/abc", 0, 59)
+	if err == nil {
+		t.Error("expected error for non-numeric step")
+	}
+}
+
+func TestParseCronField_RangeInvalidStart(t *testing.T) {
+	_, err := parseCronField("abc-10", 0, 59)
+	if err == nil {
+		t.Error("expected error for invalid range start")
+	}
+}
+
+func TestParseCronField_RangeInvalidEnd(t *testing.T) {
+	_, err := parseCronField("1-abc", 0, 59)
+	if err == nil {
+		t.Error("expected error for invalid range end")
+	}
+}
+
+func TestParseCronField_SingleValueInvalid(t *testing.T) {
+	_, err := parseCronField("abc", 0, 59)
+	if err == nil {
+		t.Error("expected error for non-numeric single value")
+	}
+}
+
+func TestNextCronTime_AllFieldsWildcard(t *testing.T) {
+	now := time.Now()
+	got := nextCronTime("* * * * *", now)
+	if got.IsZero() {
+		t.Error("expected non-zero time for wildcard cron")
+	}
+	if !got.After(now) {
+		t.Errorf("next cron time should be after now: got=%v, now=%v", got, now)
+	}
+}
+
+func TestNextCronTime_SpecificMinute(t *testing.T) {
+	// Set to a specific minute (30) from a time when minute is 0
+	base := time.Date(2026, 3, 25, 10, 0, 0, 0, time.UTC)
+	got := nextCronTime("30 10 * * *", base)
+	if got.IsZero() {
+		t.Error("expected non-zero time")
+	}
+	if got.Minute() != 30 {
+		t.Errorf("expected minute 30, got %d", got.Minute())
 	}
 }

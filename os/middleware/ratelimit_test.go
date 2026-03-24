@@ -129,3 +129,16 @@ func TestIPKeyFunc(t *testing.T) {
 		t.Errorf("got %q, want 10.0.0.1", got)
 	}
 }
+
+func TestDefaultRateLimitConfig(t *testing.T) {
+	cfg := DefaultRateLimitConfig()
+	if cfg.RequestsPerWindow != 100 {
+		t.Errorf("RequestsPerWindow=%d, want 100", cfg.RequestsPerWindow)
+	}
+	if cfg.Window != time.Minute {
+		t.Errorf("Window=%v, want 1m", cfg.Window)
+	}
+	if cfg.KeyFunc == nil {
+		t.Error("KeyFunc should not be nil")
+	}
+}

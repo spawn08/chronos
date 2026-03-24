@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/spawn08/chronos/storage"
 )
 
 func TestNew(t *testing.T) {
@@ -147,5 +149,208 @@ func TestGetLatestCheckpoint_Error(t *testing.T) {
 	_, err := s.GetLatestCheckpoint(context.Background(), "session-123")
 	if err == nil {
 		t.Fatal("expected error, got nil")
+	}
+}
+
+func newOKServer(t *testing.T) (*httptest.Server, *Store) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(srv.Close)
+	s, _ := New(srv.URL, "table", "us-east-1", "key", "secret")
+	return srv, s
+}
+
+func TestPutItem_Success(t *testing.T) {
+	_, s := newOKServer(t)
+	if err := s.putItem(context.Background(), map[string]any{"id": "1"}); err != nil {
+		t.Errorf("putItem: %v", err)
+	}
+}
+
+func TestCreateSession_Success(t *testing.T) {
+	_, s := newOKServer(t)
+	if err := s.CreateSession(context.Background(), &storage.Session{ID: "s1"}); err != nil {
+		t.Errorf("CreateSession: %v", err)
+	}
+}
+
+func TestGetSession_Success(t *testing.T) {
+	_, s := newOKServer(t)
+	sess, err := s.GetSession(context.Background(), "s1")
+	if err != nil {
+		t.Errorf("GetSession: %v", err)
+	}
+	if sess == nil {
+		t.Error("expected non-nil session")
+	}
+}
+
+func TestUpdateSession_Success(t *testing.T) {
+	_, s := newOKServer(t)
+	if err := s.UpdateSession(context.Background(), &storage.Session{ID: "s1"}); err != nil {
+		t.Errorf("UpdateSession: %v", err)
+	}
+}
+
+func TestListSessions_Success(t *testing.T) {
+	_, s := newOKServer(t)
+	sessions, err := s.ListSessions(context.Background(), "agent1", 10, 0)
+	if err != nil {
+		t.Errorf("ListSessions: %v", err)
+	}
+	if sessions == nil {
+		t.Error("expected non-nil slice")
+	}
+}
+
+func TestPutMemory_Success(t *testing.T) {
+	_, s := newOKServer(t)
+	if err := s.PutMemory(context.Background(), &storage.MemoryRecord{AgentID: "a1", Key: "k"}); err != nil {
+		t.Errorf("PutMemory: %v", err)
+	}
+}
+
+func TestGetMemory_Success(t *testing.T) {
+	_, s := newOKServer(t)
+	m, err := s.GetMemory(context.Background(), "a1", "key")
+	if err != nil {
+		t.Errorf("GetMemory: %v", err)
+	}
+	if m == nil {
+		t.Error("expected non-nil")
+	}
+}
+
+func TestListMemory_Success(t *testing.T) {
+	_, s := newOKServer(t)
+	records, err := s.ListMemory(context.Background(), "a1", "episodic")
+	if err != nil {
+		t.Errorf("ListMemory: %v", err)
+	}
+	if records == nil {
+		t.Error("expected non-nil slice")
+	}
+}
+
+func TestDeleteMemory_Success(t *testing.T) {
+	_, s := newOKServer(t)
+	if err := s.DeleteMemory(context.Background(), "m1"); err != nil {
+		t.Errorf("DeleteMemory: %v", err)
+	}
+}
+
+func TestAppendAuditLog_Success(t *testing.T) {
+	_, s := newOKServer(t)
+	if err := s.AppendAuditLog(context.Background(), &storage.AuditLog{ID: "l1"}); err != nil {
+		t.Errorf("AppendAuditLog: %v", err)
+	}
+}
+
+func TestListAuditLogs_Success(t *testing.T) {
+	_, s := newOKServer(t)
+	logs, err := s.ListAuditLogs(context.Background(), "sess", 10, 0)
+	if err != nil {
+		t.Errorf("ListAuditLogs: %v", err)
+	}
+	if logs == nil {
+		t.Error("expected non-nil slice")
+	}
+}
+
+func TestInsertTrace_Success(t *testing.T) {
+	_, s := newOKServer(t)
+	if err := s.InsertTrace(context.Background(), &storage.Trace{ID: "t1"}); err != nil {
+		t.Errorf("InsertTrace: %v", err)
+	}
+}
+
+func TestGetTrace_Success(t *testing.T) {
+	_, s := newOKServer(t)
+	tr, err := s.GetTrace(context.Background(), "t1")
+	if err != nil {
+		t.Errorf("GetTrace: %v", err)
+	}
+	if tr == nil {
+		t.Error("expected non-nil trace")
+	}
+}
+
+func TestListTraces_Success(t *testing.T) {
+	_, s := newOKServer(t)
+	traces, err := s.ListTraces(context.Background(), "sess")
+	if err != nil {
+		t.Errorf("ListTraces: %v", err)
+	}
+	if traces == nil {
+		t.Error("expected non-nil slice")
+	}
+}
+
+func TestAppendEvent_Success(t *testing.T) {
+	_, s := newOKServer(t)
+	if err := s.AppendEvent(context.Background(), &storage.Event{ID: "e1"}); err != nil {
+		t.Errorf("AppendEvent: %v", err)
+	}
+}
+
+func TestListEvents_Success(t *testing.T) {
+	_, s := newOKServer(t)
+	events, err := s.ListEvents(context.Background(), "sess", 0)
+	if err != nil {
+		t.Errorf("ListEvents: %v", err)
+	}
+	if events == nil {
+		t.Error("expected non-nil slice")
+	}
+}
+
+func TestSaveCheckpoint_Success(t *testing.T) {
+	_, s := newOKServer(t)
+	if err := s.SaveCheckpoint(context.Background(), &storage.Checkpoint{ID: "cp1"}); err != nil {
+		t.Errorf("SaveCheckpoint: %v", err)
+	}
+}
+
+func TestGetCheckpoint_Success(t *testing.T) {
+	_, s := newOKServer(t)
+	cp, err := s.GetCheckpoint(context.Background(), "cp1")
+	if err != nil {
+		t.Errorf("GetCheckpoint: %v", err)
+	}
+	if cp == nil {
+		t.Error("expected non-nil checkpoint")
+	}
+}
+
+func TestListCheckpoints_Success(t *testing.T) {
+	_, s := newOKServer(t)
+	cps, err := s.ListCheckpoints(context.Background(), "sess")
+	if err != nil {
+		t.Errorf("ListCheckpoints: %v", err)
+	}
+	if cps == nil {
+		t.Error("expected non-nil slice")
+	}
+}
+
+func TestMigrate_Success(t *testing.T) {
+	_, s := newOKServer(t)
+	if err := s.Migrate(context.Background()); err != nil {
+		t.Errorf("Migrate: %v", err)
+	}
+}
+
+func TestMigrate_Error(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error":"already exists"}`))
+	}))
+	defer srv.Close()
+	s, _ := New(srv.URL, "table", "us-east-1", "", "")
+	if err := s.Migrate(context.Background()); err == nil {
+		t.Error("expected error from Migrate on HTTP 400")
 	}
 }

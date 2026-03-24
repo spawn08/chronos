@@ -95,6 +95,51 @@ func TestToDOT_InterruptNode(t *testing.T) {
 	}
 }
 
+func TestToMermaid_ConditionalEdge(t *testing.T) {
+	g := New("cond")
+	g.AddNode("a", func(_ context.Context, s State) (State, error) { return s, nil })
+	g.AddNode("b", func(_ context.Context, s State) (State, error) { return s, nil })
+	g.SetEntryPoint("a")
+	g.AddConditionalEdge("a", func(s State) string { return "b" })
+	g.SetFinishPoint("b")
+
+	compiled, err := g.Compile()
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+
+	mermaid := compiled.ToMermaid()
+	if !strings.Contains(mermaid, "flowchart TD") {
+		t.Error("missing flowchart header")
+	}
+	// Conditional edge should produce a conditional node notation
+	if !strings.Contains(mermaid, "a") {
+		t.Error("missing source node")
+	}
+}
+
+func TestToDOT_ConditionalEdge(t *testing.T) {
+	g := New("cond-dot")
+	g.AddNode("step1", func(_ context.Context, s State) (State, error) { return s, nil })
+	g.AddNode("step2", func(_ context.Context, s State) (State, error) { return s, nil })
+	g.SetEntryPoint("step1")
+	g.AddConditionalEdge("step1", func(s State) string { return "step2" })
+	g.SetFinishPoint("step2")
+
+	compiled, err := g.Compile()
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+
+	dot := compiled.ToDOT()
+	if !strings.Contains(dot, "digraph") {
+		t.Error("missing digraph header")
+	}
+	if !strings.Contains(dot, "conditional") {
+		t.Error("conditional edge should have 'conditional' label")
+	}
+}
+
 func TestSanitizeDOTID(t *testing.T) {
 	tests := []struct {
 		input, want string

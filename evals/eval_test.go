@@ -104,3 +104,17 @@ func TestSuite_EmptyEvals(t *testing.T) {
 		t.Errorf("got avg_score=%f, want 0", result.AvgScore)
 	}
 }
+
+func TestExactMatchEval_Name(t *testing.T) {
+	e := &ExactMatchEval{EvalName: "my-eval"}
+	if e.Name() != "my-eval" {
+		t.Errorf("Name=%q", e.Name())
+	}
+}
+
+func TestContainsEval_Name(t *testing.T) {
+	e := &ContainsEval{EvalName: "contains-eval"}
+	if e.Name() != "contains-eval" {
+		t.Errorf("Name=%q", e.Name())
+	}
+}
