@@ -17,11 +17,11 @@
 
 | Priority | Total | Done | Remaining |
 |----------|-------|------|-----------|
-| P0       | 16    | 5    | 11        |
+| P0       | 16    | 9    | 7         |
 | P1       | 28    | 0    | 28        |
 | P2       | 30    | 0    | 30        |
 | P3       | 27    | 0    | 27        |
-| **Total**| **101** | **5** | **96** |
+| **Total**| **101** | **9** | **92** |
 
 ---
 
@@ -80,19 +80,19 @@
   - **Location:** `engine/graph/graph_test.go`, `engine/graph/runner_test.go`
   - **Criteria:** Test graph compilation (valid/invalid), node execution, conditional edges, interrupt nodes, checkpointing, resume from checkpoint. Minimum 12 test cases.
 
-- [ ] **P0-012** — Add unit tests for `sdk/team/` (Team orchestration)
+- [x] **P0-012** — Add unit tests for `sdk/team/` (Team orchestration) <!-- done: 2026-03-24 -->
   - **Location:** `sdk/team/team_test.go`
   - **Criteria:** Test sequential, parallel, coordinator, and router strategies with mock agents. Minimum 8 test cases.
 
-- [ ] **P0-013** — Add unit tests for `engine/hooks/` (all hooks)
+- [x] **P0-013** — Add unit tests for `engine/hooks/` (all hooks) <!-- done: 2026-03-24 -->
   - **Location:** `engine/hooks/hooks_test.go`
   - **Criteria:** Test each hook (retry, ratelimit, cache, cost, metrics) individually and as a chain. Minimum 10 test cases.
 
-- [ ] **P0-014** — Add unit tests for `engine/guardrails/`
+- [x] **P0-014** — Add unit tests for `engine/guardrails/` <!-- done: 2026-03-24 -->
   - **Location:** `engine/guardrails/guardrails_test.go`
   - **Criteria:** Test BlocklistGuardrail, MaxLengthGuardrail, Engine with input/output rules. Minimum 8 test cases.
 
-- [ ] **P0-015** — Add unit tests for `sdk/memory/` and `sdk/knowledge/`
+- [x] **P0-015** — Add unit tests for `sdk/memory/` and `sdk/knowledge/` <!-- done: 2026-03-24 -->
   - **Location:** `sdk/memory/memory_test.go`, `sdk/knowledge/vectordb_test.go`
   - **Criteria:** Test memory CRUD, extraction, VectorKnowledge search with mock vector store and embeddings provider. Minimum 10 test cases.
 
