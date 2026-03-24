@@ -14,3 +14,4 @@ facb1bd	0.197	23	23	39.6	keep	P2-004/005/009/011: web search, SQL, PDF loader, w
 ab18ad7	0.175	25	25	40.3	keep	P3-001/002/003/004/005/010/011/012: providers + embeddings
 adfac03	0.160	25	25	39.2	keep	P3-007/008/009: ChromaDB, PgVector, LanceDB
 8e2dc93	0.135	26	37.2	101/104	P3 bot interfaces, swarm/hierarchy teams, A2A, sandbox pool, migrations	KEPT
+49ede88	0.132	26	36.1	103/104	P2-014 audio + P3-026 CLI monitor TUI, all roadmap items done	KEPT
