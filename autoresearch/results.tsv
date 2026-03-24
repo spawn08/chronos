@@ -20,3 +20,6 @@ adfac03	0.160	25	25	39.2	keep	P3-007/008/009: ChromaDB, PgVector, LanceDB
 52d8bdb	0.098	48	47.8	103/104	Add tests for 11 storage adapters and skills	KEPT
 bc4f4c4	0.092	48	54.5	103/104	Comprehensive tests for providers, graph, registry, scheduler, memory, teams	KEPT
 2c9756e	0.076	48	70.5	103/104	Boost coverage to 70.5% with comprehensive tests	KEPT
+3a69291	0.068	48	48	78.0	keep	Add MCP callLocked/RegisterTools + sandbox edge case tests
+78a7fd2	0.067	48	48	79.3	keep	Add websearch, discord, slack, team hierarchy/swarm tests
+05cb894	0.066	48	48	79.7	keep	Add 49 tests across migrate, a2a, agent, server, tool, stream
