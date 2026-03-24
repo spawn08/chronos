@@ -13,6 +13,9 @@ import (
 	"github.com/spawn08/chronos/engine/tool"
 )
 
+// defaultDDGAPIURLTemplate is the DuckDuckGo JSON API URL with a single %s for the query-escaped search term.
+const defaultDDGAPIURLTemplate = "https://api.duckduckgo.com/?q=%s&format=json&no_html=1&skip_disambig=1"
+
 // NewWebSearchTool creates a tool that searches the web using DuckDuckGo's instant answer API.
 // timeout controls max request time (0 = 30s default).
 // maxResults limits the number of results returned (0 = 5 default).
@@ -25,7 +28,11 @@ func NewWebSearchTool(timeout time.Duration, maxResults int) *tool.Definition {
 	}
 
 	client := &http.Client{Timeout: timeout}
+	return webSearchTool(client, maxResults, defaultDDGAPIURLTemplate)
+}
 
+// webSearchTool builds the standard web search tool. apiURLTemplate must contain one %s for url.QueryEscape(query).
+func webSearchTool(client *http.Client, maxResults int, apiURLTemplate string) *tool.Definition {
 	return &tool.Definition{
 		Name:        "web_search",
 		Description: "Search the web using DuckDuckGo and return results with titles, URLs, and snippets.",
@@ -46,8 +53,7 @@ func NewWebSearchTool(timeout time.Duration, maxResults int) *tool.Definition {
 				return nil, fmt.Errorf("web_search: 'query' argument is required")
 			}
 
-			apiURL := fmt.Sprintf("https://api.duckduckgo.com/?q=%s&format=json&no_html=1&skip_disambig=1",
-				url.QueryEscape(query))
+			apiURL := fmt.Sprintf(apiURLTemplate, url.QueryEscape(query))
 
 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 			if err != nil {

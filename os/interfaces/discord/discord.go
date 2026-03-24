@@ -18,8 +18,10 @@ type MessageHandler func(ctx context.Context, channelID, userID, content string)
 type Bot struct {
 	token   string
 	handler MessageHandler
-	mu      sync.RWMutex
-	stopCh  chan struct{}
+	// httpClient is used for SendMessage; nil means http.DefaultClient.
+	httpClient *http.Client
+	mu         sync.RWMutex
+	stopCh     chan struct{}
 }
 
 // New creates a new Discord bot.
@@ -48,7 +50,11 @@ func (b *Bot) SendMessage(ctx context.Context, channelID, content string) error 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bot "+b.token)
 
-	resp, err := http.DefaultClient.Do(req)
+	client := b.httpClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("discord send: %w", err)
 	}

@@ -2,7 +2,6 @@ package slack
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -132,5 +131,4 @@ func TestBotServer_ServesOnEvents(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("status=%d, want 200", resp.StatusCode)
 	}
-	fmt.Println("slack extra tests passed")
 }

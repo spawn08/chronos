@@ -19,6 +19,8 @@ type Bot struct {
 	token      string
 	signingKey string
 	handler    MessageHandler
+	// httpClient is used for PostMessage; nil means http.DefaultClient.
+	httpClient *http.Client
 	mu         sync.RWMutex
 	server     *http.Server
 }
@@ -118,7 +120,11 @@ func (b *Bot) PostMessage(ctx context.Context, channel, text, threadTS string) e
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+b.token)
 
-	resp, err := http.DefaultClient.Do(req)
+	client := b.httpClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("slack post: %w", err)
 	}
