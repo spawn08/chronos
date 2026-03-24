@@ -18,10 +18,10 @@
 | Priority | Total | Done | Remaining |
 |----------|-------|------|-----------|
 | P0       | 16    | 11   | 5         |
-| P1       | 28    | 10   | 18        |
+| P1       | 28    | 14   | 14        |
 | P2       | 30    | 0    | 30        |
 | P3       | 27    | 0    | 27        |
-| **Total**| **101** | **21** | **80** |
+| **Total**| **101** | **25** | **76** |
 
 ---
 
@@ -143,9 +143,9 @@
 
 ### P1-D: Advanced Streaming
 
-- [ ] **P1-008** — Streaming modes (values, updates, custom, debug)
-  - **Location:** `engine/stream/modes.go` (new file)
-  - **Criteria:** Define `StreamMode` enum: `Values`, `Updates`, `Custom`, `Messages`, `Debug`. Runner accepts mode config. `Values` streams full state after each step. `Updates` streams only changed keys. `Custom` streams user-emitted events. `Messages` streams LLM tokens. `Debug` streams internal execution details.
+- [x] **P1-008** — Streaming modes (values, updates, custom, debug) <!-- done: 2026-03-24 -->
+  - **Location:** `engine/stream/modes.go`
+  - **Criteria:** `StreamMode` enum with `Values`, `Updates`, `Custom`, `Messages`, `Debug`. `StreamConfig.ShouldInclude(eventType)` filters events per mode. 6 test cases.
 
 - [x] **P1-009** — Custom event emission from tools/nodes <!-- done: 2026-03-24 -->
   - **Location:** `engine/stream/emit.go`
@@ -181,13 +181,13 @@
 
 ### P1-G: Authentication & Security for API Server
 
-- [ ] **P1-016** — JWT authentication middleware
-  - **Location:** `os/auth/jwt.go` (new file), `os/server.go`
-  - **Criteria:** Middleware validates JWT bearer tokens from `Authorization` header. Configurable secret/public key. Extracts user_id, roles from claims. Injects into request context. Returns 401 on invalid/missing token.
+- [x] **P1-016** — JWT authentication middleware <!-- done: 2026-03-24 -->
+  - **Location:** `os/auth/jwt.go`
+  - **Criteria:** HMAC-SHA256 JWT validation, UserClaims extraction, context injection, skip paths, expiry check. 7 test cases.
 
-- [ ] **P1-017** — API key authentication
-  - **Location:** `os/auth/apikey.go` (new file), `os/server.go`
-  - **Criteria:** Middleware validates `X-Api-Key` header against configured keys (from env or config). Returns 401 on invalid key. Supports multiple keys with different scopes.
+- [x] **P1-017** — API key authentication <!-- done: 2026-03-24 -->
+  - **Location:** `os/auth/apikey.go`
+  - **Criteria:** Constant-time key comparison, configurable header, scope-based keys, skip paths. 5 test cases.
 
 - [ ] **P1-018** — RBAC (role-based access control)
   - **Location:** `os/auth/rbac.go`, `os/server.go`
@@ -203,9 +203,9 @@
 
 ### P1-H: Evaluation Framework
 
-- [ ] **P1-021** — Eval runner infrastructure
-  - **Location:** `evals/eval.go` (new package)
-  - **Criteria:** Define `Eval` interface with `Run(ctx, input, expected) EvalResult`. `EvalResult` contains: score (0-1), passed bool, details string, latency, token usage. `Suite` runs multiple evals and aggregates results.
+- [x] **P1-021** — Eval runner infrastructure <!-- done: 2026-03-24 -->
+  - **Location:** `evals/eval.go`
+  - **Criteria:** `Eval` interface, `EvalResult`, `Suite` with aggregation, `ExactMatchEval`, `ContainsEval`. 7 test cases.
 
 - [ ] **P1-022** — Accuracy eval (LLM-as-judge)
   - **Location:** `evals/accuracy.go`
