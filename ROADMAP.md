@@ -20,8 +20,8 @@
 | P0       | 16    | 16   | 0         |
 | P1       | 28    | 28   | 0         |
 | P2       | 30    | 19   | 11        |
-| P3       | 27    | 0    | 27        |
-| **Total**| **101** | **63** | **38** |
+| P3       | 27    | 5    | 22        |
+| **Total**| **101** | **68** | **33** |
 
 ---
 
@@ -413,7 +413,7 @@
   - **Location:** `engine/model/deepseek.go` (new file)
   - **Criteria:** Implement `Provider` using DeepSeek API (OpenAI-compatible). Constructor takes API key. Support DeepSeek-V3 and reasoning models.
 
-- [ ] **P3-006** — Model-as-string syntax ("provider:model_id")
+- [x] **P3-006** — Model-as-string syntax ("provider:model_id") <!-- done: 2026-03-24 -->
   - **Location:** `engine/model/resolve.go` (new file)
   - **Criteria:** `model.Resolve("openai:gpt-4o")` returns a configured `Provider` instance. Parse provider name, look up constructor, pass API key from environment. Supports all registered providers.
 
@@ -459,7 +459,7 @@
   - **Location:** `os/interfaces/telegram/telegram.go` (new package)
   - **Criteria:** Telegram bot using long polling or webhooks. Route messages to agent, send responses. Support inline keyboards for HITL confirmations.
 
-- [ ] **P3-016** — Webhook interface (generic)
+- [x] **P3-016** — Webhook interface (generic) <!-- done: 2026-03-24 -->
   - **Location:** `os/interfaces/webhook/webhook.go` (new package)
   - **Criteria:** Generic webhook endpoint that accepts POST with message payload, routes to agent, returns response. Configurable authentication (HMAC signature verification).
 
@@ -477,13 +477,13 @@
   - **Location:** `sdk/protocol/a2a/` (new package)
   - **Criteria:** Implement the A2A protocol for cross-framework agent communication. `A2AServer` exposes an agent as an A2A endpoint. `A2AClient` connects to external A2A agents. Support task creation, status polling, and streaming.
 
-- [ ] **P3-020** — Custom handoff tools with task instructions
+- [x] **P3-020** — Custom handoff tools with task instructions <!-- done: 2026-03-24 -->
   - **Location:** `sdk/team/handoff.go` (new file)
   - **Criteria:** When an agent hands off to another, it can provide structured task instructions (objective, context, constraints). The receiving agent sees these as its initial prompt. Reduces failed handoffs.
 
 ### P3-F: Reasoning & Advanced AI
 
-- [ ] **P3-021** — Reasoning tools (chain-of-thought)
+- [x] **P3-021** — Reasoning tools (chain-of-thought) <!-- done: 2026-03-24 -->
   - **Location:** `engine/tool/builtins/reasoning.go` (new file)
   - **Criteria:** `think(thought string)` tool that allows the model to perform explicit reasoning steps. The thought is recorded in context but not shown to the user. Useful for complex multi-step analysis.
 
@@ -503,7 +503,7 @@
 
 ### P3-H: CLI Enhancements
 
-- [ ] **P3-025** — Non-interactive mode (pipe tasks)
+- [x] **P3-025** — Non-interactive mode (pipe tasks) <!-- done: 2026-03-24 -->
   - **Location:** `cli/cmd/root.go`
   - **Criteria:** `chronos run -n "task description"` runs the agent non-interactively. Reads from stdin if piped. Outputs to stdout. Exit code 0 on success, 1 on failure. Suitable for scripting.
 

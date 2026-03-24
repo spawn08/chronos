@@ -2,6 +2,7 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -40,6 +41,8 @@ func Execute() error {
 		return runServe()
 	case "run":
 		return runAgent()
+	case "pipe":
+		return runPipe()
 	case "agent", "agents":
 		return runAgentCmd()
 	case "team", "teams":
@@ -73,6 +76,7 @@ Commands:
   repl                      Start interactive REPL (loads agent from YAML config)
   serve [addr]              Start ChronosOS control plane server (default :8420)
   run [--agent <id>] <msg>  Run an agent in headless mode
+  pipe                      Non-interactive mode: reads from stdin, writes to stdout
   agent list                List agents defined in config
   agent show <id>           Show agent configuration details
   agent chat <id>           Start a chat session with a specific agent
@@ -982,4 +986,42 @@ func maskEnv(key string) string {
 		return "****"
 	}
 	return v[:4] + "..." + v[len(v)-4:]
+}
+
+func runPipe() error {
+	ctx := context.Background()
+
+	var a *agent.Agent
+	var err error
+
+	if len(os.Args) > 2 {
+		a, err = loadAgentByID(os.Args[2])
+	} else {
+		a, err = loadDefaultAgent()
+	}
+	if err != nil {
+		return fmt.Errorf("pipe: %w", err)
+	}
+
+	scanner := bufio.NewScanner(os.Stdin)
+	encoder := json.NewEncoder(os.Stdout)
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+
+		resp, err := a.Chat(ctx, line)
+		if err != nil {
+			_ = encoder.Encode(map[string]any{"error": err.Error()})
+			continue
+		}
+
+		_ = encoder.Encode(map[string]any{
+			"agent":   a.ID,
+			"content": resp.Content,
+		})
+	}
+	return scanner.Err()
 }

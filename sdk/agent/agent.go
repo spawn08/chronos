@@ -56,7 +56,8 @@ type Agent struct {
 	InstructionsFn func(ctx context.Context, state map[string]any) []string
 	Examples       []Example
 
-	// Debug and iteration control
+	// Reasoning and iteration control
+	Reasoning     ReasoningStrategy
 	Debug         bool // when set, logs detailed execution info
 	MaxIterations int  // max tool-calling loop iterations; 0 = default (25)
 
@@ -285,6 +286,8 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 			})
 		}
 	}
+
+	messages = applyReasoning(a.Reasoning, messages)
 
 	messages = append(messages, model.Message{Role: model.RoleUser, Content: userMessage})
 
