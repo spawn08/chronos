@@ -80,11 +80,11 @@ func (s *Store) Search(ctx context.Context, collection string, query []float32, 
 
 	var resp struct {
 		Results []struct {
-			ID       string         `json:"id"`
-			Vector   []float32      `json:"vector"`
-			Content  string         `json:"content"`
-			Metadata string         `json:"metadata"`
-			Score    float32        `json:"_distance"`
+			ID       string    `json:"id"`
+			Vector   []float32 `json:"vector"`
+			Content  string    `json:"content"`
+			Metadata string    `json:"metadata"`
+			Score    float32   `json:"_distance"`
 		} `json:"results"`
 	}
 	if err := json.Unmarshal(data, &resp); err != nil {

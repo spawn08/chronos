@@ -21,17 +21,17 @@ type monitorStats struct {
 	HealthStatus string `json:"health_status"`
 
 	// From /api/sessions
-	ActiveSessions  int              `json:"active_sessions"`
-	RecentSessions  []sessionSummary `json:"recent_sessions"`
-	TotalSessions   int              `json:"total_sessions"`
+	ActiveSessions int              `json:"active_sessions"`
+	RecentSessions []sessionSummary `json:"recent_sessions"`
+	TotalSessions  int              `json:"total_sessions"`
 
 	// From /metrics (Prometheus text format parsed)
-	ToolCallsTotal   float64 `json:"tool_calls_total"`
-	TokensUsedTotal  float64 `json:"tokens_used_total"`
-	ModelCallsTotal  float64 `json:"model_calls_total"`
-	ErrorsTotal      float64 `json:"errors_total"`
-	ModelLatencyP50  float64 `json:"model_latency_p50"`
-	ActiveSessionsG  float64 `json:"active_sessions_gauge"`
+	ToolCallsTotal  float64 `json:"tool_calls_total"`
+	TokensUsedTotal float64 `json:"tokens_used_total"`
+	ModelCallsTotal float64 `json:"model_calls_total"`
+	ErrorsTotal     float64 `json:"errors_total"`
+	ModelLatencyP50 float64 `json:"model_latency_p50"`
+	ActiveSessionsG float64 `json:"active_sessions_gauge"`
 
 	FetchedAt time.Time `json:"fetched_at"`
 	FetchErr  string    `json:"fetch_err,omitempty"`

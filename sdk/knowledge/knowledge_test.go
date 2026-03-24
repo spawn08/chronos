@@ -34,7 +34,7 @@ func (s *stubVectorStore) Search(_ context.Context, _ string, _ []float32, _ int
 	return s.results, s.searchErr
 }
 func (s *stubVectorStore) Delete(_ context.Context, _ string, _ []string) error { return nil }
-func (s *stubVectorStore) Close() error                                          { return nil }
+func (s *stubVectorStore) Close() error                                         { return nil }
 
 type stubEmbedder struct {
 	embeddings [][]float32

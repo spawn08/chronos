@@ -24,7 +24,7 @@ type AudioProvider interface {
 
 // OpenAIAudio implements AudioProvider for OpenAI's Whisper transcription and TTS endpoints.
 type OpenAIAudio struct {
-	config         ProviderConfig
+	config          ProviderConfig
 	transcribeModel string // e.g., "whisper-1"
 	ttsModel        string // e.g., "tts-1", "tts-1-hd"
 	ttsFormat       string // e.g., "mp3", "opus", "aac", "flac", "wav", "pcm"
