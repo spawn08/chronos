@@ -17,6 +17,7 @@ import (
 	"github.com/spawn08/chronos/engine/stream"
 	"github.com/spawn08/chronos/os/approval"
 	"github.com/spawn08/chronos/os/auth"
+	"github.com/spawn08/chronos/os/metrics"
 	"github.com/spawn08/chronos/os/trace"
 	"github.com/spawn08/chronos/storage"
 )
@@ -29,6 +30,7 @@ type Server struct {
 	Auth            *auth.Service
 	Trace           *trace.Collector
 	Approval        *approval.Service
+	Metrics         *metrics.Registry
 	ShutdownTimeout time.Duration
 	mux             *http.ServeMux
 	ready           atomic.Bool
@@ -43,6 +45,7 @@ func New(addr string, store storage.Storage) *Server {
 		Auth:            auth.NewService(),
 		Trace:           trace.NewCollector(store),
 		Approval:        approval.NewService(),
+		Metrics:         metrics.NewRegistry(),
 		ShutdownTimeout: 15 * time.Second,
 		mux:             http.NewServeMux(),
 	}
@@ -66,6 +69,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/events/stream", s.Broker.SSEHandler("dashboard"))
 	s.mux.HandleFunc("/api/approval/pending", s.Approval.HandlePending)
 	s.mux.HandleFunc("/api/approval/respond", s.Approval.HandleRespond)
+	s.mux.Handle("/metrics", s.Metrics.Handler())
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
