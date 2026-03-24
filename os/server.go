@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/spawn08/chronos/os/approval"
 	"github.com/spawn08/chronos/os/auth"
 	"github.com/spawn08/chronos/os/metrics"
+	"github.com/spawn08/chronos/os/scheduler"
 	"github.com/spawn08/chronos/os/trace"
 	"github.com/spawn08/chronos/storage"
 )
@@ -31,6 +33,7 @@ type Server struct {
 	Trace           *trace.Collector
 	Approval        *approval.Service
 	Metrics         *metrics.Registry
+	Scheduler       *scheduler.Scheduler
 	ShutdownTimeout time.Duration
 	mux             *http.ServeMux
 	ready           atomic.Bool
@@ -46,6 +49,9 @@ func New(addr string, store storage.Storage) *Server {
 		Trace:           trace.NewCollector(store),
 		Approval:        approval.NewService(),
 		Metrics:         metrics.NewRegistry(),
+		Scheduler: scheduler.New(func(_ context.Context, _, _, _ string) error {
+			return fmt.Errorf("no agent runner configured")
+		}),
 		ShutdownTimeout: 15 * time.Second,
 		mux:             http.NewServeMux(),
 	}
@@ -70,6 +76,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/approval/pending", s.Approval.HandlePending)
 	s.mux.HandleFunc("/api/approval/respond", s.Approval.HandleRespond)
 	s.mux.Handle("/metrics", s.Metrics.Handler())
+
+	// Scheduler API
+	s.mux.HandleFunc("/api/schedules", s.handleSchedules)
+	s.mux.HandleFunc("/api/schedules/", s.handleScheduleByID)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
@@ -253,4 +263,72 @@ func (s *Server) Start(ctx context.Context) error {
 
 	log.Println("ChronosOS: shutdown complete")
 	return nil
+}
+
+func (s *Server) handleSchedules(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		schedules := s.Scheduler.List()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"schedules": schedules})
+
+	case http.MethodPost:
+		var body struct {
+			AgentID    string `json:"agent_id"`
+			CronExpr   string `json:"cron_expr"`
+			Input      string `json:"input"`
+			NewSession bool   `json:"new_session"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"invalid JSON: %s"}`, err.Error()), http.StatusBadRequest)
+			return
+		}
+		sched, err := s.Scheduler.Add(body.AgentID, body.CronExpr, body.Input, body.NewSession)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(sched)
+
+	default:
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleScheduleByID(w http.ResponseWriter, r *http.Request) {
+	// Extract ID from path: /api/schedules/{id} or /api/schedules/{id}/history
+	path := strings.TrimPrefix(r.URL.Path, "/api/schedules/")
+	parts := strings.SplitN(path, "/", 2)
+	id := parts[0]
+
+	if len(parts) == 2 && parts[1] == "history" {
+		history := s.Scheduler.History(id)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"history": history})
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		sched, err := s.Scheduler.Get(id)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(sched)
+
+	case http.MethodDelete:
+		if err := s.Scheduler.Remove(id); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintln(w, `{"deleted":true}`)
+
+	default:
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+	}
 }
