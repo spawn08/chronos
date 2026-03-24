@@ -109,7 +109,7 @@ func NewFileListTool(basePath string) *tool.Definition {
 			for _, e := range entries {
 				info, _ := e.Info()
 				item := map[string]any{
-					"name":  e.Name(),
+					"name":   e.Name(),
 					"is_dir": e.IsDir(),
 				}
 				if info != nil {

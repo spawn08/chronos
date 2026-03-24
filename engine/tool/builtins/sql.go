@@ -22,9 +22,9 @@ func NewSQLTool(db *sql.DB, allowedOperations []string) *tool.Definition {
 	}
 
 	return &tool.Definition{
-		Name:        "sql_query",
-		Description: "Execute a SQL query against the database and return results as rows.",
-		Permission:  tool.PermRequireApproval,
+		Name:                 "sql_query",
+		Description:          "Execute a SQL query against the database and return results as rows.",
+		Permission:           tool.PermRequireApproval,
 		RequiresConfirmation: true,
 		Parameters: map[string]any{
 			"type": "object",

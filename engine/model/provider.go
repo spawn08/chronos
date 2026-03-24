@@ -23,7 +23,7 @@ const (
 
 // ContentPart represents a multi-modal content part within a message.
 type ContentPart struct {
-	Type     string `json:"type"`               // "text", "image_url", "file"
+	Type     string `json:"type"`                // "text", "image_url", "file"
 	Text     string `json:"text,omitempty"`      // for type "text"
 	ImageURL string `json:"image_url,omitempty"` // for type "image_url" — URL or base64 data URI
 	MimeType string `json:"mime_type,omitempty"` // MIME type for image or file

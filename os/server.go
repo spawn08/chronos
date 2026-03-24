@@ -42,13 +42,13 @@ type Server struct {
 // New creates a new ChronosOS server.
 func New(addr string, store storage.Storage) *Server {
 	s := &Server{
-		Addr:            addr,
-		Store:           store,
-		Broker:          stream.NewBroker(),
-		Auth:            auth.NewService(),
-		Trace:           trace.NewCollector(store),
-		Approval:        approval.NewService(),
-		Metrics:         metrics.NewRegistry(),
+		Addr:     addr,
+		Store:    store,
+		Broker:   stream.NewBroker(),
+		Auth:     auth.NewService(),
+		Trace:    trace.NewCollector(store),
+		Approval: approval.NewService(),
+		Metrics:  metrics.NewRegistry(),
 		Scheduler: scheduler.New(func(_ context.Context, _, _, _ string) error {
 			return fmt.Errorf("no agent runner configured")
 		}),
