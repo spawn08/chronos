@@ -53,6 +53,9 @@ type Agent struct {
 	SystemPrompt string
 	Instructions []string
 
+	// Iteration control
+	MaxIterations int // max tool-calling loop iterations; 0 = default (25)
+
 	// MCP servers
 	MCPClients []*mcp.Client
 
@@ -101,6 +104,7 @@ func (b *Builder) WithKnowledge(k knowledge.Knowledge) *Builder  { b.agent.Knowl
 func (b *Builder) WithMemoryManager(m *memory.Manager) *Builder  { b.agent.MemoryManager = m; return b }
 func (b *Builder) WithOutputSchema(s map[string]any) *Builder    { b.agent.OutputSchema = s; return b }
 func (b *Builder) WithHistoryRuns(n int) *Builder                { b.agent.NumHistoryRuns = n; return b }
+func (b *Builder) WithMaxIterations(n int) *Builder              { b.agent.MaxIterations = n; return b }
 func (b *Builder) WithContextConfig(cfg ContextConfig) *Builder  { b.agent.ContextCfg = cfg; return b }
 func (b *Builder) WithBroker(br *stream.Broker) *Builder         { b.agent.Broker = br; return b }
 func (b *Builder) WithTracer(t *chronostrace.Collector) *Builder { b.agent.Tracer = t; return b }
@@ -332,8 +336,17 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 		}})
 	}
 
-	// Handle tool calls if the model wants to use tools
-	if resp.StopReason == model.StopReasonToolCall && len(resp.ToolCalls) > 0 {
+	// Handle tool calls with iteration limit
+	maxIter := a.MaxIterations
+	if maxIter <= 0 {
+		maxIter = 25
+	}
+	iteration := 0
+	for resp.StopReason == model.StopReasonToolCall && len(resp.ToolCalls) > 0 {
+		iteration++
+		if iteration > maxIter {
+			break
+		}
 		resp, err = a.handleToolCalls(ctx, messages, resp)
 		if err != nil {
 			return nil, err

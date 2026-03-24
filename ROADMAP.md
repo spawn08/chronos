@@ -19,9 +19,9 @@
 |----------|-------|------|-----------|
 | P0       | 16    | 16   | 0         |
 | P1       | 28    | 28   | 0         |
-| P2       | 30    | 0    | 30        |
+| P2       | 30    | 6    | 24        |
 | P3       | 27    | 0    | 27        |
-| **Total**| **101** | **44** | **57** |
+| **Total**| **101** | **50** | **51** |
 
 ---
 
@@ -272,7 +272,7 @@
   - **Location:** `engine/tool/builtins/http.go` (new)
   - **Criteria:** Make HTTP requests (GET, POST, PUT, DELETE) to external APIs. Configurable headers, body, timeout. Returns status code, headers, body. Allowlist for domains.
 
-- [ ] **P2-007** — Sleep / wait tool
+- [x] **P2-007** — Sleep / wait tool <!-- done: 2026-03-24 -->
   - **Location:** `engine/tool/builtins/sleep.go` (new)
   - **Criteria:** Pause execution for a specified duration. Useful for rate limiting and polling patterns. Max duration configurable.
 
@@ -324,11 +324,11 @@
 
 ### P2-E: Graph Visualization
 
-- [ ] **P2-018** — Mermaid diagram export
+- [x] **P2-018** — Mermaid diagram export <!-- done: 2026-03-24 -->
   - **Location:** `engine/graph/visualize.go` (new file)
   - **Criteria:** `CompiledGraph.ToMermaid() string` generates a Mermaid flowchart definition. Nodes show IDs, interrupt nodes are highlighted, conditional edges show labels. Output is copy-pasteable into Mermaid renderers.
 
-- [ ] **P2-019** — DOT (Graphviz) export
+- [x] **P2-019** — DOT (Graphviz) export <!-- done: 2026-03-24 -->
   - **Location:** `engine/graph/visualize.go`
   - **Criteria:** `CompiledGraph.ToDOT() string` generates DOT format. Nodes colored by type (start/end/normal/interrupt). Edges labeled for conditionals.
 
@@ -358,11 +358,11 @@
 
 ### P2-H: Additional Guardrails
 
-- [ ] **P2-025** — PII detection guardrail
+- [x] **P2-025** — PII detection guardrail <!-- done: 2026-03-24 -->
   - **Location:** `engine/guardrails/pii.go` (new file)
   - **Criteria:** Detect common PII patterns: email, phone, SSN, credit card, IP address. Configurable: block or redact. Regex-based for zero external dependencies.
 
-- [ ] **P2-026** — Prompt injection detection guardrail
+- [x] **P2-026** — Prompt injection detection guardrail <!-- done: 2026-03-24 -->
   - **Location:** `engine/guardrails/injection.go` (new file)
   - **Criteria:** Detect common prompt injection patterns: "ignore previous instructions", role hijacking, delimiter injection. Pattern-matching based. Configurable sensitivity level.
 
@@ -376,7 +376,7 @@
   - **Location:** `sdk/agent/agent.go`
   - **Criteria:** `Agent.Examples []Example` where `Example` has `Input string` and `Output string`. Examples injected into context as user/assistant message pairs before the actual conversation. Configurable max examples count.
 
-- [ ] **P2-029** — Max iterations / recursion limit
+- [x] **P2-029** — Max iterations / recursion limit <!-- done: 2026-03-24 -->
   - **Location:** `sdk/agent/agent.go`
   - **Criteria:** `Agent.MaxIterations int` limits the tool-calling loop. When the agent exceeds this limit, it returns the last model response with a warning. Prevents infinite loops. Default: 25.
 
