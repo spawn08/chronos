@@ -447,15 +447,15 @@
 
 ### P3-D: Interface Integrations
 
-- [ ] **P3-013** — Slack bot interface
+- [x] **P3-013** — Slack bot interface
   - **Location:** `os/interfaces/slack/slack.go` (new package)
   - **Criteria:** Receive messages from Slack (via Events API or Socket Mode), route to configured agent, post response back to channel. Support threads, mentions, and DMs. Configurable bot token.
 
-- [ ] **P3-014** — Discord bot interface
+- [x] **P3-014** — Discord bot interface
   - **Location:** `os/interfaces/discord/discord.go` (new package)
   - **Criteria:** Discord bot that listens for messages, routes to agent, responds. Support slash commands and message replies. Configurable bot token.
 
-- [ ] **P3-015** — Telegram bot interface
+- [x] **P3-015** — Telegram bot interface
   - **Location:** `os/interfaces/telegram/telegram.go` (new package)
   - **Criteria:** Telegram bot using long polling or webhooks. Route messages to agent, send responses. Support inline keyboards for HITL confirmations.
 
@@ -465,15 +465,15 @@
 
 ### P3-E: Advanced Multi-Agent Patterns
 
-- [ ] **P3-017** — Swarm pattern (peer-to-peer handoff)
+- [x] **P3-017** — Swarm pattern (peer-to-peer handoff)
   - **Location:** `sdk/team/swarm.go` (new file)
   - **Criteria:** Agents can hand off directly to other agents without a central coordinator. `Handoff(targetAgent, taskDescription)` tool. Any agent can interact with the user. The active agent changes on handoff.
 
-- [ ] **P3-018** — Hierarchical multi-level supervisors
+- [x] **P3-018** — Hierarchical multi-level supervisors
   - **Location:** `sdk/team/hierarchy.go` (new file)
   - **Criteria:** A supervisor team can contain other supervisor teams as members, creating a tree structure. Top-level supervisor delegates to mid-level supervisors, which delegate to worker agents.
 
-- [ ] **P3-019** — A2A protocol (agent-to-agent interop)
+- [x] **P3-019** — A2A protocol (agent-to-agent interop)
   - **Location:** `sdk/protocol/a2a/` (new package)
   - **Criteria:** Implement the A2A protocol for cross-framework agent communication. `A2AServer` exposes an agent as an A2A endpoint. `A2AClient` connects to external A2A agents. Support task creation, status polling, and streaming.
 
@@ -487,17 +487,17 @@
   - **Location:** `engine/tool/builtins/reasoning.go` (new file)
   - **Criteria:** `think(thought string)` tool that allows the model to perform explicit reasoning steps. The thought is recorded in context but not shown to the user. Useful for complex multi-step analysis.
 
-- [ ] **P3-022** — Separate reasoning model (two-model architecture)
+- [x] **P3-022** — Separate reasoning model (two-model architecture)
   - **Location:** `sdk/agent/agent.go`
   - **Criteria:** `Agent.ReasoningModel Provider` field. When set, reasoning steps use a more capable (but slower) model, while final responses use the primary model. Configurable which steps use which model.
 
 ### P3-G: Sandbox Enhancements
 
-- [ ] **P3-023** — Container pooling (pre-warmed containers)
+- [x] **P3-023** — Container pooling (pre-warmed containers)
   - **Location:** `sandbox/pool.go` (new file)
   - **Criteria:** `ContainerPool` maintains N pre-warmed containers. `Acquire()` returns a ready container instantly. `Release()` returns it to the pool. Configurable pool size, max idle time. Reduces cold-start latency.
 
-- [ ] **P3-024** — Pluggable sandbox backends
+- [x] **P3-024** — Pluggable sandbox backends
   - **Location:** `sandbox/sandbox.go`
   - **Criteria:** `Sandbox` interface implemented by: `ProcessSandbox` (existing), `ContainerSandbox` (existing), `WASMSandbox` (new, using Wazero), `K8sJobSandbox` (new, using Kubernetes Jobs). Factory function selects backend by config string.
 
@@ -513,7 +513,7 @@
 
 ### P3-I: Production Hardening
 
-- [ ] **P3-027** — Database migration framework
+- [x] **P3-027** — Database migration framework
   - **Location:** `storage/migrate/migrate.go` (new package)
   - **Criteria:** Versioned migrations for SQL backends (SQLite, Postgres). Migration files in `storage/migrate/migrations/`. `Migrate(ctx, db)` applies pending migrations. `Status(ctx, db)` shows current version. `Rollback(ctx, db)` reverts last migration. Track applied migrations in a `_migrations` table.
 
