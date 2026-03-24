@@ -419,15 +419,15 @@
 
 ### P3-B: Additional Vector Stores
 
-- [ ] **P3-007** — ChromaDB vector store
+- [x] **P3-007** — ChromaDB vector store <!-- done: 2026-03-24 -->
   - **Location:** `storage/adapters/chroma/chroma.go` (new)
   - **Criteria:** Implement `VectorStore` using ChromaDB REST API. Support Upsert, Search, Delete, CreateCollection. Include test.
 
-- [ ] **P3-008** — PgVector vector store
+- [x] **P3-008** — PgVector vector store <!-- done: 2026-03-24 -->
   - **Location:** `storage/adapters/pgvector/pgvector.go` (new)
   - **Criteria:** Implement `VectorStore` using PostgreSQL with pgvector extension. Use `database/sql` with pgx driver. Support cosine similarity search. Include test.
 
-- [ ] **P3-009** — LanceDB vector store
+- [x] **P3-009** — LanceDB vector store <!-- done: 2026-03-24 -->
   - **Location:** `storage/adapters/lancedb/lancedb.go` (new)
   - **Criteria:** Implement `VectorStore` using LanceDB Go client (or REST API). Embedded/serverless vector DB. Include test.
 
