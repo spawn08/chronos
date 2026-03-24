@@ -16,3 +16,4 @@ adfac03	0.160	25	25	39.2	keep	P3-007/008/009: ChromaDB, PgVector, LanceDB
 8e2dc93	0.135	26	37.2	101/104	P3 bot interfaces, swarm/hierarchy teams, A2A, sandbox pool, migrations	KEPT
 49ede88	0.132	26	36.1	103/104	P2-014 audio + P3-026 CLI monitor TUI, all roadmap items done	KEPT
 6450977	0.125	30	39.1	103/104	Add 84 tests across 8 packages	KEPT
+2e7ba97	0.114	37	43.1	103/104	Add tests for 7 more packages	KEPT
