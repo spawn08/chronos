@@ -334,7 +334,7 @@
 
 ### P2-F: Observability
 
-- [ ] **P2-020** — OpenTelemetry integration
+- [x] **P2-020** — OpenTelemetry integration <!-- done: 2026-03-24 -->
   - **Location:** `os/trace/otel.go` (new file)
   - **Criteria:** `OTelCollector` implements trace collection using OpenTelemetry SDK. Exports spans to configured OTLP endpoint. Agent/graph/tool operations create OTel spans with proper parent-child relationships and attributes.
 
@@ -342,7 +342,7 @@
   - **Location:** `sdk/agent/agent.go`
   - **Criteria:** `Agent.Debug bool` flag. When set, logs detailed execution: every model call (prompt + response), tool calls (args + result), guardrail checks, memory operations, knowledge searches. Uses structured logger.
 
-- [ ] **P2-022** — Metrics export (Prometheus format)
+- [x] **P2-022** — Metrics export (Prometheus format) <!-- done: 2026-03-24 -->
   - **Location:** `os/metrics/prometheus.go` (new file), `os/server.go`
   - **Criteria:** `GET /metrics` endpoint serving Prometheus-format metrics: `chronos_agent_runs_total`, `chronos_model_latency_seconds`, `chronos_tool_calls_total`, `chronos_tokens_used_total`, `chronos_active_sessions`. Hook-based collection.
 
