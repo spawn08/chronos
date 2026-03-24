@@ -17,13 +17,13 @@ type Eval interface {
 
 // EvalResult captures the outcome of a single evaluation.
 type EvalResult struct {
-	Name         string        `json:"name"`
-	Score        float64       `json:"score"`
-	Passed       bool          `json:"passed"`
-	Details      string        `json:"details"`
-	Latency      time.Duration `json:"latency"`
-	TokensUsed   int           `json:"tokens_used,omitempty"`
-	Error        string        `json:"error,omitempty"`
+	Name       string        `json:"name"`
+	Score      float64       `json:"score"`
+	Passed     bool          `json:"passed"`
+	Details    string        `json:"details"`
+	Latency    time.Duration `json:"latency"`
+	TokensUsed int           `json:"tokens_used,omitempty"`
+	Error      string        `json:"error,omitempty"`
 }
 
 // Suite is a collection of evaluations that run together.

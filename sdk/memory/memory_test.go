@@ -46,23 +46,39 @@ func (s *memStorage) DeleteMemory(_ context.Context, id string) error {
 }
 
 // Unused storage methods - satisfy interface
-func (s *memStorage) CreateSession(_ context.Context, _ *storage.Session) error                       { return nil }
-func (s *memStorage) GetSession(_ context.Context, _ string) (*storage.Session, error)                { return nil, nil }
-func (s *memStorage) UpdateSession(_ context.Context, _ *storage.Session) error                       { return nil }
-func (s *memStorage) ListSessions(_ context.Context, _ string, _, _ int) ([]*storage.Session, error)  { return nil, nil }
-func (s *memStorage) AppendAuditLog(_ context.Context, _ *storage.AuditLog) error                     { return nil }
-func (s *memStorage) ListAuditLogs(_ context.Context, _ string, _, _ int) ([]*storage.AuditLog, error) { return nil, nil }
-func (s *memStorage) InsertTrace(_ context.Context, _ *storage.Trace) error                           { return nil }
-func (s *memStorage) GetTrace(_ context.Context, _ string) (*storage.Trace, error)                    { return nil, nil }
-func (s *memStorage) ListTraces(_ context.Context, _ string) ([]*storage.Trace, error)                { return nil, nil }
-func (s *memStorage) AppendEvent(_ context.Context, _ *storage.Event) error                           { return nil }
-func (s *memStorage) ListEvents(_ context.Context, _ string, _ int64) ([]*storage.Event, error)       { return nil, nil }
-func (s *memStorage) SaveCheckpoint(_ context.Context, _ *storage.Checkpoint) error                   { return nil }
-func (s *memStorage) GetCheckpoint(_ context.Context, _ string) (*storage.Checkpoint, error)          { return nil, nil }
-func (s *memStorage) GetLatestCheckpoint(_ context.Context, _ string) (*storage.Checkpoint, error)    { return nil, nil }
-func (s *memStorage) ListCheckpoints(_ context.Context, _ string) ([]*storage.Checkpoint, error)      { return nil, nil }
-func (s *memStorage) Migrate(_ context.Context) error                                                  { return nil }
-func (s *memStorage) Close() error                                                                     { return nil }
+func (s *memStorage) CreateSession(_ context.Context, _ *storage.Session) error { return nil }
+func (s *memStorage) GetSession(_ context.Context, _ string) (*storage.Session, error) {
+	return nil, nil
+}
+func (s *memStorage) UpdateSession(_ context.Context, _ *storage.Session) error { return nil }
+func (s *memStorage) ListSessions(_ context.Context, _ string, _, _ int) ([]*storage.Session, error) {
+	return nil, nil
+}
+func (s *memStorage) AppendAuditLog(_ context.Context, _ *storage.AuditLog) error { return nil }
+func (s *memStorage) ListAuditLogs(_ context.Context, _ string, _, _ int) ([]*storage.AuditLog, error) {
+	return nil, nil
+}
+func (s *memStorage) InsertTrace(_ context.Context, _ *storage.Trace) error        { return nil }
+func (s *memStorage) GetTrace(_ context.Context, _ string) (*storage.Trace, error) { return nil, nil }
+func (s *memStorage) ListTraces(_ context.Context, _ string) ([]*storage.Trace, error) {
+	return nil, nil
+}
+func (s *memStorage) AppendEvent(_ context.Context, _ *storage.Event) error { return nil }
+func (s *memStorage) ListEvents(_ context.Context, _ string, _ int64) ([]*storage.Event, error) {
+	return nil, nil
+}
+func (s *memStorage) SaveCheckpoint(_ context.Context, _ *storage.Checkpoint) error { return nil }
+func (s *memStorage) GetCheckpoint(_ context.Context, _ string) (*storage.Checkpoint, error) {
+	return nil, nil
+}
+func (s *memStorage) GetLatestCheckpoint(_ context.Context, _ string) (*storage.Checkpoint, error) {
+	return nil, nil
+}
+func (s *memStorage) ListCheckpoints(_ context.Context, _ string) ([]*storage.Checkpoint, error) {
+	return nil, nil
+}
+func (s *memStorage) Migrate(_ context.Context) error { return nil }
+func (s *memStorage) Close() error                    { return nil }
 
 func TestStore_SetAndGetShortTerm(t *testing.T) {
 	store := NewStore("agent1", newMemStorage())

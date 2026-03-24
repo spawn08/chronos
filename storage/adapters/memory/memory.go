@@ -35,7 +35,7 @@ func New() *Store {
 }
 
 func (s *Store) Migrate(_ context.Context) error { return nil }
-func (s *Store) Close() error                     { return nil }
+func (s *Store) Close() error                    { return nil }
 
 // --- Sessions ---
 

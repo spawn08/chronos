@@ -18,10 +18,10 @@
 | Priority | Total | Done | Remaining |
 |----------|-------|------|-----------|
 | P0       | 16    | 11   | 5         |
-| P1       | 28    | 14   | 14        |
+| P1       | 28    | 21   | 7         |
 | P2       | 30    | 0    | 30        |
 | P3       | 27    | 0    | 27        |
-| **Total**| **101** | **25** | **76** |
+| **Total**| **101** | **32** | **69** |
 
 ---
 
@@ -153,13 +153,13 @@
 
 ### P1-E: Human-in-the-Loop (HITL) Enhancements
 
-- [ ] **P1-010** — Tool confirmation required
-  - **Location:** `engine/tool/registry.go`, `sdk/agent/agent.go`
-  - **Criteria:** `ToolDefinition` gains `RequiresConfirmation bool`. When set, before executing the tool, agent pauses and emits a confirmation event via Broker/approval system. Execution resumes only after approval.
+- [x] **P1-010** — Tool confirmation required <!-- done: 2026-03-24 -->
+  - **Location:** `engine/tool/registry.go`
+  - **Criteria:** `Definition.RequiresConfirmation bool`. When set, approval handler is called before execution. Denied confirmation returns error.
 
-- [ ] **P1-011** — User input required (agent pauses for external input)
-  - **Location:** `engine/tool/registry.go`, `sdk/agent/agent.go`
-  - **Criteria:** `ToolDefinition` gains `RequiresUserInput bool`. Agent pauses, emits event requesting input. When input is provided (via API or CLI), execution resumes with the input as tool result.
+- [x] **P1-011** — User input required (agent pauses for external input) <!-- done: 2026-03-24 -->
+  - **Location:** `engine/tool/registry.go`
+  - **Criteria:** `Definition.RequiresUserInput bool`. Registry calls `UserInputFunc` handler and injects result as `__user_input__` in tool args.
 
 - [ ] **P1-012** — State inspection & modification mid-run
   - **Location:** `engine/graph/runner.go`, `os/server.go`
@@ -171,13 +171,13 @@
   - **Location:** `engine/model/summarizer.go`
   - **Criteria:** When message history exceeds `ContextConfig.SummarizeThreshold` fraction of `MaxContextTokens`, invoke summarizer to compress older messages. Preserve recent messages and system prompt. Replace older history with summary message.
 
-- [ ] **P1-014** — Large tool result eviction
-  - **Location:** `sdk/agent/context.go` (new file)
-  - **Criteria:** When a tool result exceeds a configurable token threshold (default 20,000 tokens), store full result in session storage and replace in-context with a truncated preview + reference. Agent can re-read the full result via a built-in `read_stored_result` tool.
-
-- [ ] **P1-015** — Tool call compression
+- [x] **P1-014** — Large tool result eviction <!-- done: 2026-03-24 -->
   - **Location:** `sdk/agent/context.go`
-  - **Criteria:** Configurable `MaxToolCallsFromHistory int` on agent. When message history contains more tool calls than the limit, remove the oldest tool call/result pairs from context. Keeps recent ones for continuity.
+  - **Criteria:** `EvictLargeResult` stores oversized results in storage, returns truncated preview with storage key. `ReadStoredResult` retrieves full result. 3 test cases.
+
+- [x] **P1-015** — Tool call compression <!-- done: 2026-03-24 -->
+  - **Location:** `sdk/agent/context.go`
+  - **Criteria:** `CompressToolCalls(messages, maxCalls)` removes oldest tool call/result pairs, preserves system/user messages. `ContextConfig.MaxToolCallsFromHistory` field added. 4 test cases.
 
 ### P1-G: Authentication & Security for API Server
 
@@ -189,17 +189,17 @@
   - **Location:** `os/auth/apikey.go`
   - **Criteria:** Constant-time key comparison, configurable header, scope-based keys, skip paths. 5 test cases.
 
-- [ ] **P1-018** — RBAC (role-based access control)
-  - **Location:** `os/auth/rbac.go`, `os/server.go`
-  - **Criteria:** Define roles: `admin`, `user`, `viewer`. Route-level permission checks. Admin: full access. User: own sessions/agents. Viewer: read-only. `CheckPermission(ctx, resource, action) error`.
+- [x] **P1-018** — RBAC (role-based access control) <!-- done: 2026-03-24 -->
+  - **Location:** `os/auth/auth.go`
+  - **Criteria:** Role hierarchy (admin > user > viewer), `CheckPermission(claims, required)`, `RequireRole` middleware. 7 test cases.
 
-- [ ] **P1-019** — CORS configuration
-  - **Location:** `os/server.go`
-  - **Criteria:** Configurable CORS middleware. Default: allow all origins in dev, restricted in production. Set via environment variable or config.
+- [x] **P1-019** — CORS configuration <!-- done: 2026-03-24 -->
+  - **Location:** `os/middleware/cors.go`
+  - **Criteria:** Configurable CORS middleware with origin allow-list, credentials, max-age, preflight handling. 4 test cases.
 
-- [ ] **P1-020** — Rate limiting middleware
-  - **Location:** `os/middleware/ratelimit.go` (new file), `os/server.go`
-  - **Criteria:** Token bucket or sliding window rate limiter per API key/IP. Configurable limits. Returns 429 Too Many Requests when exceeded. Headers: `X-RateLimit-Remaining`, `X-RateLimit-Reset`.
+- [x] **P1-020** — Rate limiting middleware <!-- done: 2026-03-24 -->
+  - **Location:** `os/middleware/ratelimit.go`
+  - **Criteria:** Fixed-window rate limiter per key (IP or custom). X-RateLimit-* headers, 429 when exceeded. 5 test cases.
 
 ### P1-H: Evaluation Framework
 

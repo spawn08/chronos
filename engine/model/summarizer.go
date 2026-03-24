@@ -14,9 +14,9 @@ type SummarizationConfig struct {
 
 // SummarizationResult holds the output of a summarization pass.
 type SummarizationResult struct {
-	Summary            string
-	PreservedMessages  []Message
-	SummarizedCount    int
+	Summary           string
+	PreservedMessages []Message
+	SummarizedCount   int
 }
 
 // Summarizer compresses conversation history to fit within context windows.

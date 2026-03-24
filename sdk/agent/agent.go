@@ -60,9 +60,11 @@ type Agent struct {
 
 // ContextConfig controls context window management and automatic summarization.
 type ContextConfig struct {
-	MaxContextTokens    int     `json:"max_context_tokens" yaml:"max_tokens"`               // override model default; 0 = use model default
-	SummarizeThreshold  float64 `json:"summarize_threshold" yaml:"summarize_threshold"`     // fraction of context window to trigger summarization (default 0.8)
-	PreserveRecentTurns int     `json:"preserve_recent_turns" yaml:"preserve_recent_turns"` // number of recent user/assistant pairs to keep (default 5)
+	MaxContextTokens        int     `json:"max_context_tokens" yaml:"max_tokens"`                 // override model default; 0 = use model default
+	SummarizeThreshold      float64 `json:"summarize_threshold" yaml:"summarize_threshold"`       // fraction of context window to trigger summarization (default 0.8)
+	PreserveRecentTurns     int     `json:"preserve_recent_turns" yaml:"preserve_recent_turns"`   // number of recent user/assistant pairs to keep (default 5)
+	MaxToolResultTokens     int     `json:"max_tool_result_tokens" yaml:"max_tool_result_tokens"` // max tokens for tool result before eviction (default 20000)
+	MaxToolCallsFromHistory int     `json:"max_tool_calls_from_history" yaml:"max_tool_calls"`    // max tool call pairs to keep in history
 }
 
 // Builder provides a fluent API for constructing agents.
