@@ -33,12 +33,13 @@ type ContentPart struct {
 
 // Message represents a chat message.
 type Message struct {
-	Role       string        `json:"role"` // system, user, assistant, tool
-	Content    string        `json:"content"`
-	Parts      []ContentPart `json:"parts,omitempty"` // multi-modal content parts
-	Name       string        `json:"name,omitempty"`
-	ToolCallID string        `json:"tool_call_id,omitempty"`
-	ToolCalls  []ToolCall    `json:"tool_calls,omitempty"`
+	Role       string         `json:"role"` // system, user, assistant, tool
+	Content    string         `json:"content"`
+	Parts      []ContentPart  `json:"parts,omitempty"`  // multi-modal content parts
+	Audio      []AudioContent `json:"audio,omitempty"`  // audio input/output attachments
+	Name       string         `json:"name,omitempty"`
+	ToolCallID string         `json:"tool_call_id,omitempty"`
+	ToolCalls  []ToolCall     `json:"tool_calls,omitempty"`
 }
 
 // AddImageURL adds an image URL content part to the message.

@@ -304,7 +304,7 @@
   - **Location:** `engine/model/provider.go`
   - **Criteria:** Extend `Message` with `Images []ImageContent` where `ImageContent` has `URL string` or `Base64 string` + `MimeType`. OpenAI and Anthropic providers handle image content in requests.
 
-- [ ] **P2-014** — Audio input/output support
+- [x] **P2-014** — Audio input/output support <!-- done: 2026-03-24 -->
   - **Location:** `engine/model/provider.go`
   - **Criteria:** Extend `Message` with `Audio []AudioContent`. Support for Whisper-style transcription input and TTS output. Provider implementations for OpenAI audio models.
 
@@ -579,3 +579,4 @@ P3 (expansion) ◄─────── depends on: P2 substantially complete
 | 2026-03-23 | P0-003 | cursor-agent | RetryHook now performs actual retries by re-invoking the model provider. Supports SleepFn injection for testing. Falls back to metadata-only signaling for backward compatibility when provider/request not in metadata. 12 test cases added. |
 | 2026-03-23 | P0-004 | cursor-agent | NumHistoryRuns now loads past sessions from storage and injects user/assistant messages into context. Filters out system messages. Works gracefully when storage is nil. 5 test cases added. |
 | 2026-03-23 | P0-005 | cursor-agent | OutputSchema now passes full JSON Schema via Metadata["json_schema"] with ResponseFormat "json_schema". Added validateAgainstSchema for required fields and type checking. Applied to both Chat and ChatWithSession. 13+ test cases added. |
+| 2026-03-24 | P2-014 | claude-agent | Added `Audio []AudioContent` field to `Message` in provider.go. Created `engine/model/openai_audio.go` with `OpenAIAudio` implementing `AudioProvider` interface: `Transcribe` (Whisper via multipart/form-data to `/v1/audio/transcriptions`) and `Synthesize` (TTS via `/v1/audio/speech`). No external dependencies. |
