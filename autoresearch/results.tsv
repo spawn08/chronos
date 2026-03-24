@@ -18,3 +18,4 @@ adfac03	0.160	25	25	39.2	keep	P3-007/008/009: ChromaDB, PgVector, LanceDB
 6450977	0.125	30	39.1	103/104	Add 84 tests across 8 packages	KEPT
 2e7ba97	0.114	37	43.1	103/104	Add tests for 7 more packages	KEPT
 52d8bdb	0.098	48	47.8	103/104	Add tests for 11 storage adapters and skills	KEPT
+bc4f4c4	0.092	48	54.5	103/104	Comprehensive tests for providers, graph, registry, scheduler, memory, teams	KEPT
