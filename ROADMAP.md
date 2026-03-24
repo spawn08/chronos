@@ -260,11 +260,11 @@
   - **Location:** `engine/tool/builtins/file.go` (new)
   - **Criteria:** `read_file(path)`, `write_file(path, content)`, `list_dir(path)`, `glob(pattern)`, `grep(pattern, path)`. Configurable root directory and path restrictions. Permission: `filesystem`.
 
-- [ ] **P2-004** — Web search tool (DuckDuckGo)
+- [x] **P2-004** — Web search tool (DuckDuckGo) <!-- done: 2026-03-24 -->
   - **Location:** `engine/tool/builtins/websearch.go` (new)
   - **Criteria:** Search DuckDuckGo API, return top N results with title, URL, snippet. No API key required. Configurable result count.
 
-- [ ] **P2-005** — SQL tool (query execution)
+- [x] **P2-005** — SQL tool (query execution) <!-- done: 2026-03-24 -->
   - **Location:** `engine/tool/builtins/sql.go` (new)
   - **Criteria:** Execute SQL queries against a configured database. Returns results as JSON array. Read-only by default, write requires explicit permission. Configurable connection string.
 
@@ -282,7 +282,7 @@
   - **Location:** `sdk/knowledge/loaders/text.go` (new package)
   - **Criteria:** Load `.txt` and `.md` files. Split into chunks by configurable size (default 1000 tokens) with overlap (default 200 tokens). Return `[]Document` with content and metadata (source, chunk_index).
 
-- [ ] **P2-009** — PDF loader
+- [x] **P2-009** — PDF loader <!-- done: 2026-03-24 -->
   - **Location:** `sdk/knowledge/loaders/pdf.go`
   - **Criteria:** Extract text from PDF files using a Go PDF library (e.g., `pdfcpu` or `unipdf`). Split into chunks. Return `[]Document`. Handle multi-page documents.
 
@@ -290,7 +290,7 @@
   - **Location:** `sdk/knowledge/loaders/structured.go`
   - **Criteria:** Load CSV and JSON files. Each row/object becomes a document. Configurable content field selection. Metadata from other fields.
 
-- [ ] **P2-011** — Web page loader (URL scraper)
+- [x] **P2-011** — Web page loader (URL scraper) <!-- done: 2026-03-24 -->
   - **Location:** `sdk/knowledge/loaders/web.go`
   - **Criteria:** Fetch URL, extract main content (strip HTML boilerplate), chunk text. Support for JavaScript-rendered pages is optional. Return `[]Document` with URL as source.
 
