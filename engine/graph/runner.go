@@ -119,6 +119,53 @@ func (r *Runner) ResumeFromCheckpoint(ctx context.Context, checkpointID string) 
 	return r.execute(ctx, rs)
 }
 
+// ForkFrom creates a new execution branch from a specific checkpoint with modified state.
+// The original checkpoint history is preserved; the fork continues independently.
+func (r *Runner) ForkFrom(ctx context.Context, checkpointID string, stateUpdate map[string]any) (*RunState, error) {
+	cp, err := r.store.GetCheckpoint(ctx, checkpointID)
+	if err != nil {
+		return nil, fmt.Errorf("fork: checkpoint not found: %w", err)
+	}
+
+	forkedState := make(State, len(cp.State)+len(stateUpdate))
+	for k, v := range cp.State {
+		forkedState[k] = v
+	}
+	for k, v := range stateUpdate {
+		forkedState[k] = v
+	}
+
+	forkSessionID := fmt.Sprintf("fork_%d", time.Now().UnixNano())
+
+	if err := r.store.CreateSession(ctx, &storage.Session{
+		ID:      forkSessionID,
+		AgentID: "fork:" + cp.SessionID,
+		Status:  "running",
+		Metadata: map[string]any{
+			"forked_from_checkpoint": checkpointID,
+			"forked_from_session":    cp.SessionID,
+		},
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}); err != nil {
+		return nil, fmt.Errorf("fork: create session: %w", err)
+	}
+
+	rs := &RunState{
+		RunID:       fmt.Sprintf("run_%d", time.Now().UnixNano()),
+		SessionID:   forkSessionID,
+		GraphID:     r.graph.ID,
+		CurrentNode: cp.NodeID,
+		Status:      RunStatusRunning,
+		State:       forkedState,
+		SeqNum:      cp.SeqNum,
+		StartedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	return r.execute(ctx, rs)
+}
+
 func (r *Runner) execute(ctx context.Context, rs *RunState) (*RunState, error) {
 	// Start a top-level graph execution span
 	var graphSpan *storage.Trace
