@@ -19,9 +19,9 @@
 |----------|-------|------|-----------|
 | P0       | 16    | 16   | 0         |
 | P1       | 28    | 28   | 0         |
-| P2       | 30    | 16   | 14        |
+| P2       | 30    | 19   | 11        |
 | P3       | 27    | 0    | 27        |
-| **Total**| **101** | **60** | **41** |
+| **Total**| **101** | **63** | **38** |
 
 ---
 
@@ -256,7 +256,7 @@
   - **Location:** `engine/tool/builtins/shell.go` (new)
   - **Criteria:** Execute shell commands with configurable timeout, working directory, and allowed commands list. Returns stdout, stderr, exit code. Sandbox integration for safety. Permission: `dangerous`.
 
-- [ ] **P2-003** — File tools (read, write, list, glob, grep)
+- [x] **P2-003** — File tools (read, write, list, glob, grep) <!-- done: 2026-03-24 -->
   - **Location:** `engine/tool/builtins/file.go` (new)
   - **Criteria:** `read_file(path)`, `write_file(path, content)`, `list_dir(path)`, `glob(pattern)`, `grep(pattern, path)`. Configurable root directory and path restrictions. Permission: `filesystem`.
 
@@ -286,7 +286,7 @@
   - **Location:** `sdk/knowledge/loaders/pdf.go`
   - **Criteria:** Extract text from PDF files using a Go PDF library (e.g., `pdfcpu` or `unipdf`). Split into chunks. Return `[]Document`. Handle multi-page documents.
 
-- [ ] **P2-010** — CSV/JSON loader
+- [x] **P2-010** — CSV/JSON loader <!-- done: 2026-03-24 -->
   - **Location:** `sdk/knowledge/loaders/structured.go`
   - **Criteria:** Load CSV and JSON files. Each row/object becomes a document. Configurable content field selection. Metadata from other fields.
 
@@ -294,7 +294,7 @@
   - **Location:** `sdk/knowledge/loaders/web.go`
   - **Criteria:** Fetch URL, extract main content (strip HTML boilerplate), chunk text. Support for JavaScript-rendered pages is optional. Return `[]Document` with URL as source.
 
-- [ ] **P2-012** — Chunking strategies
+- [x] **P2-012** — Chunking strategies <!-- done: 2026-03-24 -->
   - **Location:** `sdk/knowledge/chunker.go` (new file)
   - **Criteria:** `Chunker` interface with `Chunk(text string) []Chunk`. Built-in: `FixedSizeChunker` (by token/char count with overlap), `RecursiveSplitChunker` (by paragraph → sentence → word), `SemanticChunker` (by embedding similarity). Configurable chunk size and overlap.
 
