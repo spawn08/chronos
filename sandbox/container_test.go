@@ -91,7 +91,37 @@ func TestStripDockerLogHeaders_TruncatedPayload(t *testing.T) {
 	result := stripDockerLogHeaders(data)
 	// Should not panic, should return what we have
 	if result == "" {
-		// empty string is ok if nothing written to buf
 		t.Log("stripDockerLogHeaders returned empty for truncated payload")
+	}
+}
+
+func TestStripDockerLogHeaders_EmptySlice(t *testing.T) {
+	result := stripDockerLogHeaders([]byte{})
+	if result != "" {
+		t.Errorf("expected empty, got %q", result)
+	}
+}
+
+func TestStripDockerLogHeaders_ExactlyEightBytes(t *testing.T) {
+	header := []byte{1, 0, 0, 0, 0, 0, 0, 0}
+	result := stripDockerLogHeaders(header)
+	if result != "" {
+		t.Errorf("expected empty for zero-length frame, got %q", result)
+	}
+}
+
+func TestStripDockerLogHeaders_SingleBytePayload(t *testing.T) {
+	header := []byte{1, 0, 0, 0, 0, 0, 0, 1}
+	data := append(header, 'X')
+	result := stripDockerLogHeaders(data)
+	if result != "X" {
+		t.Errorf("expected 'X', got %q", result)
+	}
+}
+
+func TestNewContainerSandbox_DefaultSocketPath(t *testing.T) {
+	sb := NewContainerSandbox(ContainerConfig{})
+	if sb.sockPath != "/var/run/docker.sock" {
+		t.Errorf("default socket = %q", sb.sockPath)
 	}
 }

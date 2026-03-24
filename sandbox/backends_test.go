@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -146,6 +147,96 @@ func TestK8sJobSandbox_Close(t *testing.T) {
 
 func TestContainerSandbox_Close(t *testing.T) {
 	sb := NewContainerSandbox(ContainerConfig{Image: "alpine"})
-	// Close should not panic even without a real Docker client
 	_ = sb.Close()
+}
+
+func TestK8sJobSandbox_DefaultNamespace(t *testing.T) {
+	sb := NewK8sJobSandbox(K8sJobConfig{Image: "test"})
+	if sb.namespace != "default" {
+		t.Errorf("namespace = %q, want default", sb.namespace)
+	}
+}
+
+func TestK8sJobSandbox_CustomNamespace(t *testing.T) {
+	sb := NewK8sJobSandbox(K8sJobConfig{Image: "test", Namespace: "prod"})
+	if sb.namespace != "prod" {
+		t.Errorf("namespace = %q", sb.namespace)
+	}
+}
+
+func TestK8sJobSandbox_ServiceAccount(t *testing.T) {
+	sb := NewK8sJobSandbox(K8sJobConfig{Image: "test", ServiceAccount: "runner"})
+	if sb.serviceAccount != "runner" {
+		t.Errorf("serviceAccount = %q", sb.serviceAccount)
+	}
+}
+
+func TestWASMSandbox_ExecuteContainsModulePath(t *testing.T) {
+	sb := NewWASMSandbox("/mod.wasm")
+	_, err := sb.Execute(context.Background(), "run", nil, 5*time.Second)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "/mod.wasm") {
+		t.Errorf("error should contain module path: %v", err)
+	}
+}
+
+func TestK8sJobSandbox_ExecuteContainsImage(t *testing.T) {
+	sb := NewK8sJobSandbox(K8sJobConfig{Image: "myimg:v1", Namespace: "ci"})
+	_, err := sb.Execute(context.Background(), "echo", []string{"hi"}, 5*time.Second)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "myimg:v1") {
+		t.Errorf("error should contain image: %v", err)
+	}
+}
+
+func TestNewFromConfig_ProcessWithWorkDir(t *testing.T) {
+	dir := t.TempDir()
+	sb, err := NewFromConfig(Config{Backend: BackendProcess, WorkDir: dir})
+	if err != nil {
+		t.Fatalf("NewFromConfig: %v", err)
+	}
+	ps, ok := sb.(*ProcessSandbox)
+	if !ok {
+		t.Fatal("expected *ProcessSandbox")
+	}
+	if ps.WorkDir != dir {
+		t.Errorf("WorkDir = %q, want %q", ps.WorkDir, dir)
+	}
+}
+
+func TestNewFromConfig_ProcessEmptyWorkDir(t *testing.T) {
+	sb, err := NewFromConfig(Config{Backend: BackendProcess})
+	if err != nil {
+		t.Fatalf("NewFromConfig: %v", err)
+	}
+	ps, ok := sb.(*ProcessSandbox)
+	if !ok {
+		t.Fatal("expected *ProcessSandbox")
+	}
+	if ps.WorkDir != "." {
+		t.Errorf("WorkDir = %q, want '.'", ps.WorkDir)
+	}
+}
+
+func TestNewFromConfig_K8sWithServiceAccount(t *testing.T) {
+	sb, err := NewFromConfig(Config{
+		Backend:    BackendK8sJob,
+		Image:      "alpine",
+		Namespace:  "test-ns",
+		ServiceAcc: "sa-test",
+	})
+	if err != nil {
+		t.Fatalf("NewFromConfig: %v", err)
+	}
+	k8s, ok := sb.(*K8sJobSandbox)
+	if !ok {
+		t.Fatal("expected *K8sJobSandbox")
+	}
+	if k8s.serviceAccount != "sa-test" {
+		t.Errorf("serviceAccount = %q", k8s.serviceAccount)
+	}
 }
