@@ -19,9 +19,9 @@
 |----------|-------|------|-----------|
 | P0       | 16    | 16   | 0         |
 | P1       | 28    | 28   | 0         |
-| P2       | 30    | 6    | 24        |
+| P2       | 30    | 16   | 14        |
 | P3       | 27    | 0    | 27        |
-| **Total**| **101** | **50** | **51** |
+| **Total**| **101** | **60** | **41** |
 
 ---
 
@@ -248,11 +248,11 @@
 
 ### P2-A: Built-in Toolkits
 
-- [ ] **P2-001** — Calculator tool
+- [x] **P2-001** — Calculator tool <!-- done: 2026-03-24 -->
   - **Location:** `engine/tool/builtins/calculator.go` (new)
   - **Criteria:** Evaluate mathematical expressions. Supports +, -, *, /, ^, (), sqrt, sin, cos, log. Returns numeric result. JSON schema describes input as expression string.
 
-- [ ] **P2-002** — Shell tool
+- [x] **P2-002** — Shell tool <!-- done: 2026-03-24 -->
   - **Location:** `engine/tool/builtins/shell.go` (new)
   - **Criteria:** Execute shell commands with configurable timeout, working directory, and allowed commands list. Returns stdout, stderr, exit code. Sandbox integration for safety. Permission: `dangerous`.
 
@@ -268,7 +268,7 @@
   - **Location:** `engine/tool/builtins/sql.go` (new)
   - **Criteria:** Execute SQL queries against a configured database. Returns results as JSON array. Read-only by default, write requires explicit permission. Configurable connection string.
 
-- [ ] **P2-006** — HTTP request tool
+- [x] **P2-006** — HTTP request tool <!-- done: 2026-03-24 -->
   - **Location:** `engine/tool/builtins/http.go` (new)
   - **Criteria:** Make HTTP requests (GET, POST, PUT, DELETE) to external APIs. Configurable headers, body, timeout. Returns status code, headers, body. Allowlist for domains.
 
@@ -278,7 +278,7 @@
 
 ### P2-B: Document Loaders for Knowledge Base
 
-- [ ] **P2-008** — Plain text loader
+- [x] **P2-008** — Plain text loader <!-- done: 2026-03-24 -->
   - **Location:** `sdk/knowledge/loaders/text.go` (new package)
   - **Criteria:** Load `.txt` and `.md` files. Split into chunks by configurable size (default 1000 tokens) with overlap (default 200 tokens). Return `[]Document` with content and metadata (source, chunk_index).
 
@@ -300,7 +300,7 @@
 
 ### P2-C: Multimodal Message Support
 
-- [ ] **P2-013** — Image input support in Message type
+- [x] **P2-013** — Image input support in Message type <!-- done: 2026-03-24 -->
   - **Location:** `engine/model/provider.go`
   - **Criteria:** Extend `Message` with `Images []ImageContent` where `ImageContent` has `URL string` or `Base64 string` + `MimeType`. OpenAI and Anthropic providers handle image content in requests.
 
@@ -308,7 +308,7 @@
   - **Location:** `engine/model/provider.go`
   - **Criteria:** Extend `Message` with `Audio []AudioContent`. Support for Whisper-style transcription input and TTS output. Provider implementations for OpenAI audio models.
 
-- [ ] **P2-015** — File attachment support
+- [x] **P2-015** — File attachment support <!-- done: 2026-03-24 -->
   - **Location:** `engine/model/provider.go`
   - **Criteria:** Extend `Message` with `Files []FileContent` for document/file uploads to models that support them (Gemini, Claude). Provider implementations handle file encoding.
 
@@ -338,7 +338,7 @@
   - **Location:** `os/trace/otel.go` (new file)
   - **Criteria:** `OTelCollector` implements trace collection using OpenTelemetry SDK. Exports spans to configured OTLP endpoint. Agent/graph/tool operations create OTel spans with proper parent-child relationships and attributes.
 
-- [ ] **P2-021** — Debug mode for agents
+- [x] **P2-021** — Debug mode for agents <!-- done: 2026-03-24 -->
   - **Location:** `sdk/agent/agent.go`
   - **Criteria:** `Agent.Debug bool` flag. When set, logs detailed execution: every model call (prompt + response), tool calls (args + result), guardrail checks, memory operations, knowledge searches. Uses structured logger.
 
@@ -368,11 +368,11 @@
 
 ### P2-I: Agent Features
 
-- [ ] **P2-027** — Dynamic instructions via function
+- [x] **P2-027** — Dynamic instructions via function <!-- done: 2026-03-24 -->
   - **Location:** `sdk/agent/agent.go`
   - **Criteria:** `Agent.InstructionsFn func(ctx context.Context, state map[string]any) []string` allows generating instructions dynamically based on runtime state. Called before each model invocation. Static `Instructions` used as fallback.
 
-- [ ] **P2-028** — Few-shot learning support
+- [x] **P2-028** — Few-shot learning support <!-- done: 2026-03-24 -->
   - **Location:** `sdk/agent/agent.go`
   - **Criteria:** `Agent.Examples []Example` where `Example` has `Input string` and `Output string`. Examples injected into context as user/assistant message pairs before the actual conversation. Configurable max examples count.
 
@@ -380,7 +380,7 @@
   - **Location:** `sdk/agent/agent.go`
   - **Criteria:** `Agent.MaxIterations int` limits the tool-calling loop. When the agent exceeds this limit, it returns the last model response with a warning. Prevents infinite loops. Default: 25.
 
-- [ ] **P2-030** — Toolkit abstraction (grouped tools)
+- [x] **P2-030** — Toolkit abstraction (grouped tools) <!-- done: 2026-03-24 -->
   - **Location:** `engine/tool/toolkit.go` (new file)
   - **Criteria:** `Toolkit` struct groups related `ToolDefinition`s with a shared name, description, and permission level. `agent.New().AddToolkit(tk)` registers all tools in the group. Toolkits can be enabled/disabled at runtime.
 

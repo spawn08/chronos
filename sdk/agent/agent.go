@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -50,11 +51,14 @@ type Agent struct {
 	ContextCfg     ContextConfig           // context window management and summarization
 
 	// System prompt and instructions
-	SystemPrompt string
-	Instructions []string
+	SystemPrompt   string
+	Instructions   []string
+	InstructionsFn func(ctx context.Context, state map[string]any) []string
+	Examples       []Example
 
-	// Iteration control
-	MaxIterations int // max tool-calling loop iterations; 0 = default (25)
+	// Debug and iteration control
+	Debug         bool // when set, logs detailed execution info
+	MaxIterations int  // max tool-calling loop iterations; 0 = default (25)
 
 	// MCP servers
 	MCPClients []*mcp.Client
@@ -109,9 +113,26 @@ func (b *Builder) WithContextConfig(cfg ContextConfig) *Builder  { b.agent.Conte
 func (b *Builder) WithBroker(br *stream.Broker) *Builder         { b.agent.Broker = br; return b }
 func (b *Builder) WithTracer(t *chronostrace.Collector) *Builder { b.agent.Tracer = t; return b }
 func (b *Builder) WithSystemPrompt(prompt string) *Builder       { b.agent.SystemPrompt = prompt; return b }
+func (b *Builder) WithDebug(debug bool) *Builder                 { b.agent.Debug = debug; return b }
+
+// Example represents a few-shot learning example.
+type Example struct {
+	Input  string `json:"input"`
+	Output string `json:"output"`
+}
 
 func (b *Builder) AddInstruction(instruction string) *Builder {
 	b.agent.Instructions = append(b.agent.Instructions, instruction)
+	return b
+}
+
+func (b *Builder) WithInstructionsFn(fn func(ctx context.Context, state map[string]any) []string) *Builder {
+	b.agent.InstructionsFn = fn
+	return b
+}
+
+func (b *Builder) AddExample(input, output string) *Builder {
+	b.agent.Examples = append(b.agent.Examples, Example{Input: input, Output: output})
 	return b
 }
 
@@ -122,6 +143,11 @@ func (b *Builder) AddCapability(capability string) *Builder {
 
 func (b *Builder) AddTool(def *tool.Definition) *Builder {
 	b.agent.Tools.Register(def)
+	return b
+}
+
+func (b *Builder) AddToolkit(tk *tool.Toolkit) *Builder {
+	tk.Register(b.agent.Tools)
 	return b
 }
 
@@ -196,19 +222,36 @@ func (a *Agent) CloseMCP() {
 	}
 }
 
+func (a *Agent) debugLog(format string, args ...any) {
+	if a.Debug {
+		log.Printf("[chronos:debug:%s] %s", a.ID, fmt.Sprintf(format, args...))
+	}
+}
+
 // Chat sends a single user message to the agent's model and returns the response.
 // This is a convenience method for agents that have a model but no graph.
 func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatResponse, error) {
 	if a.Model == nil {
 		return nil, fmt.Errorf("agent %q has no model", a.ID)
 	}
+	a.debugLog("Chat called with message length=%d", len(userMessage))
 
 	messages := make([]model.Message, 0, 8)
 	if a.SystemPrompt != "" {
 		messages = append(messages, model.Message{Role: model.RoleSystem, Content: a.SystemPrompt})
 	}
-	for _, inst := range a.Instructions {
+
+	instructions := a.Instructions
+	if a.InstructionsFn != nil {
+		instructions = a.InstructionsFn(ctx, a.SessionState)
+	}
+	for _, inst := range instructions {
 		messages = append(messages, model.Message{Role: model.RoleSystem, Content: inst})
+	}
+
+	for _, ex := range a.Examples {
+		messages = append(messages, model.Message{Role: model.RoleUser, Content: ex.Input})
+		messages = append(messages, model.Message{Role: model.RoleAssistant, Content: ex.Output})
 	}
 
 	// Inject long-term user memories into context
@@ -301,6 +344,7 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 		}
 	}
 
+	a.debugLog("sending %d messages to model %q (tools=%d)", len(req.Messages), a.Model.Name(), len(req.Tools))
 	resp, err := a.Model.Chat(ctx, req)
 
 	modelEvt.Type = hooks.EventModelCallAfter
@@ -383,9 +427,11 @@ func (a *Agent) handleToolCalls(ctx context.Context, messages []model.Message, r
 		ToolCalls: resp.ToolCalls,
 	})
 
+	a.debugLog("handling %d tool calls", len(resp.ToolCalls))
 	for _, tc := range resp.ToolCalls {
 		var args map[string]any
 		_ = json.Unmarshal([]byte(tc.Arguments), &args)
+		a.debugLog("calling tool %q", tc.Name)
 
 		if a.Broker != nil {
 			a.Broker.Publish(stream.Event{Type: stream.EventToolCall, Data: map[string]any{

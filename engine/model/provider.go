@@ -21,13 +21,43 @@ const (
 	StopReasonFilter    StopReason = "content_filter"
 )
 
+// ContentPart represents a multi-modal content part within a message.
+type ContentPart struct {
+	Type     string `json:"type"`               // "text", "image_url", "file"
+	Text     string `json:"text,omitempty"`      // for type "text"
+	ImageURL string `json:"image_url,omitempty"` // for type "image_url" — URL or base64 data URI
+	MimeType string `json:"mime_type,omitempty"` // MIME type for image or file
+	FileName string `json:"file_name,omitempty"` // original filename for attachments
+	Data     []byte `json:"-"`                   // raw binary data (not serialized to JSON)
+}
+
 // Message represents a chat message.
 type Message struct {
-	Role       string     `json:"role"` // system, user, assistant, tool
-	Content    string     `json:"content"`
-	Name       string     `json:"name,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	Role       string        `json:"role"` // system, user, assistant, tool
+	Content    string        `json:"content"`
+	Parts      []ContentPart `json:"parts,omitempty"` // multi-modal content parts
+	Name       string        `json:"name,omitempty"`
+	ToolCallID string        `json:"tool_call_id,omitempty"`
+	ToolCalls  []ToolCall    `json:"tool_calls,omitempty"`
+}
+
+// AddImageURL adds an image URL content part to the message.
+func (m *Message) AddImageURL(url, mimeType string) {
+	m.Parts = append(m.Parts, ContentPart{
+		Type:     "image_url",
+		ImageURL: url,
+		MimeType: mimeType,
+	})
+}
+
+// AddFile adds a file attachment content part to the message.
+func (m *Message) AddFile(filename, mimeType string, data []byte) {
+	m.Parts = append(m.Parts, ContentPart{
+		Type:     "file",
+		FileName: filename,
+		MimeType: mimeType,
+		Data:     data,
+	})
 }
 
 // ToolCall represents a model-requested tool invocation.
