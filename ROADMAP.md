@@ -507,7 +507,7 @@
   - **Location:** `cli/cmd/root.go`
   - **Criteria:** `chronos run -n "task description"` runs the agent non-interactively. Reads from stdin if piped. Outputs to stdout. Exit code 0 on success, 1 on failure. Suitable for scripting.
 
-- [ ] **P3-026** — CLI monitor TUI
+- [x] **P3-026** — CLI monitor TUI
   - **Location:** `cli/cmd/monitor.go` (new file)
   - **Criteria:** Live terminal UI showing: active sessions (count + list), recent tool calls, token usage, model latency, error rate. Refreshes periodically. Uses a Go TUI library (e.g., `bubbletea`).
 
