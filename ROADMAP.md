@@ -18,10 +18,10 @@
 | Priority | Total | Done | Remaining |
 |----------|-------|------|-----------|
 | P0       | 16    | 16   | 0         |
-| P1       | 28    | 26   | 2         |
+| P1       | 28    | 28   | 0         |
 | P2       | 30    | 0    | 30        |
 | P3       | 27    | 0    | 27        |
-| **Total**| **101** | **42** | **59** |
+| **Total**| **101** | **44** | **57** |
 
 ---
 
@@ -109,11 +109,11 @@
 
 ### P1-A: MCP (Model Context Protocol) Support
 
-- [ ] **P1-001** — MCP client implementation
+- [x] **P1-001** — MCP client implementation <!-- done: 2026-03-24 -->
   - **Location:** `engine/mcp/client.go` (new package)
   - **Criteria:** Connect to MCP server via stdio or HTTP SSE. List available tools and resources. Invoke tools with JSON arguments. Return results. Implement `initialize`, `tools/list`, `tools/call`, `resources/list`, `resources/read` methods per MCP spec.
 
-- [ ] **P1-002** — MCP tools integration with agent
+- [x] **P1-002** — MCP tools integration with agent <!-- done: 2026-03-24 -->
   - **Location:** `sdk/agent/agent.go`, `engine/mcp/adapter.go`
   - **Criteria:** Agent can accept MCP server URLs. On initialization, fetch tools from MCP server and register them in the tool registry. Tool calls route through MCP client transparently.
 

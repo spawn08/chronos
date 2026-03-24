@@ -11,6 +11,7 @@ import (
 	"github.com/spawn08/chronos/engine/graph"
 	"github.com/spawn08/chronos/engine/guardrails"
 	"github.com/spawn08/chronos/engine/hooks"
+	"github.com/spawn08/chronos/engine/mcp"
 	"github.com/spawn08/chronos/engine/model"
 	"github.com/spawn08/chronos/engine/stream"
 	"github.com/spawn08/chronos/engine/tool"
@@ -51,6 +52,9 @@ type Agent struct {
 	// System prompt and instructions
 	SystemPrompt string
 	Instructions []string
+
+	// MCP servers
+	MCPClients []*mcp.Client
 
 	// Multi-agent
 	SubAgents              []*Agent
@@ -122,6 +126,14 @@ func (b *Builder) AddSkill(s *skill.Skill) *Builder {
 	return b
 }
 
+func (b *Builder) AddMCPServer(cfg mcp.ServerConfig) *Builder {
+	client, err := mcp.NewClient(cfg)
+	if err == nil {
+		b.agent.MCPClients = append(b.agent.MCPClients, client)
+	}
+	return b
+}
+
 func (b *Builder) AddSubAgent(sub *Agent) *Builder {
 	b.agent.SubAgents = append(b.agent.SubAgents, sub)
 	return b
@@ -157,6 +169,27 @@ func (b *Builder) Build() (*Agent, error) {
 		b.agent.Graph = compiled
 	}
 	return b.agent, nil
+}
+
+// ConnectMCP connects all configured MCP servers and registers their tools
+// in the agent's tool registry. Call after Build.
+func (a *Agent) ConnectMCP(ctx context.Context) error {
+	for _, client := range a.MCPClients {
+		if err := client.Connect(ctx); err != nil {
+			return fmt.Errorf("mcp connect %q: %w", client.Info().Name, err)
+		}
+		if _, err := mcp.RegisterTools(ctx, client, a.Tools); err != nil {
+			return fmt.Errorf("mcp register tools: %w", err)
+		}
+	}
+	return nil
+}
+
+// CloseMCP disconnects all MCP server connections.
+func (a *Agent) CloseMCP() {
+	for _, client := range a.MCPClients {
+		client.Close()
+	}
 }
 
 // Chat sends a single user message to the agent's model and returns the response.
