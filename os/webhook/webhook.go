@@ -12,9 +12,9 @@ import (
 
 // Event represents an incoming webhook event.
 type Event struct {
-	Source  string         `json:"source"`
-	Type   string         `json:"type"`
-	Body   json.RawMessage `json:"body"`
+	Source  string            `json:"source"`
+	Type    string            `json:"type"`
+	Body    json.RawMessage   `json:"body"`
 	Headers map[string]string `json:"headers,omitempty"`
 }
 
@@ -85,8 +85,8 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 
 	event := Event{
 		Source:  r.Header.Get("X-Event-Source"),
-		Type:   eventType,
-		Body:   json.RawMessage(body),
+		Type:    eventType,
+		Body:    json.RawMessage(body),
 		Headers: headers,
 	}
 
