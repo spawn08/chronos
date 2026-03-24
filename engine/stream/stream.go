@@ -21,6 +21,7 @@ const (
 	EventInterrupt      = "interrupt"
 	EventCompleted      = "completed"
 	EventError          = "error"
+	EventCustom         = "custom"
 )
 
 // Event is a server-sent event.

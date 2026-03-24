@@ -127,8 +127,8 @@
   - **Location:** `engine/graph/graph.go`, `engine/graph/runner.go`
   - **Criteria:** `AddParallelEdge(from string, targets []string)` fans out to multiple nodes concurrently. Execution waits for all to complete before merging state and continuing. State merge uses configurable reducer.
 
-- [ ] **P1-005** — State reducers for graph state
-  - **Location:** `engine/graph/types.go` (new `Reducer` type)
+- [x] **P1-005** — State reducers for graph state <!-- done: 2026-03-24 -->
+  - **Location:** `engine/graph/reducer.go`
   - **Criteria:** Define `Reducer` interface with `Reduce(existing, update any) any`. Built-in reducers: `ReplaceReducer` (default), `AppendReducer` (for slices), `MergeMapReducer` (for maps). Graph state schema can associate reducers with keys.
 
 ### P1-C: Time Travel
