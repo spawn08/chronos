@@ -17,11 +17,11 @@
 
 | Priority | Total | Done | Remaining |
 |----------|-------|------|-----------|
-| P0       | 16    | 11   | 5         |
+| P0       | 16    | 16   | 0         |
 | P1       | 28    | 26   | 2         |
 | P2       | 30    | 0    | 30        |
 | P3       | 27    | 0    | 27        |
-| **Total**| **101** | **37** | **64** |
+| **Total**| **101** | **42** | **59** |
 
 ---
 
@@ -54,29 +54,29 @@
 
 ### P0-B: Critical Wiring Gaps
 
-- [ ] **P0-006** — Connect graph Runner to SSE Broker
+- [x] **P0-006** — Connect graph Runner to SSE Broker <!-- done: 2026-03-24 -->
   - **Location:** `engine/graph/runner.go`, `engine/stream/stream.go`, `os/server.go`
   - **Criteria:** When Runner executes nodes, it publishes events (node_start, node_end, tool_call, model_call, error) to `stream.Broker`. SSE endpoint subscribers receive these events in real-time. Add event types to `engine/stream/`.
 
-- [ ] **P0-007** — Wire trace.Collector into agent/graph execution
+- [x] **P0-007** — Wire trace.Collector into agent/graph execution <!-- done: 2026-03-24 -->
   - **Location:** `os/trace/trace.go`, `sdk/agent/agent.go`, `engine/graph/runner.go`
   - **Criteria:** `StartSpan`/`EndSpan` called during agent Chat, graph node execution, tool calls, and model calls. Traces stored via `storage.InsertTrace`. Trace parent-child hierarchy preserved.
 
-- [ ] **P0-008** — Fix CLI `sessions resume` (currently no-op)
+- [x] **P0-008** — Fix CLI `sessions resume` (currently no-op) <!-- done: 2026-03-24 -->
   - **Location:** `cli/cmd/root.go`
   - **Criteria:** Load session by ID from storage, restore checkpoint, resume agent execution from last state. Print resumed output.
 
-- [ ] **P0-009** — Fix CLI `config set`/`config model` (currently prints guidance only)
+- [x] **P0-009** — Fix CLI `config set`/`config model` (currently prints guidance only) <!-- done: 2026-03-24 -->
   - **Location:** `cli/cmd/root.go`
   - **Criteria:** Persist config changes to `~/.chronos/config.yaml` or `$CHRONOS_CONFIG`. Reload on next CLI invocation.
 
 ### P0-C: Testing Foundation
 
-- [ ] **P0-010** — Add unit tests for `sdk/agent/` (Chat, Execute, Run)
+- [x] **P0-010** — Add unit tests for `sdk/agent/` (Chat, Execute, Run) <!-- done: 2026-03-24 -->
   - **Location:** `sdk/agent/agent_test.go`
   - **Criteria:** Table-driven tests covering: basic chat, chat with tools, chat with guardrails, chat with memory, chat with knowledge, structured output. Use mock provider. Minimum 15 test cases.
 
-- [ ] **P0-011** — Add unit tests for `engine/graph/` (StateGraph, Runner)
+- [x] **P0-011** — Add unit tests for `engine/graph/` (StateGraph, Runner) <!-- done: 2026-03-24 -->
   - **Location:** `engine/graph/graph_test.go`, `engine/graph/runner_test.go`
   - **Criteria:** Test graph compilation (valid/invalid), node execution, conditional edges, interrupt nodes, checkpointing, resume from checkpoint. Minimum 12 test cases.
 
@@ -96,7 +96,7 @@
   - **Location:** `sdk/memory/memory_test.go`, `sdk/knowledge/vectordb_test.go`
   - **Criteria:** Test memory CRUD, extraction, VectorKnowledge search with mock vector store and embeddings provider. Minimum 10 test cases.
 
-- [ ] **P0-016** — Add integration tests for `storage/adapters/sqlite/`
+- [x] **P0-016** — Add integration tests for `storage/adapters/sqlite/` <!-- done: 2026-03-24 -->
   - **Location:** `storage/adapters/sqlite/sqlite_test.go`
   - **Criteria:** Test all 18 Storage methods end-to-end with `:memory:` SQLite. Verify Migrate creates tables, CRUD works correctly, list operations filter properly. Expand existing test file.
 

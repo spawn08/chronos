@@ -1191,6 +1191,339 @@ func (p *multiResponseProvider) StreamChat(_ context.Context, _ *model.ChatReque
 func (p *multiResponseProvider) Name() string  { return "multi-test" }
 func (p *multiResponseProvider) Model() string { return "multi-test-model" }
 
+// --- Execute and Run tests ---
+
+func TestExecute_Basic(t *testing.T) {
+	provider := &testProvider{
+		response: &model.ChatResponse{Content: "executed"},
+	}
+	agent := newTestAgent("exec", provider)
+
+	result, err := agent.Execute(context.Background(), "do something")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if result != "executed" {
+		t.Errorf("result = %q, want %q", result, "executed")
+	}
+}
+
+func TestExecute_NoModel(t *testing.T) {
+	agent := &Agent{ID: "no-model"}
+	_, err := agent.Execute(context.Background(), "task")
+	if err == nil {
+		t.Fatal("expected error for agent without model")
+	}
+}
+
+func TestExecute_ModelError(t *testing.T) {
+	provider := &testProvider{err: errors.New("provider down")}
+	agent := newTestAgent("exec-err", provider)
+
+	_, err := agent.Execute(context.Background(), "task")
+	if err == nil {
+		t.Fatal("expected error when model fails")
+	}
+}
+
+func TestRun_ModelOnly(t *testing.T) {
+	provider := &testProvider{
+		response: &model.ChatResponse{Content: "model response"},
+	}
+	agent := newTestAgent("run-model", provider)
+
+	result, err := agent.Run(context.Background(), map[string]any{"message": "hello"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if result.Status != graph.RunStatusCompleted {
+		t.Errorf("status = %q, want completed", result.Status)
+	}
+	if resp, ok := result.State["response"].(string); !ok || resp != "model response" {
+		t.Errorf("state[response] = %v", result.State["response"])
+	}
+}
+
+func TestRun_ModelOnly_NoMessage(t *testing.T) {
+	provider := &testProvider{
+		response: &model.ChatResponse{Content: "from state"},
+	}
+	agent := newTestAgent("run-state", provider)
+
+	result, err := agent.Run(context.Background(), map[string]any{"key": "value"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if result.Status != graph.RunStatusCompleted {
+		t.Errorf("status = %q, want completed", result.Status)
+	}
+}
+
+func TestRun_NoGraphNoModel(t *testing.T) {
+	agent := &Agent{ID: "empty"}
+	_, err := agent.Run(context.Background(), map[string]any{})
+	if err == nil {
+		t.Fatal("expected error when no graph or model")
+	}
+}
+
+func TestRun_WithGraph(t *testing.T) {
+	store := newTestStorage()
+
+	g := graph.New("test")
+	g.AddNode("step", func(_ context.Context, state graph.State) (graph.State, error) {
+		state["processed"] = true
+		return state, nil
+	})
+	g.SetEntryPoint("step")
+	g.SetFinishPoint("step")
+
+	agent := newTestAgent("graph-agent", nil)
+	agent.Storage = store
+	compiled, _ := g.Compile()
+	agent.Graph = compiled
+
+	result, err := agent.Run(context.Background(), map[string]any{"input": "data"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if result.Status != graph.RunStatusCompleted {
+		t.Errorf("status = %q, want completed", result.Status)
+	}
+	if v, _ := result.State["processed"].(bool); !v {
+		t.Error("expected processed=true in state")
+	}
+}
+
+func TestRun_WithGraph_NoStorage(t *testing.T) {
+	g := graph.New("test")
+	g.AddNode("step", func(_ context.Context, state graph.State) (graph.State, error) {
+		return state, nil
+	})
+	g.SetEntryPoint("step")
+	g.SetFinishPoint("step")
+	compiled, _ := g.Compile()
+
+	agent := newTestAgent("no-store", nil)
+	agent.Graph = compiled
+
+	_, err := agent.Run(context.Background(), map[string]any{})
+	if err == nil {
+		t.Fatal("expected error when graph but no storage")
+	}
+}
+
+func TestRun_InputGuardrailBlocks(t *testing.T) {
+	store := newTestStorage()
+
+	g := graph.New("test")
+	g.AddNode("step", func(_ context.Context, state graph.State) (graph.State, error) {
+		return state, nil
+	})
+	g.SetEntryPoint("step")
+	g.SetFinishPoint("step")
+	compiled, _ := g.Compile()
+
+	engine := guardrails.NewEngine()
+	engine.AddRule(guardrails.Rule{
+		Name:      "block",
+		Position:  guardrails.Input,
+		Guardrail: &guardrails.BlocklistGuardrail{Blocklist: []string{"banned"}},
+	})
+
+	agent := newTestAgent("guard-agent", nil)
+	agent.Storage = store
+	agent.Graph = compiled
+	agent.Guardrails = engine
+
+	_, err := agent.Run(context.Background(), map[string]any{"message": "this is banned"})
+	if err == nil {
+		t.Fatal("expected guardrail to block")
+	}
+}
+
+func TestChat_OutputGuardrailBlocks(t *testing.T) {
+	provider := &testProvider{
+		response: &model.ChatResponse{Content: "contains secret data"},
+	}
+
+	engine := guardrails.NewEngine()
+	engine.AddRule(guardrails.Rule{
+		Name:      "output-block",
+		Position:  guardrails.Output,
+		Guardrail: &guardrails.BlocklistGuardrail{Blocklist: []string{"secret"}},
+	})
+
+	agent := newTestAgent("output-guard", provider)
+	agent.Guardrails = engine
+
+	_, err := agent.Chat(context.Background(), "tell me secrets")
+	if err == nil {
+		t.Fatal("expected output guardrail to block")
+	}
+}
+
+func TestChat_WithTools(t *testing.T) {
+	provider := &multiResponseProvider{
+		responses: []*model.ChatResponse{
+			{
+				StopReason: model.StopReasonToolCall,
+				ToolCalls: []model.ToolCall{{
+					ID: "tc1", Name: "greet", Arguments: `{"name":"World"}`,
+				}},
+			},
+			{Content: "Hello, World!", StopReason: model.StopReasonEnd},
+		},
+	}
+
+	agent := newTestAgent("tool-agent", provider)
+	agent.Tools.Register(&tool.Definition{
+		Name:        "greet",
+		Description: "greet someone",
+		Handler: func(_ context.Context, args map[string]any) (any, error) {
+			return map[string]any{"greeting": "Hello, " + args["name"].(string)}, nil
+		},
+	})
+
+	resp, err := agent.Chat(context.Background(), "greet World")
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if resp.Content != "Hello, World!" {
+		t.Errorf("content = %q", resp.Content)
+	}
+}
+
+func TestChat_ToolError(t *testing.T) {
+	provider := &multiResponseProvider{
+		responses: []*model.ChatResponse{
+			{
+				StopReason: model.StopReasonToolCall,
+				ToolCalls: []model.ToolCall{{
+					ID: "tc1", Name: "fail_tool", Arguments: `{}`,
+				}},
+			},
+			{Content: "handled error", StopReason: model.StopReasonEnd},
+		},
+	}
+
+	agent := newTestAgent("tool-err", provider)
+	agent.Tools.Register(&tool.Definition{
+		Name:        "fail_tool",
+		Description: "always fails",
+		Handler: func(_ context.Context, _ map[string]any) (any, error) {
+			return nil, errors.New("tool broken")
+		},
+	})
+
+	resp, err := agent.Chat(context.Background(), "use tool")
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if resp.Content != "handled error" {
+		t.Errorf("content = %q", resp.Content)
+	}
+}
+
+// --- Builder tests ---
+
+func TestBuilder_FullConstruction(t *testing.T) {
+	provider := &testProvider{response: &model.ChatResponse{Content: "ok"}}
+
+	a, err := New("agent-1", "Test Agent").
+		Description("A test agent").
+		WithModel(provider).
+		WithSystemPrompt("You are a helper.").
+		AddInstruction("Be brief.").
+		AddCapability("chat").
+		WithHistoryRuns(3).
+		WithOutputSchema(map[string]any{"type": "object"}).
+		Build()
+
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if a.ID != "agent-1" {
+		t.Errorf("ID = %q", a.ID)
+	}
+	if a.Name != "Test Agent" {
+		t.Errorf("Name = %q", a.Name)
+	}
+	if a.Description != "A test agent" {
+		t.Errorf("Description = %q", a.Description)
+	}
+	if a.SystemPrompt != "You are a helper." {
+		t.Errorf("SystemPrompt = %q", a.SystemPrompt)
+	}
+	if len(a.Instructions) != 1 || a.Instructions[0] != "Be brief." {
+		t.Errorf("Instructions = %v", a.Instructions)
+	}
+	if len(a.Capabilities) != 1 || a.Capabilities[0] != "chat" {
+		t.Errorf("Capabilities = %v", a.Capabilities)
+	}
+	if a.NumHistoryRuns != 3 {
+		t.Errorf("NumHistoryRuns = %d", a.NumHistoryRuns)
+	}
+}
+
+func TestBuilder_WithGraph(t *testing.T) {
+	g := graph.New("builder-graph")
+	g.AddNode("n", func(_ context.Context, s graph.State) (graph.State, error) { return s, nil })
+	g.SetEntryPoint("n")
+	g.SetFinishPoint("n")
+
+	a, err := New("g-agent", "Graph Agent").WithGraph(g).Build()
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if a.Graph == nil {
+		t.Error("expected Graph to be compiled and set")
+	}
+}
+
+func TestBuilder_InvalidGraph(t *testing.T) {
+	g := graph.New("bad-graph")
+
+	_, err := New("bad", "Bad Agent").WithGraph(g).Build()
+	if err == nil {
+		t.Fatal("expected error for graph without entry point")
+	}
+}
+
+func TestBuilder_AddSubAgent(t *testing.T) {
+	sub := &Agent{ID: "sub-1", Name: "Sub Agent"}
+	a, err := New("parent", "Parent").AddSubAgent(sub).Build()
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(a.SubAgents) != 1 || a.SubAgents[0].ID != "sub-1" {
+		t.Error("expected sub-agent to be added")
+	}
+}
+
+func TestResume_NoGraphOrStorage(t *testing.T) {
+	agent := &Agent{ID: "no-resume"}
+	_, err := agent.Resume(context.Background(), "session-1")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestStateToPrompt(t *testing.T) {
+	state := map[string]any{
+		"name":    "Alice",
+		"_hidden": "skip",
+		"age":     30,
+	}
+	result := stateToPrompt(state)
+	if !contains(result, "name: Alice") {
+		t.Error("should contain name")
+	}
+	if contains(result, "_hidden") {
+		t.Error("should skip keys starting with _")
+	}
+}
+
 // Verify the JSON schema is properly structured
 func TestOutputSchema_JSONRoundtrip(t *testing.T) {
 	schema := map[string]any{
