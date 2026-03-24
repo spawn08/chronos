@@ -348,11 +348,11 @@
 
 ### P2-G: Scheduler
 
-- [ ] **P2-023** — Cron job scheduler for agents
+- [x] **P2-023** — Cron job scheduler for agents <!-- done: 2026-03-24 -->
   - **Location:** `os/scheduler/scheduler.go` (new package)
   - **Criteria:** `Scheduler` manages cron-scheduled agent runs. Supports standard cron expressions (5-field). Each schedule specifies: agent ID, input message, session handling (new session per run or reuse). Schedule CRUD via API.
 
-- [ ] **P2-024** — Scheduler API endpoints
+- [x] **P2-024** — Scheduler API endpoints <!-- done: 2026-03-24 -->
   - **Location:** `os/server.go`, `os/scheduler/`
   - **Criteria:** `POST /api/schedules`, `GET /api/schedules`, `DELETE /api/schedules/{id}`, `GET /api/schedules/{id}/history`. Schedules persist in storage.
 
