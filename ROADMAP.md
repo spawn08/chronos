@@ -314,11 +314,11 @@
 
 ### P2-D: Functional API (Go-idiomatic alternative to Graph API)
 
-- [ ] **P2-016** — Entrypoint registration (equivalent to @entrypoint)
+- [x] **P2-016** — Entrypoint registration (equivalent to @entrypoint) <!-- done: 2026-03-24 -->
   - **Location:** `engine/graph/functional.go` (new file)
   - **Criteria:** `RegisterEntrypoint(name string, fn func(ctx context.Context, input any) (any, error))` wraps a Go function as a graph entrypoint. Integrates with checkpointing and durable execution. Returns a `CompiledGraph` that can be used anywhere a graph is expected.
 
-- [ ] **P2-017** — Task registration (equivalent to @task)
+- [x] **P2-017** — Task registration (equivalent to @task) <!-- done: 2026-03-24 -->
   - **Location:** `engine/graph/functional.go`
   - **Criteria:** `RegisterTask(name string, fn func(ctx context.Context, input any) (any, error))` marks a function as a checkpoint-able task. Results are saved automatically. If a task was already completed in a previous run (via checkpoint), its cached result is returned.
 
