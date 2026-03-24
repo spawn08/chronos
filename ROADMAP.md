@@ -17,11 +17,11 @@
 
 | Priority | Total | Done | Remaining |
 |----------|-------|------|-----------|
-| P0       | 16    | 9    | 7         |
-| P1       | 28    | 0    | 28        |
+| P0       | 16    | 11   | 5         |
+| P1       | 28    | 4    | 24        |
 | P2       | 30    | 0    | 30        |
 | P3       | 27    | 0    | 27        |
-| **Total**| **101** | **9** | **92** |
+| **Total**| **101** | **15** | **86** |
 
 ---
 
@@ -137,7 +137,7 @@
   - **Location:** `engine/graph/runner.go`
   - **Criteria:** `ReplayFrom(ctx, checkpointID)` loads checkpoint state, marks all nodes before it as cached (skip execution), re-executes nodes after it. Results may differ due to non-deterministic LLM calls.
 
-- [ ] **P1-007** — Fork from checkpoint (branch with modified state)
+- [x] **P1-007** — Fork from checkpoint (branch with modified state) <!-- done: 2026-03-24 -->
   - **Location:** `engine/graph/runner.go`
   - **Criteria:** `ForkFrom(ctx, checkpointID, stateUpdate map[string]any)` creates a new session branch from the checkpoint with modified state. Original checkpoint history is preserved. New execution continues independently.
 
@@ -147,8 +147,8 @@
   - **Location:** `engine/stream/modes.go` (new file)
   - **Criteria:** Define `StreamMode` enum: `Values`, `Updates`, `Custom`, `Messages`, `Debug`. Runner accepts mode config. `Values` streams full state after each step. `Updates` streams only changed keys. `Custom` streams user-emitted events. `Messages` streams LLM tokens. `Debug` streams internal execution details.
 
-- [ ] **P1-009** — Custom event emission from tools/nodes
-  - **Location:** `engine/graph/types.go`, `engine/stream/`
+- [x] **P1-009** — Custom event emission from tools/nodes <!-- done: 2026-03-24 -->
+  - **Location:** `engine/stream/emit.go`
   - **Criteria:** `NodeFunc` and tool handlers can emit custom events via a channel or context helper: `stream.Emit(ctx, "my_event", data)`. Events are published to the Broker for SSE consumers.
 
 ### P1-E: Human-in-the-Loop (HITL) Enhancements
@@ -167,8 +167,8 @@
 
 ### P1-F: Context Management
 
-- [ ] **P1-013** — Auto-summarization when context exceeds threshold
-  - **Location:** `sdk/agent/agent.go`, `engine/model/summarizer.go`
+- [x] **P1-013** — Auto-summarization when context exceeds threshold <!-- done: 2026-03-24 -->
+  - **Location:** `engine/model/summarizer.go`
   - **Criteria:** When message history exceeds `ContextConfig.SummarizeThreshold` fraction of `MaxContextTokens`, invoke summarizer to compress older messages. Preserve recent messages and system prompt. Replace older history with summary message.
 
 - [ ] **P1-014** — Large tool result eviction
