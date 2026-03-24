@@ -195,4 +195,4 @@ Cut a release: `git tag v0.2.0 && git push origin v0.2.0`
 
 ## License
 
-[Apache 2.0](LICENSE)
+[MIT](LICENSE)
