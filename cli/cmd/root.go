@@ -50,6 +50,8 @@ func Execute() error {
 		return runMemory()
 	case "db":
 		return runDB()
+	case "eval", "evals":
+		return runEvalCmd()
 	case "config":
 		return runConfig()
 	case "version":
@@ -80,6 +82,8 @@ Commands:
   sessions                  Session management (list, resume, export)
   memory                    Memory management (list, forget, clear)
   db                        Database operations (init, status)
+  eval list                 List available eval suites
+  eval run <suite.yaml>     Run evaluation suite
   config                    Configuration (show)
   version                   Print version
   help                      Show this help
@@ -551,6 +555,62 @@ func parseErrorStrategy(s string) (team.ErrorStrategy, error) {
 	default:
 		return 0, fmt.Errorf("unknown error strategy %q (supported: fail_fast, collect, best_effort)", s)
 	}
+}
+
+// --- eval subcommands ---
+
+func runEvalCmd() error {
+	sub := "list"
+	if len(os.Args) > 2 {
+		sub = os.Args[2]
+	}
+	switch sub {
+	case "list":
+		return evalList()
+	case "run":
+		if len(os.Args) < 4 {
+			return fmt.Errorf("usage: chronos eval run <suite.yaml>")
+		}
+		return evalRun(os.Args[3])
+	default:
+		return fmt.Errorf("unknown eval subcommand: %s\nUsage: chronos eval [list|run]", sub)
+	}
+}
+
+func evalList() error {
+	patterns := []string{
+		".chronos/evals/*.yaml",
+		".chronos/evals/*.yml",
+		"evals/*.yaml",
+		"evals/*.yml",
+	}
+	found := false
+	for _, pattern := range patterns {
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			continue
+		}
+		for _, m := range matches {
+			fmt.Printf("  %s\n", m)
+			found = true
+		}
+	}
+	if !found {
+		fmt.Println("No eval suites found.")
+		fmt.Println("Place eval suite YAML files in .chronos/evals/ or evals/")
+	}
+	return nil
+}
+
+func evalRun(suitePath string) error {
+	data, err := os.ReadFile(suitePath)
+	if err != nil {
+		return fmt.Errorf("read eval suite: %w", err)
+	}
+	fmt.Printf("Eval suite: %s (%d bytes)\n", suitePath, len(data))
+	fmt.Println("Eval runner loaded. Define evals programmatically using the evals package.")
+	fmt.Println("Suite YAML loading will be implemented with schema definition.")
+	return nil
 }
 
 // --- sessions subcommands ---

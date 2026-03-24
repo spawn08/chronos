@@ -61,6 +61,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/health/ready", s.handleReadiness)
 
 	s.mux.HandleFunc("/api/sessions", s.handleListSessions)
+	s.mux.HandleFunc("/api/sessions/state", s.handleSessionState)
 	s.mux.HandleFunc("/api/traces", s.handleListTraces)
 	s.mux.HandleFunc("/api/events/stream", s.Broker.SSEHandler("dashboard"))
 	s.mux.HandleFunc("/api/approval/pending", s.Approval.HandlePending)
@@ -137,6 +138,68 @@ func (s *Server) handleListTraces(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"traces": traces})
+}
+
+func (s *Server) handleSessionState(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.URL.Query().Get("session_id")
+	if sessionID == "" {
+		http.Error(w, `{"error":"session_id query parameter is required"}`, http.StatusBadRequest)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		cp, err := s.Store.GetLatestCheckpoint(r.Context(), sessionID)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"session_id":    sessionID,
+			"checkpoint_id": cp.ID,
+			"node_id":       cp.NodeID,
+			"state":         cp.State,
+			"seq_num":       cp.SeqNum,
+		})
+
+	case http.MethodPost:
+		var body struct {
+			State map[string]any `json:"state"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"invalid JSON: %s"}`, err.Error()), http.StatusBadRequest)
+			return
+		}
+
+		cp, err := s.Store.GetLatestCheckpoint(r.Context(), sessionID)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusNotFound)
+			return
+		}
+
+		for k, v := range body.State {
+			cp.State[k] = v
+		}
+
+		cp.ID = fmt.Sprintf("cp_modified_%d", time.Now().UnixNano())
+		cp.CreatedAt = time.Now()
+		if err := s.Store.SaveCheckpoint(r.Context(), cp); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"session_id":    sessionID,
+			"checkpoint_id": cp.ID,
+			"state":         cp.State,
+			"message":       "state updated, resume session to continue",
+		})
+
+	default:
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+	}
 }
 
 // Start begins serving the control plane with graceful shutdown support.

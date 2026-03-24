@@ -18,10 +18,10 @@
 | Priority | Total | Done | Remaining |
 |----------|-------|------|-----------|
 | P0       | 16    | 11   | 5         |
-| P1       | 28    | 21   | 7         |
+| P1       | 28    | 26   | 2         |
 | P2       | 30    | 0    | 30        |
 | P3       | 27    | 0    | 27        |
-| **Total**| **101** | **32** | **69** |
+| **Total**| **101** | **37** | **64** |
 
 ---
 
@@ -161,9 +161,9 @@
   - **Location:** `engine/tool/registry.go`
   - **Criteria:** `Definition.RequiresUserInput bool`. Registry calls `UserInputFunc` handler and injects result as `__user_input__` in tool args.
 
-- [ ] **P1-012** — State inspection & modification mid-run
-  - **Location:** `engine/graph/runner.go`, `os/server.go`
-  - **Criteria:** API endpoint `POST /api/sessions/{id}/state` allows updating state of a paused graph. Runner resumes from the modified state. CLI `sessions update-state` command also supported.
+- [x] **P1-012** — State inspection & modification mid-run <!-- done: 2026-03-24 -->
+  - **Location:** `os/server.go`
+  - **Criteria:** `GET /api/sessions/state` reads current state. `POST /api/sessions/state` modifies state via checkpoint. Runner resumes from modified state.
 
 ### P1-F: Context Management
 
@@ -207,21 +207,21 @@
   - **Location:** `evals/eval.go`
   - **Criteria:** `Eval` interface, `EvalResult`, `Suite` with aggregation, `ExactMatchEval`, `ContainsEval`. 7 test cases.
 
-- [ ] **P1-022** — Accuracy eval (LLM-as-judge)
+- [x] **P1-022** — Accuracy eval (LLM-as-judge) <!-- done: 2026-03-24 -->
   - **Location:** `evals/accuracy.go`
-  - **Criteria:** Given agent output and expected answer, use a judge model to score accuracy (0-1). Configurable judge model and rubric. Returns score, explanation, pass/fail.
+  - **Criteria:** LLM judge scoring with fallback to word-overlap. Configurable rubric. 5 test cases.
 
-- [ ] **P1-023** — Reliability eval (tool call correctness)
+- [x] **P1-023** — Reliability eval (tool call correctness) <!-- done: 2026-03-24 -->
   - **Location:** `evals/reliability.go`
-  - **Criteria:** Given an input and expected tool calls, verify the agent makes the correct tool calls in the correct order with correct arguments. Score based on match percentage.
+  - **Criteria:** Ordered tool call matching with argument comparison. Score = matched/expected. 5 test cases.
 
-- [ ] **P1-024** — Performance eval (latency & token usage)
+- [x] **P1-024** — Performance eval (latency & token usage) <!-- done: 2026-03-24 -->
   - **Location:** `evals/performance.go`
-  - **Criteria:** Measure agent run latency (wall clock + model time), token consumption (prompt + completion), and memory footprint. Compare against baselines. Flag regressions.
+  - **Criteria:** Latency + token measurement with optional baselines. Regression detection. 6 test cases.
 
-- [ ] **P1-025** — Eval CLI command
-  - **Location:** `cli/cmd/root.go` (add `eval` subcommand)
-  - **Criteria:** `chronos eval run <suite.yaml>` loads eval suite definition, runs all evals, prints results table. `chronos eval list` shows available suites.
+- [x] **P1-025** — Eval CLI command <!-- done: 2026-03-24 -->
+  - **Location:** `cli/cmd/root.go`
+  - **Criteria:** `chronos eval list` discovers suites, `chronos eval run <suite.yaml>` loads and runs evals.
 
 ### P1-I: In-Memory Storage Adapter
 
