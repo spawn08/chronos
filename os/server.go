@@ -7,7 +7,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
 	"strconv"
+	"sync/atomic"
+	"syscall"
+	"time"
 
 	"github.com/spawn08/chronos/engine/stream"
 	"github.com/spawn08/chronos/os/approval"
@@ -18,25 +23,28 @@ import (
 
 // Server is the ChronosOS control plane.
 type Server struct {
-	Addr     string
-	Store    storage.Storage
-	Broker   *stream.Broker
-	Auth     *auth.Service
-	Trace    *trace.Collector
-	Approval *approval.Service
-	mux      *http.ServeMux
+	Addr            string
+	Store           storage.Storage
+	Broker          *stream.Broker
+	Auth            *auth.Service
+	Trace           *trace.Collector
+	Approval        *approval.Service
+	ShutdownTimeout time.Duration
+	mux             *http.ServeMux
+	ready           atomic.Bool
 }
 
 // New creates a new ChronosOS server.
 func New(addr string, store storage.Storage) *Server {
 	s := &Server{
-		Addr:     addr,
-		Store:    store,
-		Broker:   stream.NewBroker(),
-		Auth:     auth.NewService(),
-		Trace:    trace.NewCollector(store),
-		Approval: approval.NewService(),
-		mux:      http.NewServeMux(),
+		Addr:            addr,
+		Store:           store,
+		Broker:          stream.NewBroker(),
+		Auth:            auth.NewService(),
+		Trace:           trace.NewCollector(store),
+		Approval:        approval.NewService(),
+		ShutdownTimeout: 15 * time.Second,
+		mux:             http.NewServeMux(),
 	}
 	s.routes()
 	return s
@@ -47,11 +55,49 @@ func (s *Server) routes() {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, `{"status":"ok"}`)
 	})
+
+	s.mux.HandleFunc("/health", s.handleHealth)
+	s.mux.HandleFunc("/health/live", s.handleLiveness)
+	s.mux.HandleFunc("/health/ready", s.handleReadiness)
+
 	s.mux.HandleFunc("/api/sessions", s.handleListSessions)
 	s.mux.HandleFunc("/api/traces", s.handleListTraces)
 	s.mux.HandleFunc("/api/events/stream", s.Broker.SSEHandler("dashboard"))
 	s.mux.HandleFunc("/api/approval/pending", s.Approval.HandlePending)
 	s.mux.HandleFunc("/api/approval/respond", s.Approval.HandleRespond)
+}
+
+func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintln(w, `{"status":"ok"}`)
+}
+
+func (s *Server) handleLiveness(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintln(w, `{"status":"alive"}`)
+}
+
+func (s *Server) handleReadiness(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if !s.ready.Load() {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		fmt.Fprintln(w, `{"status":"not_ready"}`)
+		return
+	}
+	if err := s.Store.Migrate(context.Background()); err != nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		fmt.Fprintf(w, `{"status":"not_ready","error":%q}`+"\n", err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintln(w, `{"status":"ready"}`)
+}
+
+// SetReady marks the server as ready to accept traffic.
+func (s *Server) SetReady(ready bool) {
+	s.ready.Store(ready)
 }
 
 func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
@@ -93,8 +139,51 @@ func (s *Server) handleListTraces(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"traces": traces})
 }
 
-// Start begins serving the control plane.
-func (s *Server) Start(_ context.Context) error {
-	log.Printf("ChronosOS starting on %s", s.Addr)
-	return http.ListenAndServe(s.Addr, s.mux)
+// Start begins serving the control plane with graceful shutdown support.
+// It blocks until either the context is cancelled or a SIGTERM/SIGINT is received.
+func (s *Server) Start(ctx context.Context) error {
+	srv := &http.Server{
+		Addr:    s.Addr,
+		Handler: s.mux,
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		log.Printf("ChronosOS starting on %s", s.Addr)
+		s.SetReady(true)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errCh <- err
+		}
+		close(errCh)
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
+
+	select {
+	case <-ctx.Done():
+		log.Println("ChronosOS: context cancelled, initiating shutdown")
+	case sig := <-quit:
+		log.Printf("ChronosOS: received signal %s, initiating shutdown", sig)
+	case err := <-errCh:
+		return err
+	}
+
+	s.SetReady(false)
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), s.ShutdownTimeout)
+	defer cancel()
+
+	log.Printf("ChronosOS: draining connections (timeout %s)...", s.ShutdownTimeout)
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("ChronosOS: shutdown error: %v", err)
+		return fmt.Errorf("shutdown: %w", err)
+	}
+
+	if err := s.Store.Close(); err != nil {
+		log.Printf("ChronosOS: storage close error: %v", err)
+	}
+
+	log.Println("ChronosOS: shutdown complete")
+	return nil
 }

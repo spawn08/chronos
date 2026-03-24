@@ -166,6 +166,31 @@ func (r *Runner) ForkFrom(ctx context.Context, checkpointID string, stateUpdate 
 	return r.execute(ctx, rs)
 }
 
+// ReplayFrom loads a checkpoint and re-executes the graph from the checkpoint's node.
+// All nodes before the checkpoint node are skipped (treated as cached).
+// Re-execution starts at the checkpoint's node and continues to END.
+func (r *Runner) ReplayFrom(ctx context.Context, checkpointID string) (*RunState, error) {
+	cp, err := r.store.GetCheckpoint(ctx, checkpointID)
+	if err != nil {
+		return nil, fmt.Errorf("replay: checkpoint not found: %w", err)
+	}
+
+	rs := &RunState{
+		RunID:       fmt.Sprintf("replay_%d", time.Now().UnixNano()),
+		SessionID:   cp.SessionID,
+		GraphID:     r.graph.ID,
+		CurrentNode: cp.NodeID,
+		Status:      RunStatusRunning,
+		State:       State(cp.State),
+		SeqNum:      cp.SeqNum,
+		StartedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	r.emit(StreamEvent{Type: "replay_start", NodeID: cp.NodeID, State: rs.State})
+	return r.execute(ctx, rs)
+}
+
 func (r *Runner) execute(ctx context.Context, rs *RunState) (*RunState, error) {
 	// Start a top-level graph execution span
 	var graphSpan *storage.Trace
