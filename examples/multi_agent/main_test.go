@@ -1,7 +1,16 @@
 package main
 
-import "testing"
+import (
+	"testing"
 
-func TestPackageCompiles(t *testing.T) {
-	// Validates that this example package compiles and all imports resolve correctly.
+	"github.com/spawn08/chronos/examples/internal/exampletest"
+)
+
+func TestMainCompletes(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("GEMINI_API_KEY", "")
+
+	out := exampletest.RunWithStdoutCapture(t, main)
+	exampletest.AssertOutputContains(t, out, "All strategies demonstrated successfully")
 }
