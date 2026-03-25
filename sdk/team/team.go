@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/spawn08/chronos/engine/graph"
 	"github.com/spawn08/chronos/sdk/agent"
@@ -25,6 +26,8 @@ const (
 	StrategyParallel    Strategy = "parallel"
 	StrategyRouter      Strategy = "router"
 	StrategyCoordinator Strategy = "coordinator"
+	StrategySwarm       Strategy = "swarm"
+	StrategyHierarchy   Strategy = "hierarchy"
 )
 
 // RouterFunc selects an agent ID based on the current state.
@@ -71,6 +74,8 @@ type Team struct {
 	ErrorMode      ErrorStrategy // how to handle agent failures
 	Coordinator    *agent.Agent  // explicit coordinator agent (for StrategyCoordinator)
 	MaxIterations  int           // max coordinator planning iterations; 0 = 1
+
+	CompiledGraph *graph.CompiledGraph // for swarm/hierarchy graph-based execution
 
 	SharedContext map[string]any
 	sharedMu      sync.RWMutex // guards SharedContext
@@ -161,9 +166,24 @@ func (t *Team) Run(ctx context.Context, input graph.State) (graph.State, error) 
 		return t.runRouter(ctx, input)
 	case StrategyCoordinator:
 		return t.runCoordinator(ctx, input)
+	case StrategySwarm, StrategyHierarchy:
+		return t.runGraph(ctx, input)
 	default:
 		return nil, fmt.Errorf("team %q: unknown strategy %q", t.ID, t.Strategy)
 	}
+}
+
+// runGraph executes a compiled graph (used by swarm and hierarchy strategies).
+func (t *Team) runGraph(ctx context.Context, input graph.State) (graph.State, error) {
+	if t.CompiledGraph == nil {
+		return nil, fmt.Errorf("team %q: strategy %q requires a compiled graph", t.ID, t.Strategy)
+	}
+	runner := graph.NewRunner(t.CompiledGraph, nil)
+	result, err := runner.Run(ctx, fmt.Sprintf("team_%s_%d", t.ID, time.Now().UnixNano()), input)
+	if err != nil {
+		return nil, fmt.Errorf("team %q graph run: %w", t.ID, err)
+	}
+	return result.State, nil
 }
 
 // DelegateTask uses the bus to delegate a task from one agent to another.

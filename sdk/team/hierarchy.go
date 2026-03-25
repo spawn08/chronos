@@ -6,6 +6,7 @@ import (
 
 	"github.com/spawn08/chronos/engine/graph"
 	"github.com/spawn08/chronos/sdk/agent"
+	"github.com/spawn08/chronos/sdk/protocol"
 )
 
 // HierarchyConfig configures a hierarchical multi-level supervisor team.
@@ -50,15 +51,26 @@ func NewHierarchy(cfg HierarchyConfig) (*Team, error) {
 
 	g.SetEntryPoint(cfg.Root.Supervisor.ID)
 
-	_, err = g.Compile()
+	compiled, err := g.Compile()
 	if err != nil {
 		return nil, fmt.Errorf("hierarchy compile: %w", err)
 	}
 
+	order := make([]string, 0, len(agentList))
+	for _, a := range agentList {
+		order = append(order, a.ID)
+	}
+
 	return &Team{
-		ID:       "hierarchy",
-		Strategy: "hierarchy",
-		Agents:   agentMap,
+		ID:            "hierarchy",
+		Name:          "Hierarchy",
+		Strategy:      StrategyHierarchy,
+		Agents:        agentMap,
+		Order:         order,
+		CompiledGraph: compiled,
+		Bus:           protocol.NewBus(),
+		SharedContext: make(map[string]any),
+		MaxIterations: 1,
 	}, nil
 }
 

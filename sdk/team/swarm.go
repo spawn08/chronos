@@ -7,6 +7,7 @@ import (
 	"github.com/spawn08/chronos/engine/graph"
 	"github.com/spawn08/chronos/engine/tool"
 	"github.com/spawn08/chronos/sdk/agent"
+	"github.com/spawn08/chronos/sdk/protocol"
 )
 
 // SwarmConfig configures a swarm-style team where agents hand off directly
@@ -100,15 +101,26 @@ func NewSwarm(cfg SwarmConfig) (*Team, error) {
 		})
 	}
 
-	_, err := g.Compile()
+	compiled, err := g.Compile()
 	if err != nil {
 		return nil, fmt.Errorf("swarm compile: %w", err)
 	}
 
+	order := make([]string, 0, len(cfg.Agents))
+	for _, a := range cfg.Agents {
+		order = append(order, a.ID)
+	}
+
 	return &Team{
-		ID:       "swarm",
-		Strategy: "swarm",
-		Agents:   agentMap,
+		ID:            "swarm",
+		Name:          "Swarm",
+		Strategy:      StrategySwarm,
+		Agents:        agentMap,
+		Order:         order,
+		CompiledGraph: compiled,
+		Bus:           protocol.NewBus(),
+		SharedContext: make(map[string]any),
+		MaxIterations: cfg.MaxHandoffs,
 	}, nil
 }
 

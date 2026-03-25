@@ -1,0 +1,141 @@
+# Team Deployment Configuration
+#
+# Deploy a multi-agent coding team in a sandboxed environment.
+# Agents collaborate to analyze, implement, test, and review code changes.
+#
+# Usage:
+#   export OPENAI_API_KEY=sk-...
+#   go run ./cli/main.go deploy examples/team_deploy/deploy.yaml "Add input validation to the user registration endpoint"
+
+name: coding-team-deploy
+
+sandbox:
+  backend: process
+  work_dir: /tmp/chronos-sandbox
+  timeout: 10m
+
+defaults:
+  model:
+    provider: openai
+    api_key: ${OPENAI_API_KEY}
+    model: gpt-4o
+  storage:
+    backend: none
+
+agents:
+  - id: architect
+    name: Software Architect
+    description: Designs system architecture and breaks down tasks into implementable steps
+    system_prompt: |
+      You are a senior software architect. When given a coding task:
+      1. Analyze the requirements and identify affected components
+      2. Break the task into clear, ordered sub-tasks
+      3. Specify file paths, function signatures, and data structures
+      4. Consider error handling, edge cases, and security implications
+      5. Define acceptance criteria for each sub-task
+
+      Output your plan as a structured JSON with tasks array.
+    capabilities:
+      - architecture
+      - planning
+      - design
+    tools:
+      - name: file_read
+      - name: file_list
+      - name: file_grep
+      - name: shell_auto
+
+  - id: implementer
+    name: Backend Developer
+    description: Implements code changes following the architect's plan
+    system_prompt: |
+      You are an expert Go developer. Given a task from the architect:
+      1. Read the existing code to understand the current state
+      2. Implement the changes following Go conventions
+      3. Write clean, well-documented code
+      4. Handle errors with context wrapping
+      5. Run the build to verify compilation
+
+      Use file_read to understand existing code, file_write to make changes,
+      and shell to run go build and go vet.
+    capabilities:
+      - backend
+      - golang
+      - implementation
+    tools:
+      - name: file_read
+      - name: file_write
+      - name: file_list
+      - name: file_glob
+      - name: file_grep
+      - name: shell_auto
+
+  - id: tester
+    name: Test Engineer
+    description: Writes and runs tests for the implemented changes
+    system_prompt: |
+      You are a test engineer specializing in Go testing. Given implemented code:
+      1. Read the implementation to understand what to test
+      2. Write table-driven tests covering happy paths and edge cases
+      3. Include error scenario tests
+      4. Run the tests using `go test ./...`
+      5. Report results and coverage
+
+      Use shell to run tests: `go test -v -cover ./...`
+    capabilities:
+      - testing
+      - quality-assurance
+    tools:
+      - name: file_read
+      - name: file_write
+      - name: file_grep
+      - name: shell_auto
+
+  - id: reviewer
+    name: Code Reviewer
+    description: Reviews code changes for quality, security, and correctness
+    system_prompt: |
+      You are a meticulous code reviewer. Review the changes for:
+      1. Correctness — Does it match the requirements?
+      2. Security — SQL injection, XSS, auth bypasses, hardcoded secrets?
+      3. Performance — N+1 queries, unnecessary allocations?
+      4. Maintainability — Clear naming, proper abstractions?
+      5. Testing — Are edge cases covered?
+
+      Format your review as:
+      ✅ What's good
+      ⚠️ Suggestions
+      🚨 Must fix
+    capabilities:
+      - code-review
+      - security
+      - quality
+
+teams:
+  - id: dev-pipeline
+    name: Development Pipeline
+    strategy: sequential
+    agents:
+      - architect
+      - implementer
+      - tester
+      - reviewer
+
+  - id: dev-coordinated
+    name: Coordinated Dev Team
+    strategy: coordinator
+    coordinator: architect
+    agents:
+      - implementer
+      - tester
+      - reviewer
+    max_iterations: 3
+
+  - id: parallel-review
+    name: Parallel Review
+    strategy: parallel
+    agents:
+      - tester
+      - reviewer
+    max_concurrency: 2
+    error_strategy: best_effort

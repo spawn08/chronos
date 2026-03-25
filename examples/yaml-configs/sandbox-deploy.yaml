@@ -1,0 +1,96 @@
+# Sandbox Deployment Configuration
+#
+# Deploy agents in an isolated sandbox environment for safe autonomous execution.
+# Each agent has access to shell and file tools that are sandboxed.
+#
+# Usage:
+#   export OPENAI_API_KEY=sk-...
+#   go run ./cli/main.go deploy examples/yaml-configs/sandbox-deploy.yaml "Build a REST API for todo items"
+
+name: sandbox-coding-team
+
+sandbox:
+  backend: process
+  work_dir: /tmp/chronos-sandbox
+  timeout: 5m
+
+defaults:
+  model:
+    provider: openai
+    api_key: ${OPENAI_API_KEY}
+    model: gpt-4o
+  storage:
+    backend: none
+
+agents:
+  - id: planner
+    name: Task Planner
+    description: Analyzes requirements and creates implementation plans
+    system_prompt: |
+      You are a task planner for software development.
+      Break down coding tasks into clear, actionable steps.
+      Identify files to create or modify.
+      Define acceptance criteria for each step.
+    capabilities:
+      - planning
+      - analysis
+    tools:
+      - name: file_list
+      - name: file_read
+      - name: file_grep
+      - name: shell_auto
+
+  - id: coder
+    name: Code Implementer
+    description: Writes production-quality code following the plan
+    system_prompt: |
+      You are an expert programmer. Implement the planned changes:
+      1. Read existing files before modifying
+      2. Write clean, well-structured code
+      3. Handle all error cases
+      4. Run the build after each change
+    capabilities:
+      - implementation
+      - coding
+    tools:
+      - name: file_read
+      - name: file_write
+      - name: file_list
+      - name: file_glob
+      - name: file_grep
+      - name: shell_auto
+
+  - id: qa
+    name: QA Engineer
+    description: Tests the implementation and verifies correctness
+    system_prompt: |
+      You are a QA engineer. Verify the implementation:
+      1. Write comprehensive tests
+      2. Run tests and report results
+      3. Check edge cases
+      4. Verify the build is clean
+    capabilities:
+      - testing
+      - verification
+    tools:
+      - name: file_read
+      - name: file_write
+      - name: shell_auto
+
+teams:
+  - id: build-team
+    name: Build Team
+    strategy: sequential
+    agents:
+      - planner
+      - coder
+      - qa
+
+  - id: coordinated-build
+    name: Coordinated Build
+    strategy: coordinator
+    coordinator: planner
+    agents:
+      - coder
+      - qa
+    max_iterations: 3
