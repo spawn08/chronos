@@ -28,3 +28,4 @@ bd71ec7	0.065	48/48	80.7	KEPT	iter5: 23 targeted tests + fix hanging MCP test �
 3effd28	0.065	48/48	81.5	KEPT	iter6: 38 tests — sandbox container mocks, storage adapter errors, repl
 a8de364	0.064	48/48	81.9	KEPT	iter7: 32 tests — agent branches/schema/config, MCP connect, graph subgraph, protocol bus, CLI cmd
 0489817	0.063	48/48	82.6	KEPT	iter8: 48 tests — redis/postgres/mongo/sqlite/migrate adapters, swarm, server, repl, cli, graph
+1a073af	0.063	48/48	82.9	KEPT	iter9: 39 tests — cli monitor, redisvector, model http, webhook, a2a, cache, server, builtins
