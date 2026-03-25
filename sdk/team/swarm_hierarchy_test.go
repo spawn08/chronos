@@ -3,6 +3,7 @@ package team
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/spawn08/chronos/engine/graph"
 	"github.com/spawn08/chronos/sdk/agent"
@@ -333,9 +334,15 @@ func TestHandleAgentMessage_Broadcast_UpdatesSharedContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Broadcast: %v", err)
 	}
-	// SharedContext should be updated
-	if tm.SharedContext["broadcast_key"] != "broadcast_value" {
-		// Broadcast is fire-and-forget, the shared context update may not be synchronous
+
+	// Give the async broadcast handler time to complete.
+	time.Sleep(50 * time.Millisecond)
+
+	tm.sharedMu.RLock()
+	val := tm.SharedContext["broadcast_key"]
+	tm.sharedMu.RUnlock()
+
+	if val != "broadcast_value" {
 		t.Log("SharedContext not yet updated (async operation)")
 	}
 }

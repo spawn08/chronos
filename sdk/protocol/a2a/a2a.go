@@ -113,19 +113,25 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt: time.Now(),
 	}
 	s.tasks[task.ID] = task
+
+	// Snapshot for the response — executeTask will mutate task concurrently.
+	snapshot := *task
 	s.mu.Unlock()
 
-	// Execute asynchronously
 	go s.executeTask(task)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(task)
+	_ = json.NewEncoder(w).Encode(&snapshot)
 }
 
 func (s *Server) handleGetTask(w http.ResponseWriter, _ *http.Request, taskID string) {
 	s.mu.RLock()
 	task, ok := s.tasks[taskID]
+	var snapshot Task
+	if ok {
+		snapshot = *task
+	}
 	s.mu.RUnlock()
 
 	if !ok {
@@ -134,7 +140,7 @@ func (s *Server) handleGetTask(w http.ResponseWriter, _ *http.Request, taskID st
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(task)
+	_ = json.NewEncoder(w).Encode(&snapshot)
 }
 
 func (s *Server) handleCancelTask(w http.ResponseWriter, _ *http.Request, taskID string) {
@@ -144,6 +150,10 @@ func (s *Server) handleCancelTask(w http.ResponseWriter, _ *http.Request, taskID
 		task.Status = TaskStatusCancelled
 		task.UpdatedAt = time.Now()
 	}
+	var snapshot Task
+	if ok {
+		snapshot = *task
+	}
 	s.mu.Unlock()
 
 	if !ok {
@@ -152,7 +162,7 @@ func (s *Server) handleCancelTask(w http.ResponseWriter, _ *http.Request, taskID
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(task)
+	_ = json.NewEncoder(w).Encode(&snapshot)
 }
 
 func (s *Server) executeTask(task *Task) {
