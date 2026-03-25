@@ -69,9 +69,8 @@ func TestStore_rawCmd_ErrorPrefix_Boost(t *testing.T) {
 	defer ln.Close()
 
 	go func() {
-		var c net.Conn
-		c, err = ln.Accept()
-		if err != nil {
+		c, acceptErr := ln.Accept()
+		if acceptErr != nil {
 			return
 		}
 		defer c.Close()
@@ -80,9 +79,9 @@ func TestStore_rawCmd_ErrorPrefix_Boost(t *testing.T) {
 		_, _ = c.Write([]byte("-ERR nope\r\n"))
 	}()
 
-	conn, err := net.Dial("tcp", ln.Addr().String())
-	if err != nil {
-		t.Fatalf("dial: %v", err)
+	conn, dialErr := net.Dial("tcp", ln.Addr().String())
+	if dialErr != nil {
+		t.Fatalf("dial: %v", dialErr)
 	}
 	defer conn.Close()
 
@@ -104,26 +103,24 @@ func TestUpsert_UsesFloatsToString_Boost(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		var c net.Conn
-		c, err = ln.Accept()
-		if err != nil {
+		c, acceptErr := ln.Accept()
+		if acceptErr != nil {
 			return
 		}
 		defer c.Close()
 		for {
 			buf := make([]byte, 65536)
-			var n int
-			n, err = c.Read(buf)
-			if err != nil || n == 0 {
+			n, readErr := c.Read(buf)
+			if readErr != nil || n == 0 {
 				return
 			}
 			_, _ = c.Write([]byte("+OK\r\n"))
 		}
 	}()
 
-	conn, err := net.Dial("tcp", ln.Addr().String())
-	if err != nil {
-		t.Fatalf("dial: %v", err)
+	conn, dialErr := net.Dial("tcp", ln.Addr().String())
+	if dialErr != nil {
+		t.Fatalf("dial: %v", dialErr)
 	}
 	defer conn.Close()
 
