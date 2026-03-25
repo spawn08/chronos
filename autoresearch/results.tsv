@@ -31,3 +31,4 @@ a8de364	0.064	48/48	81.9	KEPT	iter7: 32 tests — agent branches/schema/config, 
 1a073af	0.063	48/48	82.9	KEPT	iter9: 39 tests — cli monitor, redisvector, model http, webhook, a2a, cache, server, builtins
 3183703	0.062	48/48	84.4	KEPT	iter10: 60 tests — cli/cmd 76→92%, model, telegram, slack, swarm, migrate
 a6eef16	0.061	48/48	84.6	KEPT	iter11: 55 tests — postgres/team/openai/mcp/agent/telegram/slack/migrate/sql/calc/stream
+dfb236d	0.061	48/48	84.7	KEPT	iter12: 31 tests — ratelimit, evals, migrate, sqlite, loaders, protocol, team, memory (ceiling)
