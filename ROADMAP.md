@@ -260,11 +260,11 @@
   - **Location:** `engine/tool/builtins/file.go` (new)
   - **Criteria:** `read_file(path)`, `write_file(path, content)`, `list_dir(path)`, `glob(pattern)`, `grep(pattern, path)`. Configurable root directory and path restrictions. Permission: `filesystem`.
 
-- [ ] **P2-004** — Web search tool (DuckDuckGo)
+- [x] **P2-004** — Web search tool (DuckDuckGo) <!-- done: 2026-03-24 -->
   - **Location:** `engine/tool/builtins/websearch.go` (new)
   - **Criteria:** Search DuckDuckGo API, return top N results with title, URL, snippet. No API key required. Configurable result count.
 
-- [ ] **P2-005** — SQL tool (query execution)
+- [x] **P2-005** — SQL tool (query execution) <!-- done: 2026-03-24 -->
   - **Location:** `engine/tool/builtins/sql.go` (new)
   - **Criteria:** Execute SQL queries against a configured database. Returns results as JSON array. Read-only by default, write requires explicit permission. Configurable connection string.
 
@@ -282,7 +282,7 @@
   - **Location:** `sdk/knowledge/loaders/text.go` (new package)
   - **Criteria:** Load `.txt` and `.md` files. Split into chunks by configurable size (default 1000 tokens) with overlap (default 200 tokens). Return `[]Document` with content and metadata (source, chunk_index).
 
-- [ ] **P2-009** — PDF loader
+- [x] **P2-009** — PDF loader <!-- done: 2026-03-24 -->
   - **Location:** `sdk/knowledge/loaders/pdf.go`
   - **Criteria:** Extract text from PDF files using a Go PDF library (e.g., `pdfcpu` or `unipdf`). Split into chunks. Return `[]Document`. Handle multi-page documents.
 
@@ -290,7 +290,7 @@
   - **Location:** `sdk/knowledge/loaders/structured.go`
   - **Criteria:** Load CSV and JSON files. Each row/object becomes a document. Configurable content field selection. Metadata from other fields.
 
-- [ ] **P2-011** — Web page loader (URL scraper)
+- [x] **P2-011** — Web page loader (URL scraper) <!-- done: 2026-03-24 -->
   - **Location:** `sdk/knowledge/loaders/web.go`
   - **Criteria:** Fetch URL, extract main content (strip HTML boilerplate), chunk text. Support for JavaScript-rendered pages is optional. Return `[]Document` with URL as source.
 
@@ -304,7 +304,7 @@
   - **Location:** `engine/model/provider.go`
   - **Criteria:** Extend `Message` with `Images []ImageContent` where `ImageContent` has `URL string` or `Base64 string` + `MimeType`. OpenAI and Anthropic providers handle image content in requests.
 
-- [ ] **P2-014** — Audio input/output support
+- [x] **P2-014** — Audio input/output support <!-- done: 2026-03-24 -->
   - **Location:** `engine/model/provider.go`
   - **Criteria:** Extend `Message` with `Audio []AudioContent`. Support for Whisper-style transcription input and TTS output. Provider implementations for OpenAI audio models.
 
@@ -314,11 +314,11 @@
 
 ### P2-D: Functional API (Go-idiomatic alternative to Graph API)
 
-- [ ] **P2-016** — Entrypoint registration (equivalent to @entrypoint)
+- [x] **P2-016** — Entrypoint registration (equivalent to @entrypoint) <!-- done: 2026-03-24 -->
   - **Location:** `engine/graph/functional.go` (new file)
   - **Criteria:** `RegisterEntrypoint(name string, fn func(ctx context.Context, input any) (any, error))` wraps a Go function as a graph entrypoint. Integrates with checkpointing and durable execution. Returns a `CompiledGraph` that can be used anywhere a graph is expected.
 
-- [ ] **P2-017** — Task registration (equivalent to @task)
+- [x] **P2-017** — Task registration (equivalent to @task) <!-- done: 2026-03-24 -->
   - **Location:** `engine/graph/functional.go`
   - **Criteria:** `RegisterTask(name string, fn func(ctx context.Context, input any) (any, error))` marks a function as a checkpoint-able task. Results are saved automatically. If a task was already completed in a previous run (via checkpoint), its cached result is returned.
 
@@ -334,7 +334,7 @@
 
 ### P2-F: Observability
 
-- [ ] **P2-020** — OpenTelemetry integration
+- [x] **P2-020** — OpenTelemetry integration <!-- done: 2026-03-24 -->
   - **Location:** `os/trace/otel.go` (new file)
   - **Criteria:** `OTelCollector` implements trace collection using OpenTelemetry SDK. Exports spans to configured OTLP endpoint. Agent/graph/tool operations create OTel spans with proper parent-child relationships and attributes.
 
@@ -342,17 +342,17 @@
   - **Location:** `sdk/agent/agent.go`
   - **Criteria:** `Agent.Debug bool` flag. When set, logs detailed execution: every model call (prompt + response), tool calls (args + result), guardrail checks, memory operations, knowledge searches. Uses structured logger.
 
-- [ ] **P2-022** — Metrics export (Prometheus format)
+- [x] **P2-022** — Metrics export (Prometheus format) <!-- done: 2026-03-24 -->
   - **Location:** `os/metrics/prometheus.go` (new file), `os/server.go`
   - **Criteria:** `GET /metrics` endpoint serving Prometheus-format metrics: `chronos_agent_runs_total`, `chronos_model_latency_seconds`, `chronos_tool_calls_total`, `chronos_tokens_used_total`, `chronos_active_sessions`. Hook-based collection.
 
 ### P2-G: Scheduler
 
-- [ ] **P2-023** — Cron job scheduler for agents
+- [x] **P2-023** — Cron job scheduler for agents <!-- done: 2026-03-24 -->
   - **Location:** `os/scheduler/scheduler.go` (new package)
   - **Criteria:** `Scheduler` manages cron-scheduled agent runs. Supports standard cron expressions (5-field). Each schedule specifies: agent ID, input message, session handling (new session per run or reuse). Schedule CRUD via API.
 
-- [ ] **P2-024** — Scheduler API endpoints
+- [x] **P2-024** — Scheduler API endpoints <!-- done: 2026-03-24 -->
   - **Location:** `os/server.go`, `os/scheduler/`
   - **Criteria:** `POST /api/schedules`, `GET /api/schedules`, `DELETE /api/schedules/{id}`, `GET /api/schedules/{id}/history`. Schedules persist in storage.
 
@@ -393,23 +393,23 @@
 
 ### P3-A: Additional Model Providers
 
-- [ ] **P3-001** — AWS Bedrock provider
+- [x] **P3-001** — AWS Bedrock provider <!-- done: 2026-03-24 -->
   - **Location:** `engine/model/bedrock.go` (new file)
   - **Criteria:** Implement `Provider` using AWS Bedrock InvokeModel API. Support Claude, Titan, Llama models via Bedrock. Constructor takes AWS region + credentials.
 
-- [ ] **P3-002** — Groq provider
+- [x] **P3-002** — Groq provider <!-- done: 2026-03-24 -->
   - **Location:** `engine/model/groq.go` (new file)
   - **Criteria:** Implement `Provider` using Groq API (OpenAI-compatible). Constructor takes API key. Support Llama, Mixtral models.
 
-- [ ] **P3-003** — Together AI provider
+- [x] **P3-003** — Together AI provider <!-- done: 2026-03-24 -->
   - **Location:** `engine/model/together.go` (new file)
   - **Criteria:** Implement `Provider` using Together API (OpenAI-compatible). Constructor takes API key.
 
-- [ ] **P3-004** — Cohere provider
+- [x] **P3-004** — Cohere provider <!-- done: 2026-03-24 -->
   - **Location:** `engine/model/cohere.go` (new file)
   - **Criteria:** Implement `Provider` for Cohere Chat API. Support Command models. Implement `EmbeddingsProvider` for Cohere embeddings.
 
-- [ ] **P3-005** — DeepSeek provider
+- [x] **P3-005** — DeepSeek provider <!-- done: 2026-03-24 -->
   - **Location:** `engine/model/deepseek.go` (new file)
   - **Criteria:** Implement `Provider` using DeepSeek API (OpenAI-compatible). Constructor takes API key. Support DeepSeek-V3 and reasoning models.
 
@@ -419,43 +419,43 @@
 
 ### P3-B: Additional Vector Stores
 
-- [ ] **P3-007** — ChromaDB vector store
+- [x] **P3-007** — ChromaDB vector store <!-- done: 2026-03-24 -->
   - **Location:** `storage/adapters/chroma/chroma.go` (new)
   - **Criteria:** Implement `VectorStore` using ChromaDB REST API. Support Upsert, Search, Delete, CreateCollection. Include test.
 
-- [ ] **P3-008** — PgVector vector store
+- [x] **P3-008** — PgVector vector store <!-- done: 2026-03-24 -->
   - **Location:** `storage/adapters/pgvector/pgvector.go` (new)
   - **Criteria:** Implement `VectorStore` using PostgreSQL with pgvector extension. Use `database/sql` with pgx driver. Support cosine similarity search. Include test.
 
-- [ ] **P3-009** — LanceDB vector store
+- [x] **P3-009** — LanceDB vector store <!-- done: 2026-03-24 -->
   - **Location:** `storage/adapters/lancedb/lancedb.go` (new)
   - **Criteria:** Implement `VectorStore` using LanceDB Go client (or REST API). Embedded/serverless vector DB. Include test.
 
 ### P3-C: Additional Embeddings Providers
 
-- [ ] **P3-010** — Cohere embeddings provider
+- [x] **P3-010** — Cohere embeddings provider <!-- done: 2026-03-24 -->
   - **Location:** `engine/model/cohere_embeddings.go` (new file)
   - **Criteria:** Implement `EmbeddingsProvider` using Cohere Embed API. Constructor takes API key and model name.
 
-- [ ] **P3-011** — Azure OpenAI embeddings provider
+- [x] **P3-011** — Azure OpenAI embeddings provider <!-- done: 2026-03-24 -->
   - **Location:** `engine/model/azure_embeddings.go` (new file)
   - **Criteria:** Implement `EmbeddingsProvider` using Azure OpenAI Embeddings API. Constructor takes endpoint, API key, deployment name.
 
-- [ ] **P3-012** — Google embeddings provider
+- [x] **P3-012** — Google embeddings provider <!-- done: 2026-03-24 -->
   - **Location:** `engine/model/google_embeddings.go` (new file)
   - **Criteria:** Implement `EmbeddingsProvider` using Google textembedding-gecko model. Constructor takes API key or service account.
 
 ### P3-D: Interface Integrations
 
-- [ ] **P3-013** — Slack bot interface
+- [x] **P3-013** — Slack bot interface
   - **Location:** `os/interfaces/slack/slack.go` (new package)
   - **Criteria:** Receive messages from Slack (via Events API or Socket Mode), route to configured agent, post response back to channel. Support threads, mentions, and DMs. Configurable bot token.
 
-- [ ] **P3-014** — Discord bot interface
+- [x] **P3-014** — Discord bot interface
   - **Location:** `os/interfaces/discord/discord.go` (new package)
   - **Criteria:** Discord bot that listens for messages, routes to agent, responds. Support slash commands and message replies. Configurable bot token.
 
-- [ ] **P3-015** — Telegram bot interface
+- [x] **P3-015** — Telegram bot interface
   - **Location:** `os/interfaces/telegram/telegram.go` (new package)
   - **Criteria:** Telegram bot using long polling or webhooks. Route messages to agent, send responses. Support inline keyboards for HITL confirmations.
 
@@ -465,15 +465,15 @@
 
 ### P3-E: Advanced Multi-Agent Patterns
 
-- [ ] **P3-017** — Swarm pattern (peer-to-peer handoff)
+- [x] **P3-017** — Swarm pattern (peer-to-peer handoff)
   - **Location:** `sdk/team/swarm.go` (new file)
   - **Criteria:** Agents can hand off directly to other agents without a central coordinator. `Handoff(targetAgent, taskDescription)` tool. Any agent can interact with the user. The active agent changes on handoff.
 
-- [ ] **P3-018** — Hierarchical multi-level supervisors
+- [x] **P3-018** — Hierarchical multi-level supervisors
   - **Location:** `sdk/team/hierarchy.go` (new file)
   - **Criteria:** A supervisor team can contain other supervisor teams as members, creating a tree structure. Top-level supervisor delegates to mid-level supervisors, which delegate to worker agents.
 
-- [ ] **P3-019** — A2A protocol (agent-to-agent interop)
+- [x] **P3-019** — A2A protocol (agent-to-agent interop)
   - **Location:** `sdk/protocol/a2a/` (new package)
   - **Criteria:** Implement the A2A protocol for cross-framework agent communication. `A2AServer` exposes an agent as an A2A endpoint. `A2AClient` connects to external A2A agents. Support task creation, status polling, and streaming.
 
@@ -487,17 +487,17 @@
   - **Location:** `engine/tool/builtins/reasoning.go` (new file)
   - **Criteria:** `think(thought string)` tool that allows the model to perform explicit reasoning steps. The thought is recorded in context but not shown to the user. Useful for complex multi-step analysis.
 
-- [ ] **P3-022** — Separate reasoning model (two-model architecture)
+- [x] **P3-022** — Separate reasoning model (two-model architecture)
   - **Location:** `sdk/agent/agent.go`
   - **Criteria:** `Agent.ReasoningModel Provider` field. When set, reasoning steps use a more capable (but slower) model, while final responses use the primary model. Configurable which steps use which model.
 
 ### P3-G: Sandbox Enhancements
 
-- [ ] **P3-023** — Container pooling (pre-warmed containers)
+- [x] **P3-023** — Container pooling (pre-warmed containers)
   - **Location:** `sandbox/pool.go` (new file)
   - **Criteria:** `ContainerPool` maintains N pre-warmed containers. `Acquire()` returns a ready container instantly. `Release()` returns it to the pool. Configurable pool size, max idle time. Reduces cold-start latency.
 
-- [ ] **P3-024** — Pluggable sandbox backends
+- [x] **P3-024** — Pluggable sandbox backends
   - **Location:** `sandbox/sandbox.go`
   - **Criteria:** `Sandbox` interface implemented by: `ProcessSandbox` (existing), `ContainerSandbox` (existing), `WASMSandbox` (new, using Wazero), `K8sJobSandbox` (new, using Kubernetes Jobs). Factory function selects backend by config string.
 
@@ -507,13 +507,13 @@
   - **Location:** `cli/cmd/root.go`
   - **Criteria:** `chronos run -n "task description"` runs the agent non-interactively. Reads from stdin if piped. Outputs to stdout. Exit code 0 on success, 1 on failure. Suitable for scripting.
 
-- [ ] **P3-026** — CLI monitor TUI
+- [x] **P3-026** — CLI monitor TUI
   - **Location:** `cli/cmd/monitor.go` (new file)
   - **Criteria:** Live terminal UI showing: active sessions (count + list), recent tool calls, token usage, model latency, error rate. Refreshes periodically. Uses a Go TUI library (e.g., `bubbletea`).
 
 ### P3-I: Production Hardening
 
-- [ ] **P3-027** — Database migration framework
+- [x] **P3-027** — Database migration framework
   - **Location:** `storage/migrate/migrate.go` (new package)
   - **Criteria:** Versioned migrations for SQL backends (SQLite, Postgres). Migration files in `storage/migrate/migrations/`. `Migrate(ctx, db)` applies pending migrations. `Status(ctx, db)` shows current version. `Rollback(ctx, db)` reverts last migration. Track applied migrations in a `_migrations` table.
 
@@ -579,3 +579,4 @@ P3 (expansion) ◄─────── depends on: P2 substantially complete
 | 2026-03-23 | P0-003 | cursor-agent | RetryHook now performs actual retries by re-invoking the model provider. Supports SleepFn injection for testing. Falls back to metadata-only signaling for backward compatibility when provider/request not in metadata. 12 test cases added. |
 | 2026-03-23 | P0-004 | cursor-agent | NumHistoryRuns now loads past sessions from storage and injects user/assistant messages into context. Filters out system messages. Works gracefully when storage is nil. 5 test cases added. |
 | 2026-03-23 | P0-005 | cursor-agent | OutputSchema now passes full JSON Schema via Metadata["json_schema"] with ResponseFormat "json_schema". Added validateAgainstSchema for required fields and type checking. Applied to both Chat and ChatWithSession. 13+ test cases added. |
+| 2026-03-24 | P2-014 | claude-agent | Added `Audio []AudioContent` field to `Message` in provider.go. Created `engine/model/openai_audio.go` with `OpenAIAudio` implementing `AudioProvider` interface: `Transcribe` (Whisper via multipart/form-data to `/v1/audio/transcriptions`) and `Synthesize` (TTS via `/v1/audio/speech`). No external dependencies. |

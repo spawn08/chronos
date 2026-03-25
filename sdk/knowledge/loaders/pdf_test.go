@@ -1,0 +1,150 @@
+package loaders
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+// minimalPDF creates a minimal valid PDF with extractable text.
+func minimalPDF(text string) []byte {
+	// Minimal PDF 1.4 with a single text stream
+	return []byte(`%PDF-1.4
+1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj
+2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj
+3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Contents 4 0 R>>endobj
+4 0 obj<</Length 44>>stream
+BT /F1 12 Tf 100 700 Td (` + text + `) Tj ET
+endstream
+endobj
+xref
+0 5
+trailer<</Size 5/Root 1 0 R>>
+startxref
+0
+%%EOF`)
+}
+
+func TestPDFLoader_SingleFile(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "test.pdf")
+	if err := os.WriteFile(f, minimalPDF("Hello PDF World"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	loader := NewPDFLoader([]string{f}, 0, 0)
+	docs, err := loader.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(docs) != 1 {
+		t.Fatalf("expected 1 doc, got %d", len(docs))
+	}
+	if docs[0].Metadata["type"] != "pdf" {
+		t.Errorf("type = %q, want pdf", docs[0].Metadata["type"])
+	}
+	if docs[0].Content == "" {
+		t.Error("content should not be empty")
+	}
+}
+
+func TestPDFLoader_Chunking(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "big.pdf")
+	if err := os.WriteFile(f, minimalPDF("This is a longer text for chunking test purposes"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	loader := NewPDFLoader([]string{f}, 10, 2)
+	docs, err := loader.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(docs) < 2 {
+		t.Fatalf("expected at least 2 chunks, got %d", len(docs))
+	}
+	if docs[0].Metadata["chunk_idx"] != 0 {
+		t.Errorf("first chunk index should be 0")
+	}
+}
+
+func TestPDFLoader_InvalidPDF(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "bad.pdf")
+	os.WriteFile(f, []byte("not a pdf"), 0644)
+
+	loader := NewPDFLoader([]string{f}, 0, 0)
+	_, err := loader.Load()
+	if err == nil {
+		t.Fatal("expected error for invalid PDF")
+	}
+}
+
+func TestPDFLoader_MissingFile(t *testing.T) {
+	loader := NewPDFLoader([]string{"/nonexistent/file.pdf"}, 0, 0)
+	_, err := loader.Load()
+	if err == nil {
+		t.Fatal("expected error for missing file")
+	}
+}
+
+func TestPDFLoader_MultipleFiles(t *testing.T) {
+	dir := t.TempDir()
+	f1 := filepath.Join(dir, "a.pdf")
+	f2 := filepath.Join(dir, "b.pdf")
+	os.WriteFile(f1, minimalPDF("First document"), 0644)
+	os.WriteFile(f2, minimalPDF("Second document"), 0644)
+
+	loader := NewPDFLoader([]string{f1, f2}, 0, 0)
+	docs, err := loader.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(docs) != 2 {
+		t.Fatalf("expected 2 docs, got %d", len(docs))
+	}
+}
+
+func TestIsReadableText(t *testing.T) {
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{"", false},
+		{"a", false},
+		{"hello world", true},
+		{"\x00\x01\x02\x03", false},
+		{"hello\x00\x01", true}, // 5/7 readable > 0.7
+	}
+	for _, tt := range tests {
+		got := isReadableText(tt.input)
+		if got != tt.want {
+			t.Errorf("isReadableText(%q) = %v, want %v", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestExtractFromStreams(t *testing.T) {
+	// A line with parenthesized text
+	data := []byte("BT (Hello World) Tj ET\n(Another) Tj\n")
+	parts := extractFromStreams(data)
+	if len(parts) == 0 {
+		t.Error("expected extracted text parts")
+	}
+	found := false
+	for _, p := range parts {
+		if p == "Hello World" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected 'Hello World' in parts, got %v", parts)
+	}
+}
+
+func TestExtractFromStreams_Empty(t *testing.T) {
+	parts := extractFromStreams([]byte{})
+	if len(parts) != 0 {
+		t.Errorf("expected empty parts, got %v", parts)
+	}
+}

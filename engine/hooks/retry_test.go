@@ -299,6 +299,19 @@ func TestRetryHook_BackoffInRange(t *testing.T) {
 	}
 }
 
+func TestRetryHook_BackoffDefaults(t *testing.T) {
+	// Test backoff with zero BaseDelay and MaxDelay (should use defaults)
+	hook := &RetryHook{MaxRetries: 3, BaseDelay: 0, MaxDelay: 0}
+	delay := hook.backoff(1)
+	if delay < 0 {
+		t.Errorf("expected non-negative delay, got %v", delay)
+	}
+	// Should use defaults: base=500ms, max=30s
+	if delay > 30*time.Second {
+		t.Errorf("delay %v exceeds 30s default max", delay)
+	}
+}
+
 func TestRetryHook_BeforeIsNoop(t *testing.T) {
 	hook := NewRetryHook(3)
 	err := hook.Before(context.Background(), &Event{})
@@ -338,5 +351,24 @@ func TestRetryHook_SuccessOnSecondAttempt(t *testing.T) {
 	// 2 retry attempts executed
 	if hook.Retries != 2 {
 		t.Errorf("retries = %d, want 2", hook.Retries)
+	}
+}
+
+func TestRetryHook_SignalRetry_ExceedsMaxRetries(t *testing.T) {
+	hook := NewRetryHook(2)
+	hook.SleepFn = noopSleep
+
+	// Set attempt to max+1 in metadata - signalRetry should return without retrying
+	evt := &Event{
+		Type:  EventModelCallAfter,
+		Error: errors.New("error"),
+		Metadata: map[string]any{
+			"retry_attempt": 3, // exceeds MaxRetries=2
+		},
+	}
+	_ = hook.After(context.Background(), evt)
+	// Should not increment Retries since attempt > MaxRetries
+	if hook.Retries != 0 {
+		t.Errorf("expected 0 retries when attempt exceeds max, got %d", hook.Retries)
 	}
 }

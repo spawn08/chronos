@@ -27,11 +27,13 @@ func (t *Team) runSequential(ctx context.Context, state graph.State) (graph.Stat
 		}
 
 		// Inject shared context for keys the current state doesn't have.
+		t.sharedMu.RLock()
 		for k, v := range t.SharedContext {
 			if _, exists := current[k]; !exists {
 				current[k] = v
 			}
 		}
+		t.sharedMu.RUnlock()
 
 		// For non-first agents, include the previous agent's response as context.
 		if i > 0 {
@@ -52,9 +54,11 @@ func (t *Team) runSequential(ctx context.Context, state graph.State) (graph.Stat
 		}
 
 		// Accumulate into shared context for future steps and broadcasts.
+		t.sharedMu.Lock()
 		for k, v := range result {
 			t.SharedContext[k] = v
 		}
+		t.sharedMu.Unlock()
 
 		// Lightweight broadcast — fire-and-forget, non-blocking.
 		_ = t.Broadcast(ctx, a.ID, fmt.Sprintf("step:%d:completed", i+1), current)

@@ -77,3 +77,10 @@ func TestArgsMatch(t *testing.T) {
 		t.Error("both nil should match")
 	}
 }
+
+func TestReliabilityEval_Name(t *testing.T) {
+	e := &ReliabilityEval{EvalName: "rel"}
+	if e.Name() != "rel" {
+		t.Errorf("Name=%q", e.Name())
+	}
+}

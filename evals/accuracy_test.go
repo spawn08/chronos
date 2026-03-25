@@ -2,6 +2,7 @@ package evals
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
@@ -54,5 +55,53 @@ func TestParseJudgeResponse(t *testing.T) {
 		if score != tt.wantScore {
 			t.Errorf("parseJudgeResponse(%q) score=%f, want %f", tt.input, score, tt.wantScore)
 		}
+	}
+}
+
+func TestAccuracyEval_Name(t *testing.T) {
+	e := &AccuracyEval{EvalName: "acc"}
+	if e.Name() != "acc" {
+		t.Errorf("Name=%q", e.Name())
+	}
+}
+
+func TestAccuracyEval_WithJudge_Success(t *testing.T) {
+	judge := &mockEvalProvider{
+		response: `{"score": 0.85, "explanation": "mostly correct"}`,
+	}
+	e := &AccuracyEval{EvalName: "acc", Judge: judge}
+	result := e.Run(context.Background(), "The capital is Paris", "Paris")
+	if result.Score != 0.85 {
+		t.Errorf("score=%f, want 0.85", result.Score)
+	}
+	if !result.Passed {
+		t.Error("score >= 0.7 should pass")
+	}
+}
+
+func TestAccuracyEval_WithJudge_Error(t *testing.T) {
+	judge := &mockEvalProvider{err: errors.New("judge unavailable")}
+	e := &AccuracyEval{EvalName: "acc", Judge: judge}
+	result := e.Run(context.Background(), "actual", "expected")
+	if result.Score != 0 {
+		t.Errorf("error result score=%f, want 0", result.Score)
+	}
+	if result.Error == "" {
+		t.Error("expected error message in result")
+	}
+}
+
+func TestAccuracyEval_WithJudge_CustomRubric(t *testing.T) {
+	judge := &mockEvalProvider{
+		response: `{"score": 1.0, "explanation": "exact"}`,
+	}
+	e := &AccuracyEval{
+		EvalName: "acc",
+		Judge:    judge,
+		Rubric:   "Custom rubric",
+	}
+	result := e.Run(context.Background(), "answer", "answer")
+	if result.Score != 1.0 {
+		t.Errorf("score=%f, want 1.0", result.Score)
 	}
 }

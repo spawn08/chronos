@@ -23,7 +23,7 @@ const (
 
 // ContentPart represents a multi-modal content part within a message.
 type ContentPart struct {
-	Type     string `json:"type"`                // "text", "image_url", "file"
+	Type     string `json:"type"`                // "text", "image_url", "file", "audio"
 	Text     string `json:"text,omitempty"`      // for type "text"
 	ImageURL string `json:"image_url,omitempty"` // for type "image_url" — URL or base64 data URI
 	MimeType string `json:"mime_type,omitempty"` // MIME type for image or file
@@ -33,12 +33,13 @@ type ContentPart struct {
 
 // Message represents a chat message.
 type Message struct {
-	Role       string        `json:"role"` // system, user, assistant, tool
-	Content    string        `json:"content"`
-	Parts      []ContentPart `json:"parts,omitempty"` // multi-modal content parts
-	Name       string        `json:"name,omitempty"`
-	ToolCallID string        `json:"tool_call_id,omitempty"`
-	ToolCalls  []ToolCall    `json:"tool_calls,omitempty"`
+	Role       string         `json:"role"` // system, user, assistant, tool
+	Content    string         `json:"content"`
+	Parts      []ContentPart  `json:"parts,omitempty"` // multi-modal content parts
+	Audio      []AudioContent `json:"audio,omitempty"` // audio input/output attachments
+	Name       string         `json:"name,omitempty"`
+	ToolCallID string         `json:"tool_call_id,omitempty"`
+	ToolCalls  []ToolCall     `json:"tool_calls,omitempty"`
 }
 
 // AddImageURL adds an image URL content part to the message.
@@ -58,6 +59,24 @@ func (m *Message) AddFile(filename, mimeType string, data []byte) {
 		MimeType: mimeType,
 		Data:     data,
 	})
+}
+
+// AddAudio adds an audio content part to the message.
+// format is the audio format (e.g., "wav", "mp3", "ogg").
+func (m *Message) AddAudio(data []byte, format string) {
+	mimeType := "audio/" + format
+	m.Parts = append(m.Parts, ContentPart{
+		Type:     "audio",
+		MimeType: mimeType,
+		Data:     data,
+	})
+}
+
+// AudioContent holds audio data for input transcription or output TTS.
+type AudioContent struct {
+	Data       []byte `json:"-"`
+	Format     string `json:"format"`               // wav, mp3, ogg, etc.
+	Transcript string `json:"transcript,omitempty"` // transcribed text (for input) or source text (for output)
 }
 
 // ToolCall represents a model-requested tool invocation.

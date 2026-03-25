@@ -3,6 +3,7 @@ package hooks
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -335,4 +336,21 @@ func (h *orderHook) Before(_ context.Context, _ *Event) error { return nil }
 func (h *orderHook) After(_ context.Context, _ *Event) error {
 	*h.order = append(*h.order, h.id)
 	return nil
+}
+
+type afterErrorHook struct{}
+
+func (h *afterErrorHook) Before(_ context.Context, _ *Event) error { return nil }
+func (h *afterErrorHook) After(_ context.Context, _ *Event) error {
+	return fmt.Errorf("after error")
+}
+
+func TestChain_After_StopsOnError(t *testing.T) {
+	h1 := &afterErrorHook{}
+	h2 := &LoggingHook{}
+	chain := Chain{h1, h2}
+	err := chain.After(context.Background(), &Event{Type: EventModelCallAfter})
+	if err == nil {
+		t.Fatal("expected error from Chain.After when hook fails")
+	}
 }

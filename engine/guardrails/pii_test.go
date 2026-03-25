@@ -82,3 +82,29 @@ func TestRedactPII_AllTypes(t *testing.T) {
 		t.Error("IP should be redacted")
 	}
 }
+
+func TestPIIGuardrail_UnknownType(t *testing.T) {
+	// Use an unknown PII type that has no pattern
+	g := &PIIGuardrail{DetectTypes: []PIIType{"unknown_type"}}
+	result := g.Check(nil, "any content here")
+	// Should not panic, should return nil since unknown type has no pattern
+	if result != nil {
+		t.Errorf("expected nil result for unknown type, got: %v", result)
+	}
+}
+
+func TestPIIGuardrail_DetectsCreditCard(t *testing.T) {
+	g := &PIIGuardrail{DetectTypes: []PIIType{PIICreditCard}}
+	result := g.Check(nil, "Card number: 4111111111111111")
+	if result == nil {
+		t.Fatal("expected PII detection for credit card")
+	}
+}
+
+func TestRedactPII_UnknownType(t *testing.T) {
+	// Should not panic for unknown type
+	result := RedactPII("some content", []PIIType{"unknown_type"})
+	if result != "some content" {
+		t.Errorf("unknown type should not modify content, got: %s", result)
+	}
+}

@@ -98,3 +98,10 @@ func TestPerformanceEval_NoBaseline(t *testing.T) {
 		t.Errorf("no baseline score=%f, want 1.0", result.Score)
 	}
 }
+
+func TestPerformanceEval_Name(t *testing.T) {
+	e := &PerformanceEval{EvalName: "perf"}
+	if e.Name() != "perf" {
+		t.Errorf("Name=%q", e.Name())
+	}
+}

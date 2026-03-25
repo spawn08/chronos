@@ -57,6 +57,8 @@ func Execute() error {
 		return runEvalCmd()
 	case "config":
 		return runConfig()
+	case "monitor":
+		return runMonitor()
 	case "version":
 		return printVersion()
 	case "help", "--help", "-h":
@@ -88,6 +90,7 @@ Commands:
   db                        Database operations (init, status)
   eval list                 List available eval suites
   eval run <suite.yaml>     Run evaluation suite
+  monitor                   Live terminal dashboard (sessions, metrics, latency)
   config                    Configuration (show)
   version                   Print version
   help                      Show this help

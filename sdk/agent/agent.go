@@ -57,9 +57,10 @@ type Agent struct {
 	Examples       []Example
 
 	// Reasoning and iteration control
-	Reasoning     ReasoningStrategy
-	Debug         bool // when set, logs detailed execution info
-	MaxIterations int  // max tool-calling loop iterations; 0 = default (25)
+	Reasoning      ReasoningStrategy
+	ReasoningModel model.Provider // separate, more capable model for reasoning steps
+	Debug          bool           // when set, logs detailed execution info
+	MaxIterations  int            // max tool-calling loop iterations; 0 = default (25)
 
 	// MCP servers
 	MCPClients []*mcp.Client
@@ -110,6 +111,7 @@ func (b *Builder) WithMemoryManager(m *memory.Manager) *Builder  { b.agent.Memor
 func (b *Builder) WithOutputSchema(s map[string]any) *Builder    { b.agent.OutputSchema = s; return b }
 func (b *Builder) WithHistoryRuns(n int) *Builder                { b.agent.NumHistoryRuns = n; return b }
 func (b *Builder) WithMaxIterations(n int) *Builder              { b.agent.MaxIterations = n; return b }
+func (b *Builder) WithReasoningModel(p model.Provider) *Builder  { b.agent.ReasoningModel = p; return b }
 func (b *Builder) WithContextConfig(cfg ContextConfig) *Builder  { b.agent.ContextCfg = cfg; return b }
 func (b *Builder) WithBroker(br *stream.Broker) *Builder         { b.agent.Broker = br; return b }
 func (b *Builder) WithTracer(t *chronostrace.Collector) *Builder { b.agent.Tracer = t; return b }

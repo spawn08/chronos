@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/spawn08/chronos/engine/graph"
 	"github.com/spawn08/chronos/sdk/agent"
@@ -72,6 +73,7 @@ type Team struct {
 	MaxIterations  int           // max coordinator planning iterations; 0 = 1
 
 	SharedContext map[string]any
+	sharedMu      sync.RWMutex // guards SharedContext
 }
 
 // New creates a team with the given strategy.
@@ -307,9 +309,11 @@ func (t *Team) handleAgentMessage(ctx context.Context, a *agent.Agent, env *prot
 	case protocol.TypeBroadcast:
 		var data map[string]any
 		if err := json.Unmarshal(env.Body, &data); err == nil {
+			t.sharedMu.Lock()
 			for k, v := range data {
 				t.SharedContext[k] = v
 			}
+			t.sharedMu.Unlock()
 		}
 		return nil, nil
 

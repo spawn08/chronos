@@ -144,7 +144,8 @@ func (c *Client) Connect(ctx context.Context) error {
 		},
 	}
 
-	result, err := c.call(ctx, "initialize", initParams)
+	// callLocked is used here because we already hold c.mu.
+	result, err := c.callLocked(ctx, "initialize", initParams)
 	if err != nil {
 		c.closeProcess()
 		return fmt.Errorf("mcp: initialize: %w", err)
@@ -296,7 +297,16 @@ func (c *Client) closeProcess() error {
 	return nil
 }
 
-func (c *Client) call(_ context.Context, method string, params any) (json.RawMessage, error) {
+// call acquires c.mu and sends a JSON-RPC request, waiting for the matching response.
+func (c *Client) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.callLocked(ctx, method, params)
+}
+
+// callLocked sends a JSON-RPC request and waits for the response.
+// The caller must hold c.mu.
+func (c *Client) callLocked(_ context.Context, method string, params any) (json.RawMessage, error) {
 	id := c.nextID.Add(1)
 	req := jsonrpcRequest{
 		JSONRPC: "2.0",
@@ -310,9 +320,6 @@ func (c *Client) call(_ context.Context, method string, params any) (json.RawMes
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 	data = append(data, '\n')
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	if c.closed {
 		return nil, fmt.Errorf("client is closed")

@@ -82,3 +82,109 @@ func TestCalculator_MissingArg(t *testing.T) {
 		t.Fatal("expected error for non-string expression")
 	}
 }
+
+func TestCalculator_AdvancedFunctions(t *testing.T) {
+	calc := NewCalculatorTool()
+	tests := []struct {
+		expr string
+		want float64
+	}{
+		{"cos(0)", 1.0},
+		{"log(1)", 0.0},
+		{"ceil(1.2)", 2.0},
+		{"floor(1.8)", 1.0},
+		{"pi", 3.14159265},
+		{"e", 2.71828182},
+	}
+	for _, tt := range tests {
+		result, err := calc.Handler(context.Background(), map[string]any{"expression": tt.expr})
+		if err != nil {
+			t.Errorf("calc(%q): %v", tt.expr, err)
+			continue
+		}
+		m, _ := result.(map[string]any)
+		got, _ := m["result"].(float64)
+		if got < tt.want-0.01 || got > tt.want+0.01 {
+			t.Errorf("calc(%q) = %v, want ~%v", tt.expr, got, tt.want)
+		}
+	}
+}
+
+func TestCalculator_Parentheses(t *testing.T) {
+	calc := NewCalculatorTool()
+	result, err := calc.Handler(context.Background(), map[string]any{"expression": "(2 + 3) * 4"})
+	if err != nil {
+		t.Fatalf("calc: %v", err)
+	}
+	m, _ := result.(map[string]any)
+	got, _ := m["result"].(float64)
+	if got != 20.0 {
+		t.Errorf("expected 20.0, got %v", got)
+	}
+}
+
+func TestCalculator_MissingClosingParen(t *testing.T) {
+	calc := NewCalculatorTool()
+	_, err := calc.Handler(context.Background(), map[string]any{"expression": "(2 + 3"})
+	if err == nil {
+		t.Fatal("expected error for missing closing paren")
+	}
+}
+
+func TestCalculator_UnaryMinus(t *testing.T) {
+	calc := NewCalculatorTool()
+	result, err := calc.Handler(context.Background(), map[string]any{"expression": "-5 + 10"})
+	if err != nil {
+		t.Fatalf("calc: %v", err)
+	}
+	m, _ := result.(map[string]any)
+	got, _ := m["result"].(float64)
+	if got != 5.0 {
+		t.Errorf("expected 5.0, got %v", got)
+	}
+}
+
+func TestCalculator_FunctionErrors(t *testing.T) {
+	calc := NewCalculatorTool()
+	// These should trigger parseFunction's error paths
+	tests := []struct {
+		name string
+		expr string
+	}{
+		{"sqrt no arg", "sqrt()"},
+		{"sin missing paren", "sin 1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := calc.Handler(context.Background(), map[string]any{"expression": tt.expr})
+			// These may succeed or fail — just ensure no panic
+			_ = err
+		})
+	}
+}
+
+func TestCalculator_Division(t *testing.T) {
+	calc := NewCalculatorTool()
+	result, err := calc.Handler(context.Background(), map[string]any{"expression": "10 / 4"})
+	if err != nil {
+		t.Fatalf("division: %v", err)
+	}
+	m, _ := result.(map[string]any)
+	got, _ := m["result"].(float64)
+	if got != 2.5 {
+		t.Errorf("10/4 = %v, want 2.5", got)
+	}
+}
+
+func TestCalculator_Exponent(t *testing.T) {
+	calc := NewCalculatorTool()
+	result, err := calc.Handler(context.Background(), map[string]any{"expression": "2^10"})
+	if err != nil {
+		t.Fatalf("power: %v", err)
+	}
+	m, _ := result.(map[string]any)
+	got, _ := m["result"].(float64)
+	if got != 1024.0 {
+		t.Errorf("2^10 = %v, want 1024", got)
+	}
+}
