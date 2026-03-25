@@ -217,8 +217,10 @@ func (r *Runner) execute(ctx context.Context, rs *RunState) (*RunState, error) {
 			rs.Status = RunStatusPaused
 			rs.SeqNum++
 			r.emit(StreamEvent{Type: "interrupt", NodeID: node.ID, State: rs.State})
-			if err := r.checkpoint(ctx, rs); err != nil {
-				return rs, fmt.Errorf("checkpoint on interrupt: %w", err)
+			if r.store != nil {
+				if err := r.checkpoint(ctx, rs); err != nil {
+					return rs, fmt.Errorf("checkpoint on interrupt: %w", err)
+				}
 			}
 			if graphSpan != nil {
 				_ = r.tracer.EndSpan(ctx, graphSpan, rs.State, "paused at interrupt node "+node.ID)
@@ -270,20 +272,20 @@ func (r *Runner) execute(ctx context.Context, rs *RunState) (*RunState, error) {
 			_ = r.tracer.EndSpan(ctx, nodeSpan, rs.State, "")
 		}
 
-		// Checkpoint after each node
-		if err := r.checkpoint(ctx, rs); err != nil {
-			return rs, fmt.Errorf("checkpoint: %w", err)
+		// Checkpoint after each node (skip if no storage is configured)
+		if r.store != nil {
+			if err := r.checkpoint(ctx, rs); err != nil {
+				return rs, fmt.Errorf("checkpoint: %w", err)
+			}
+			_ = r.store.AppendEvent(ctx, &storage.Event{
+				ID:        fmt.Sprintf("evt_%s_%d", rs.RunID, rs.SeqNum),
+				SessionID: rs.SessionID,
+				SeqNum:    rs.SeqNum,
+				Type:      "node_executed",
+				Payload:   map[string]any{"node": node.ID, "state": rs.State},
+				CreatedAt: time.Now(),
+			})
 		}
-
-		// Append event to ledger
-		_ = r.store.AppendEvent(ctx, &storage.Event{
-			ID:        fmt.Sprintf("evt_%s_%d", rs.RunID, rs.SeqNum),
-			SessionID: rs.SessionID,
-			SeqNum:    rs.SeqNum,
-			Type:      "node_executed",
-			Payload:   map[string]any{"node": node.ID, "state": rs.State},
-			CreatedAt: time.Now(),
-		})
 
 		// Find next node
 		next := r.findNext(rs.CurrentNode, rs.State)

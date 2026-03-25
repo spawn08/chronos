@@ -57,6 +57,8 @@ func Execute() error {
 		return runEvalCmd()
 	case "config":
 		return runConfig()
+	case "deploy":
+		return runDeploy()
 	case "monitor":
 		return runMonitor()
 	case "version":
@@ -85,6 +87,7 @@ Commands:
   team list                 List teams defined in config
   team run <id> <message>   Run a multi-agent team on a task
   team show <id>            Show team configuration details
+  deploy <config.yaml> <msg> Deploy agents/team from YAML and run in sandbox
   sessions                  Session management (list, resume, export)
   memory                    Memory management (list, forget, clear)
   db                        Database operations (init, status)
@@ -546,8 +549,12 @@ func parseStrategy(s string) (team.Strategy, error) {
 		return team.StrategyRouter, nil
 	case "coordinator":
 		return team.StrategyCoordinator, nil
+	case "swarm":
+		return team.StrategySwarm, nil
+	case "hierarchy":
+		return team.StrategyHierarchy, nil
 	default:
-		return "", fmt.Errorf("unknown strategy %q (supported: sequential, parallel, router, coordinator)", s)
+		return "", fmt.Errorf("unknown strategy %q (supported: sequential, parallel, router, coordinator, swarm, hierarchy)", s)
 	}
 }
 

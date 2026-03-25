@@ -10,6 +10,8 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/spawn08/chronos/engine/model"
+	"github.com/spawn08/chronos/engine/tool"
+	"github.com/spawn08/chronos/engine/tool/builtins"
 	"github.com/spawn08/chronos/storage"
 	"github.com/spawn08/chronos/storage/adapters/sqlite"
 )
@@ -189,6 +191,16 @@ func BuildAgent(ctx context.Context, cfg *AgentConfig) (*Agent, error) {
 		})
 	}
 
+	// Register YAML-defined tools (name-only tools act as markers; tools with
+	// handlers must be registered programmatically, but we register the
+	// built-in tool names so YAML can reference "shell", "file_read", etc.)
+	for _, tc := range cfg.Tools {
+		toolDef := buildToolFromConfig(tc)
+		if toolDef != nil {
+			b.AddTool(toolDef)
+		}
+	}
+
 	// Model provider
 	provider, err := buildProvider(cfg.Model)
 	if err != nil {
@@ -354,6 +366,43 @@ func buildStorage(cfg StorageConfig) (storage.Storage, error) {
 		return nil, nil
 	default:
 		return nil, fmt.Errorf("unknown storage backend %q (supported: sqlite, postgres, none)", backend)
+	}
+}
+
+// buildToolFromConfig resolves a YAML tool config to a built-in tool Definition.
+// Built-in names (shell, file_read, file_write, file_list, file_glob, file_grep,
+// file_tools) are resolved automatically. Custom tools with only a name/description
+// are registered as no-op placeholders so the model knows they exist.
+func buildToolFromConfig(tc ToolConfig) *tool.Definition {
+	basePath := "."
+	switch tc.Name {
+	case "shell":
+		return builtins.NewShellTool(nil, 0)
+	case "shell_auto":
+		return builtins.NewAutoShellTool(nil, 0)
+	case "file_read":
+		return builtins.NewFileReadTool(basePath)
+	case "file_write":
+		return builtins.NewFileWriteTool(basePath)
+	case "file_list":
+		return builtins.NewFileListTool(basePath)
+	case "file_glob":
+		return builtins.NewFileGlobTool(basePath)
+	case "file_grep":
+		return builtins.NewFileGrepTool(basePath)
+	default:
+		if tc.Description == "" {
+			return nil
+		}
+		return &tool.Definition{
+			Name:        tc.Name,
+			Description: tc.Description,
+			Parameters:  tc.Parameters,
+			Permission:  tool.PermAllow,
+			Handler: func(_ context.Context, args map[string]any) (any, error) {
+				return map[string]any{"tool": tc.Name, "args": args, "note": "placeholder — wire a real handler programmatically"}, nil
+			},
+		}
 	}
 }
 
