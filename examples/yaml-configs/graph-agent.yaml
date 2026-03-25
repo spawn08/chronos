@@ -1,0 +1,77 @@
+# graph-agent.yaml — YAML equivalent of examples/graph_with_llm/
+#
+# This achieves the same behavior as the Go example:
+# A classifier agent routes questions to a technical expert or general assistant.
+#
+# Prerequisites:
+#   export OPENAI_API_KEY=sk-...
+#
+# Run:
+#   CHRONOS_CONFIG=examples/yaml-configs/graph-agent.yaml go run ./cli/main.go team run classifier-team "What are goroutines?"
+#   CHRONOS_CONFIG=examples/yaml-configs/graph-agent.yaml go run ./cli/main.go team run classifier-team "What is the tallest mountain?"
+#
+# To use Anthropic instead:
+#   1. Change defaults.model.provider to "anthropic"
+#   2. Change defaults.model.api_key to ${ANTHROPIC_API_KEY}
+#   3. Change defaults.model.model to "claude-sonnet-4-20250514"
+#
+# To use Ollama (no API key, fully local):
+#   1. Change defaults.model.provider to "ollama"
+#   2. Change defaults.model.model to "llama3.2"
+#   3. Add defaults.model.base_url: "http://localhost:11434"
+#   4. Remove defaults.model.api_key (not needed)
+#   5. Start Ollama: ollama serve && ollama pull llama3.2
+
+defaults:
+  model:
+    provider: openai
+    model: gpt-4o
+    api_key: ${OPENAI_API_KEY}
+  storage:
+    backend: none
+
+agents:
+  - id: classifier
+    name: Question Classifier
+    description: Classifies questions as technical (programming) or general knowledge
+    system_prompt: |
+      You are a classifier. Given a question, respond with EXACTLY one word:
+      - "technical" if the question is about programming, Go, software, or computer science
+      - "general" if the question is about anything else
+
+      Respond with only the single word, nothing else.
+    capabilities:
+      - classification
+      - routing
+
+  - id: technical-expert
+    name: Technical Expert
+    description: Answers programming and Go questions with code examples
+    system_prompt: |
+      You are a Go programming expert. Provide clear, accurate answers
+      with code examples when helpful. Reference official Go documentation
+      patterns and best practices.
+    capabilities:
+      - golang
+      - programming
+      - technical
+
+  - id: general-assistant
+    name: General Assistant
+    description: Answers general knowledge questions concisely
+    system_prompt: |
+      You are a helpful assistant. Give concise, accurate answers
+      to general knowledge questions.
+    capabilities:
+      - general-knowledge
+      - conversation
+
+teams:
+  # Router strategy auto-routes to the best agent based on capabilities.
+  # This is the YAML equivalent of the Go graph's conditional edge routing.
+  - id: classifier-team
+    name: Smart Question Router
+    strategy: router
+    agents:
+      - technical-expert
+      - general-assistant

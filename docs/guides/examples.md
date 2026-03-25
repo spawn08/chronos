@@ -20,6 +20,30 @@ cd chronos
 go run ./examples/<name>/
 ```
 
+## Real LLM Examples
+
+These examples make actual LLM API calls. Set at least one API key to run them.
+
+### graph_with_llm
+
+**StateGraph with real LLM calls inside nodes.** This is the most important example for understanding how Chronos combines graph workflows with live LLM reasoning. A classifier node calls the LLM to categorize questions, then conditional edges route to a technical expert (with tools) or a general assistant.
+
+```bash
+export OPENAI_API_KEY=sk-your-key
+go run ./examples/graph_with_llm/
+```
+
+**Demonstrates:**
+- Wiring real LLM providers (OpenAI, Anthropic, Gemini, Ollama) into graph nodes
+- Conditional routing based on LLM classification output
+- Tool calling within graph nodes
+- Checkpointing with SQLite
+- The YAML equivalent (see `examples/yaml-configs/graph-agent.yaml`)
+
+See the [Building Real-World Agents](/guides/real-world-agents/) guide for a detailed walkthrough.
+
+---
+
 ## No API Keys Required
 
 These examples use mock providers — they compile and run instantly:
@@ -228,10 +252,12 @@ Pre-built YAML configurations for common patterns:
 
 | Config | Strategy | Description |
 |--------|----------|-------------|
+| `graph-agent.yaml` | Router | LLM-based classification routing (YAML equivalent of `graph_with_llm/`) |
 | `customer-support.yaml` | Router | Routes queries to billing, technical, or sales agents |
 | `content-pipeline.yaml` | Sequential | Research → Write → Edit article pipeline |
 | `coding-team.yaml` | Coordinator | Tech lead delegates to backend, frontend, reviewer |
 | `multi-provider.yaml` | Mixed | OpenAI, Anthropic, Gemini, Ollama, Groq, DeepSeek |
+| `sandbox-deploy.yaml` | Sequential / Coordinator | Multi-agent sandbox deployment |
 
 Use with the CLI:
 
