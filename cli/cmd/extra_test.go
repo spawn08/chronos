@@ -595,7 +595,7 @@ func TestOpenStore_ValidPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("openStore: %v", err)
 	}
-	defer store.Close()
+	_ = store.Close()
 }
 
 func TestOpenStore_DefaultPath(t *testing.T) {
@@ -609,7 +609,7 @@ func TestOpenStore_DefaultPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("openStore with default path: %v", err)
 	}
-	defer store.Close()
+	_ = store.Close()
 }
 
 // ---------------------------------------------------------------------------

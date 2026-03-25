@@ -162,7 +162,7 @@ func (s *Store) Close() error {
 func (s *Store) getCollectionID(ctx context.Context, name string) (string, error) {
 	url := fmt.Sprintf("%s/api/v1/tenants/%s/databases/%s/collections/%s", s.baseURL, s.tenant, s.db, name)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return "", fmt.Errorf("chromadb: %w", err)
 	}

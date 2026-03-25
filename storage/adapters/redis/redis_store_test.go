@@ -26,19 +26,20 @@ type scoreMember struct {
 	member string
 }
 
-func newMiniRedis(t *testing.T) (*miniRedis, string) {
+func newMiniRedis(t *testing.T) (mr *miniRedis, addr string) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	mr := &miniRedis{
+	mr = &miniRedis{
 		data: make(map[string]string),
 		sets: make(map[string][]scoreMember),
 		ln:   ln,
 	}
 	go mr.serve()
-	return mr, ln.Addr().String()
+	addr = ln.Addr().String()
+	return
 }
 
 func (mr *miniRedis) close() {
@@ -233,7 +234,7 @@ func TestStore_SessionCRUD(t *testing.T) {
 		UpdatedAt: now,
 	}
 
-	if err := store.CreateSession(ctx, sess); err != nil {
+	if err = store.CreateSession(ctx, sess); err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
 
@@ -249,7 +250,7 @@ func TestStore_SessionCRUD(t *testing.T) {
 	}
 
 	sess.Status = "completed"
-	if err := store.UpdateSession(ctx, sess); err != nil {
+	if err = store.UpdateSession(ctx, sess); err != nil {
 		t.Fatalf("UpdateSession: %v", err)
 	}
 	got2, _ := store.GetSession(ctx, "s1")

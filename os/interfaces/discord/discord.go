@@ -100,7 +100,7 @@ func (b *Bot) HandleInteraction(w http.ResponseWriter, r *http.Request) {
 	// Ping (type 1) — respond with Pong
 	if interaction.Type == 1 {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"type": 1})
+		_ = json.NewEncoder(w).Encode(map[string]any{"type": 1})
 		return
 	}
 
@@ -118,13 +118,13 @@ func (b *Bot) HandleInteraction(w http.ResponseWriter, r *http.Request) {
 				response = fmt.Sprintf("Error: %v", err)
 			}
 			if response != "" {
-				b.SendMessage(r.Context(), interaction.ChannelID, response)
+				_ = b.SendMessage(r.Context(), interaction.ChannelID, response)
 			}
 		}()
 
 		// Acknowledge immediately
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"type": 5, // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
 		})
 		return

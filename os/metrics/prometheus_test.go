@@ -89,7 +89,7 @@ func TestHandler_PrometheusFormat(t *testing.T) {
 	r.SetActiveSessions(5)
 	r.ObserveModelLatency("azure", 500*time.Millisecond)
 
-	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req := httptest.NewRequest(http.MethodGet, "/metrics", http.NoBody)
 	w := httptest.NewRecorder()
 	r.Handler().ServeHTTP(w, req)
 

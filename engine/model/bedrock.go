@@ -128,14 +128,14 @@ func (b *Bedrock) buildRequestBody(req *ChatRequest) map[string]any {
 	messages := make([]map[string]any, 0, len(req.Messages))
 	var systemPrompt string
 
-	for _, m := range req.Messages {
-		if m.Role == RoleSystem {
-			systemPrompt = m.Content
+	for i := range req.Messages {
+		if req.Messages[i].Role == RoleSystem {
+			systemPrompt = req.Messages[i].Content
 			continue
 		}
 		messages = append(messages, map[string]any{
-			"role":    m.Role,
-			"content": m.Content,
+			"role":    req.Messages[i].Role,
+			"content": req.Messages[i].Content,
 		})
 	}
 

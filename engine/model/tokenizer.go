@@ -19,14 +19,14 @@ func NewEstimatingCounter() *EstimatingCounter {
 
 func (c *EstimatingCounter) CountTokens(messages []Message) int {
 	total := 0
-	for _, m := range messages {
+	for i := range messages {
 		// Per-message overhead (role, separators) ~4 tokens
 		total += 4
-		total += c.CountString(m.Content)
-		if m.Name != "" {
-			total += c.CountString(m.Name)
+		total += c.CountString(messages[i].Content)
+		if messages[i].Name != "" {
+			total += c.CountString(messages[i].Name)
 		}
-		for _, tc := range m.ToolCalls {
+		for _, tc := range messages[i].ToolCalls {
 			total += c.CountString(tc.Name)
 			total += c.CountString(tc.Arguments)
 		}

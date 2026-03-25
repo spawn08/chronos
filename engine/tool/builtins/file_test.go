@@ -10,7 +10,7 @@ import (
 func TestFileReadTool(t *testing.T) {
 	dir := t.TempDir()
 	f := filepath.Join(dir, "test.txt")
-	os.WriteFile(f, []byte("hello"), 0644)
+	os.WriteFile(f, []byte("hello"), 0o644)
 
 	tool := NewFileReadTool(dir)
 	result, err := tool.Handler(context.Background(), map[string]any{"path": "test.txt"})
@@ -49,8 +49,8 @@ func TestFileWriteTool(t *testing.T) {
 
 func TestFileListTool(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a"), 0644)
-	os.WriteFile(filepath.Join(dir, "b.txt"), []byte("b"), 0644)
+	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a"), 0o644)
+	os.WriteFile(filepath.Join(dir, "b.txt"), []byte("b"), 0o644)
 
 	tool := NewFileListTool("")
 	result, err := tool.Handler(context.Background(), map[string]any{"path": dir})
@@ -66,9 +66,9 @@ func TestFileListTool(t *testing.T) {
 
 func TestFileGlobTool(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "a.go"), []byte(""), 0644)
-	os.WriteFile(filepath.Join(dir, "b.go"), []byte(""), 0644)
-	os.WriteFile(filepath.Join(dir, "c.txt"), []byte(""), 0644)
+	os.WriteFile(filepath.Join(dir, "a.go"), []byte(""), 0o644)
+	os.WriteFile(filepath.Join(dir, "b.go"), []byte(""), 0o644)
+	os.WriteFile(filepath.Join(dir, "c.txt"), []byte(""), 0o644)
 
 	tool := NewFileGlobTool(dir)
 	result, err := tool.Handler(context.Background(), map[string]any{"pattern": "*.go"})
@@ -85,7 +85,7 @@ func TestFileGlobTool(t *testing.T) {
 func TestFileGrepTool(t *testing.T) {
 	dir := t.TempDir()
 	f := filepath.Join(dir, "test.txt")
-	os.WriteFile(f, []byte("line one\nline two\nline three"), 0644)
+	os.WriteFile(f, []byte("line one\nline two\nline three"), 0o644)
 
 	tool := NewFileGrepTool(dir)
 	result, err := tool.Handler(context.Background(), map[string]any{

@@ -73,8 +73,10 @@ func TestCompressToolCalls_PreservesOrder(t *testing.T) {
 	var msgs []model.Message
 	msgs = append(msgs, model.Message{Role: model.RoleSystem, Content: "sys"})
 	for i := 0; i < 4; i++ {
-		msgs = append(msgs, model.Message{Role: model.RoleAssistant, ToolCalls: []model.ToolCall{{ID: string(rune('a' + i)), Name: "t"}}})
-		msgs = append(msgs, model.Message{Role: model.RoleTool, Content: "r", ToolCallID: string(rune('a' + i))})
+		msgs = append(msgs,
+			model.Message{Role: model.RoleAssistant, ToolCalls: []model.ToolCall{{ID: string(rune('a' + i)), Name: "t"}}},
+			model.Message{Role: model.RoleTool, Content: "r", ToolCallID: string(rune('a' + i))},
+		)
 	}
 	out := CompressToolCalls(msgs, 1)
 	if len(out) >= len(msgs) {

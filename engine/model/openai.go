@@ -101,7 +101,8 @@ func buildOpenAIRequestBody(req *ChatRequest, defaultModel string, stream bool) 
 	}
 
 	messages := make([]map[string]any, 0, len(req.Messages))
-	for _, m := range req.Messages {
+	for i := range req.Messages {
+		m := &req.Messages[i]
 		msg := map[string]any{"role": m.Role, "content": m.Content}
 		if m.Name != "" {
 			msg["name"] = m.Name
@@ -111,8 +112,8 @@ func buildOpenAIRequestBody(req *ChatRequest, defaultModel string, stream bool) 
 		}
 		if len(m.ToolCalls) > 0 {
 			tcs := make([]map[string]any, len(m.ToolCalls))
-			for i, tc := range m.ToolCalls {
-				tcs[i] = map[string]any{
+			for j, tc := range m.ToolCalls {
+				tcs[j] = map[string]any{
 					"id":   tc.ID,
 					"type": "function",
 					"function": map[string]string{

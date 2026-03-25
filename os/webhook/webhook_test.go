@@ -76,7 +76,7 @@ func TestServer_WildcardHandler(t *testing.T) {
 
 func TestServer_MethodNotAllowed(t *testing.T) {
 	s := NewServer("")
-	req := httptest.NewRequest(http.MethodGet, "/webhook", nil)
+	req := httptest.NewRequest(http.MethodGet, "/webhook", http.NoBody)
 	w := httptest.NewRecorder()
 	s.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusMethodNotAllowed {

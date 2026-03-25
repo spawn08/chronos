@@ -284,14 +284,26 @@ func TestPayloadStructs(t *testing.T) {
 	if task.Description == "" {
 		t.Error("TaskPayload.Description should not be empty")
 	}
+	if task.Input["key"] != "val" {
+		t.Errorf("TaskPayload.Input: %v", task.Input)
+	}
+	if len(task.Constraints) != 1 || task.Constraints[0] != "no harm" {
+		t.Errorf("TaskPayload.Constraints: %v", task.Constraints)
+	}
 
 	result := ResultPayload{
 		TaskID:  "t1",
 		Success: true,
 		Summary: "done",
 	}
+	if result.TaskID != "t1" {
+		t.Errorf("ResultPayload.TaskID: %q", result.TaskID)
+	}
 	if !result.Success {
 		t.Error("ResultPayload.Success should be true")
+	}
+	if result.Summary != "done" {
+		t.Errorf("ResultPayload.Summary: %q", result.Summary)
 	}
 
 	status := StatusPayload{
@@ -299,8 +311,14 @@ func TestPayloadStructs(t *testing.T) {
 		Progress: 50.0,
 		Message:  "halfway",
 	}
+	if status.TaskID != "t1" {
+		t.Errorf("StatusPayload.TaskID: %q", status.TaskID)
+	}
 	if status.Progress != 50.0 {
 		t.Errorf("StatusPayload.Progress: %v", status.Progress)
+	}
+	if status.Message != "halfway" {
+		t.Errorf("StatusPayload.Message: %q", status.Message)
 	}
 
 	handoff := HandoffPayload{
@@ -311,6 +329,9 @@ func TestPayloadStructs(t *testing.T) {
 	}
 	if handoff.Reason == "" {
 		t.Error("HandoffPayload.Reason should not be empty")
+	}
+	if len(handoff.Conversation) != 1 || handoff.Conversation[0].Content != "help me" {
+		t.Errorf("HandoffPayload.Conversation: %+v", handoff.Conversation)
 	}
 }
 

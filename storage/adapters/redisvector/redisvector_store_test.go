@@ -19,18 +19,19 @@ type miniRediSearch struct {
 	ln   net.Listener
 }
 
-func newMiniRediSearch(t *testing.T) (*miniRediSearch, string) {
+func newMiniRediSearch(t *testing.T) (mr *miniRediSearch, addr string) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	mr := &miniRediSearch{
+	mr = &miniRediSearch{
 		data: make(map[string]map[string]string),
 		ln:   ln,
 	}
 	go mr.serve()
-	return mr, ln.Addr().String()
+	addr = ln.Addr().String()
+	return
 }
 
 func (mr *miniRediSearch) close() { mr.ln.Close() }
@@ -103,14 +104,14 @@ func parseRespArgs(raw string) []string {
 	lines := strings.Split(raw, "\r\n")
 	var args []string
 	i := 0
-	if i >= len(lines) || len(lines[i]) == 0 || lines[i][0] != '*' {
+	if i >= len(lines) || lines[i] == "" || lines[i][0] != '*' {
 		return args
 	}
 	count := 0
 	fmt.Sscanf(lines[i][1:], "%d", &count)
 	i++
 	for j := 0; j < count && i < len(lines); j++ {
-		if i >= len(lines) || len(lines[i]) == 0 || lines[i][0] != '$' {
+		if i >= len(lines) || lines[i] == "" || lines[i][0] != '$' {
 			i++
 			continue
 		}

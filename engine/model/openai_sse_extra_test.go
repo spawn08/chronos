@@ -19,7 +19,7 @@ func TestReadOpenAISSEStream_ContentDelta(t *testing.T) {
 		readOpenAISSEStream(resp, ch)
 		close(ch)
 	}()
-	var parts []string
+	parts := make([]string, 0, 2)
 	for c := range ch {
 		parts = append(parts, c.Content)
 	}

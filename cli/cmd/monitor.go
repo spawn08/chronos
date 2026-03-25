@@ -183,7 +183,7 @@ func fetchStats(ctx context.Context, client *http.Client, endpoint string) monit
 
 // httpGet performs a GET request and returns the response body.
 func httpGet(ctx context.Context, client *http.Client, url string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}

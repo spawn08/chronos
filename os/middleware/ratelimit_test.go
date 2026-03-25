@@ -20,7 +20,7 @@ func TestRateLimit_AllowsWithinLimit(t *testing.T) {
 	)
 
 	for i := 0; i < 5; i++ {
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequest("GET", "/test", http.NoBody)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
@@ -42,12 +42,12 @@ func TestRateLimit_BlocksExcess(t *testing.T) {
 	)
 
 	for i := 0; i < 2; i++ {
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequest("GET", "/test", http.NoBody)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 	}
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -75,12 +75,12 @@ func TestRateLimit_DifferentKeys(t *testing.T) {
 		}),
 	)
 
-	req1 := httptest.NewRequest("GET", "/test", nil)
+	req1 := httptest.NewRequest("GET", "/test", http.NoBody)
 	req1.Header.Set("X-Client", "client-a")
 	rec1 := httptest.NewRecorder()
 	handler.ServeHTTP(rec1, req1)
 
-	req2 := httptest.NewRequest("GET", "/test", nil)
+	req2 := httptest.NewRequest("GET", "/test", http.NoBody)
 	req2.Header.Set("X-Client", "client-b")
 	rec2 := httptest.NewRecorder()
 	handler.ServeHTTP(rec2, req2)
@@ -102,7 +102,7 @@ func TestRateLimit_SetsHeaders(t *testing.T) {
 		}),
 	)
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -118,7 +118,7 @@ func TestRateLimit_SetsHeaders(t *testing.T) {
 }
 
 func TestIPKeyFunc(t *testing.T) {
-	req := httptest.NewRequest("GET", "/", nil)
+	req := httptest.NewRequest("GET", "/", http.NoBody)
 	req.RemoteAddr = "192.168.1.1:12345"
 	if got := IPKeyFunc(req); got != "192.168.1.1" {
 		t.Errorf("got %q, want 192.168.1.1", got)

@@ -59,7 +59,7 @@ func TestRequireRole_Authorized(t *testing.T) {
 		}),
 	)
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	ctx := WithUser(req.Context(), &UserClaims{UserID: "u1", Roles: []string{"admin"}})
 	req = req.WithContext(ctx)
 	rec := httptest.NewRecorder()
@@ -78,7 +78,7 @@ func TestRequireRole_Forbidden(t *testing.T) {
 		}),
 	)
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	ctx := WithUser(req.Context(), &UserClaims{UserID: "u1", Roles: []string{"viewer"}})
 	req = req.WithContext(ctx)
 	rec := httptest.NewRecorder()
@@ -97,7 +97,7 @@ func TestRequireRole_NoAuth(t *testing.T) {
 		}),
 	)
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 

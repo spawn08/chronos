@@ -1,7 +1,6 @@
 package guardrails
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
 )
@@ -57,7 +56,7 @@ func (g *InjectionGuardrail) Check(_ interface{}, content string) *Result {
 		if p.MatchString(lower) {
 			return &Result{
 				Passed: false,
-				Reason: fmt.Sprintf("potential prompt injection detected"),
+				Reason: "potential prompt injection detected",
 			}
 		}
 	}

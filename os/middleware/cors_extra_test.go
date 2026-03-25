@@ -16,7 +16,7 @@ func TestCORS_Preflight_NoMaxAge(t *testing.T) {
 		}),
 	)
 
-	req := httptest.NewRequest(http.MethodOptions, "/r", nil)
+	req := httptest.NewRequest(http.MethodOptions, "/r", http.NoBody)
 	req.Header.Set("Origin", "http://localhost:3000")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -38,7 +38,7 @@ func TestCORS_ExposeHeadersSet(t *testing.T) {
 		}),
 	)
 
-	req := httptest.NewRequest(http.MethodGet, "/api", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api", http.NoBody)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 

@@ -134,7 +134,7 @@ func TestOpenStore_CustomPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("openStore: %v", err)
 	}
-	defer store.Close()
+	_ = store.Close()
 }
 
 // ---------------------------------------------------------------------------

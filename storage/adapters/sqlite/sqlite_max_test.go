@@ -15,6 +15,6 @@ func TestStore_Migrate_ContextCancelled_Max(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if err := st.Migrate(ctx); err == nil {
-		t.Fatal("expected migrate error when context already cancelled")
+		t.Fatal("expected migrate error when context already canceled")
 	}
 }

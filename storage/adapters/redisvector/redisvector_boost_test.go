@@ -69,7 +69,8 @@ func TestStore_rawCmd_ErrorPrefix_Boost(t *testing.T) {
 	defer ln.Close()
 
 	go func() {
-		c, err := ln.Accept()
+		var c net.Conn
+		c, err = ln.Accept()
 		if err != nil {
 			return
 		}
@@ -103,14 +104,16 @@ func TestUpsert_UsesFloatsToString_Boost(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		c, err := ln.Accept()
+		var c net.Conn
+		c, err = ln.Accept()
 		if err != nil {
 			return
 		}
 		defer c.Close()
 		for {
 			buf := make([]byte, 65536)
-			n, err := c.Read(buf)
+			var n int
+			n, err = c.Read(buf)
 			if err != nil || n == 0 {
 				return
 			}

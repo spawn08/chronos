@@ -20,7 +20,7 @@ type EvictionResult struct {
 // EvictLargeResult stores a large tool result in storage and returns a
 // truncated preview with a reference key. The agent can re-read the full
 // result using the read_stored_result built-in tool.
-func EvictLargeResult(ctx context.Context, store storage.Storage, sessionID string, toolName string, result any) (*EvictionResult, error) {
+func EvictLargeResult(ctx context.Context, store storage.Storage, sessionID, toolName string, result any) (*EvictionResult, error) {
 	data, err := json.Marshal(result)
 	if err != nil {
 		return nil, fmt.Errorf("marshal result: %w", err)
@@ -86,11 +86,11 @@ func CompressToolCalls(messages []model.Message, maxCalls int) []model.Message {
 	var toolMsgs []indexedMsg
 	var otherMsgs []indexedMsg
 
-	for i, m := range messages {
-		if m.Role == model.RoleTool || (m.Role == model.RoleAssistant && len(m.ToolCalls) > 0) {
-			toolMsgs = append(toolMsgs, indexedMsg{idx: i, msg: m})
+	for i := range messages {
+		if messages[i].Role == model.RoleTool || (messages[i].Role == model.RoleAssistant && len(messages[i].ToolCalls) > 0) {
+			toolMsgs = append(toolMsgs, indexedMsg{idx: i, msg: messages[i]})
 		} else {
-			otherMsgs = append(otherMsgs, indexedMsg{idx: i, msg: m})
+			otherMsgs = append(otherMsgs, indexedMsg{idx: i, msg: messages[i]})
 		}
 	}
 
@@ -100,17 +100,17 @@ func CompressToolCalls(messages []model.Message, maxCalls int) []model.Message {
 
 	keepFrom := len(toolMsgs) - maxCalls*2
 	keepSet := make(map[int]bool)
-	for _, m := range otherMsgs {
-		keepSet[m.idx] = true
+	for i := range otherMsgs {
+		keepSet[otherMsgs[i].idx] = true
 	}
 	for i := keepFrom; i < len(toolMsgs); i++ {
 		keepSet[toolMsgs[i].idx] = true
 	}
 
 	var result []model.Message
-	for i, m := range messages {
+	for i := range messages {
 		if keepSet[i] {
-			result = append(result, m)
+			result = append(result, messages[i])
 		}
 	}
 	return result

@@ -9,7 +9,7 @@ import (
 func TestCSVLoader_WithHeader(t *testing.T) {
 	dir := t.TempDir()
 	f := filepath.Join(dir, "data.csv")
-	os.WriteFile(f, []byte("name,age\nAlice,30\nBob,25"), 0644)
+	os.WriteFile(f, []byte("name,age\nAlice,30\nBob,25"), 0o644)
 
 	loader := NewCSVLoader([]string{f}, true)
 	docs, err := loader.Load()
@@ -27,7 +27,7 @@ func TestCSVLoader_WithHeader(t *testing.T) {
 func TestCSVLoader_NoHeader(t *testing.T) {
 	dir := t.TempDir()
 	f := filepath.Join(dir, "data.csv")
-	os.WriteFile(f, []byte("Alice,30\nBob,25"), 0644)
+	os.WriteFile(f, []byte("Alice,30\nBob,25"), 0o644)
 
 	loader := NewCSVLoader([]string{f}, false)
 	docs, err := loader.Load()
@@ -45,7 +45,7 @@ func TestCSVLoader_NoHeader(t *testing.T) {
 func TestCSVLoader_EmptyFile(t *testing.T) {
 	dir := t.TempDir()
 	f := filepath.Join(dir, "empty.csv")
-	os.WriteFile(f, []byte(""), 0644)
+	os.WriteFile(f, []byte(""), 0o644)
 
 	loader := NewCSVLoader([]string{f}, true)
 	docs, err := loader.Load()

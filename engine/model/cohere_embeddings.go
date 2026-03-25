@@ -69,9 +69,7 @@ func (c *CohereEmbeddings) Embed(ctx context.Context, req *EmbeddingRequest) (*E
 	}
 
 	embeddings := make([][]float32, len(raw.Embeddings))
-	for i, emb := range raw.Embeddings {
-		embeddings[i] = emb
-	}
+	copy(embeddings, raw.Embeddings)
 
 	return &EmbeddingResponse{
 		Embeddings: embeddings,

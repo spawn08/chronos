@@ -62,7 +62,7 @@ func RateLimit(cfg RateLimitConfig) func(http.Handler) http.Handler {
 			mu.Unlock()
 
 			w.Header().Set("X-RateLimit-Limit", itoa(cfg.RequestsPerWindow))
-			w.Header().Set("X-RateLimit-Remaining", itoa(max(0, remaining)))
+			w.Header().Set("X-RateLimit-Remaining", itoa(maxInt(0, remaining)))
 			w.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", resetAt.Unix()))
 
 			if count > cfg.RequestsPerWindow {
@@ -76,7 +76,7 @@ func RateLimit(cfg RateLimitConfig) func(http.Handler) http.Handler {
 	}
 }
 
-func max(a, b int) int {
+func maxInt(a, b int) int {
 	if a > b {
 		return a
 	}

@@ -9,7 +9,7 @@ import (
 func TestJSONLoader_PrimitiveRoot(t *testing.T) {
 	dir := t.TempDir()
 	f := filepath.Join(dir, "primitive.json")
-	if err := os.WriteFile(f, []byte(`42`), 0644); err != nil {
+	if err := os.WriteFile(f, []byte(`42`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	loader := NewJSONLoader([]string{f})

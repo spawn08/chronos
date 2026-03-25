@@ -217,7 +217,7 @@ func (s *Server) handleSessionState(w http.ResponseWriter, r *http.Request) {
 }
 
 // Start begins serving the control plane with graceful shutdown support.
-// It blocks until either the context is cancelled or a SIGTERM/SIGINT is received.
+// It blocks until either the context is canceled or a SIGTERM/SIGINT is received.
 func (s *Server) Start(ctx context.Context) error {
 	srv := &http.Server{
 		Addr:    s.Addr,
@@ -239,7 +239,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	select {
 	case <-ctx.Done():
-		log.Println("ChronosOS: context cancelled, initiating shutdown")
+		log.Println("ChronosOS: context canceled, initiating shutdown")
 	case sig := <-quit:
 		log.Printf("ChronosOS: received signal %s, initiating shutdown", sig)
 	case err := <-errCh:

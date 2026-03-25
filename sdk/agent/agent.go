@@ -253,8 +253,10 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 	}
 
 	for _, ex := range a.Examples {
-		messages = append(messages, model.Message{Role: model.RoleUser, Content: ex.Input})
-		messages = append(messages, model.Message{Role: model.RoleAssistant, Content: ex.Output})
+		messages = append(messages,
+			model.Message{Role: model.RoleUser, Content: ex.Input},
+			model.Message{Role: model.RoleAssistant, Content: ex.Output},
+		)
 	}
 
 	// Inject long-term user memories into context
@@ -630,9 +632,9 @@ func (a *Agent) loadHistoryRuns(ctx context.Context) []model.Message {
 			continue
 		}
 		cs := chatSessionFromEvents(events)
-		for _, msg := range cs.Messages {
-			if msg.Role == model.RoleUser || msg.Role == model.RoleAssistant {
-				history = append(history, msg)
+		for i := range cs.Messages {
+			if cs.Messages[i].Role == model.RoleUser || cs.Messages[i].Role == model.RoleAssistant {
+				history = append(history, cs.Messages[i])
 			}
 		}
 	}
@@ -642,16 +644,16 @@ func (a *Agent) loadHistoryRuns(ctx context.Context) []model.Message {
 // formatHistoryMessages converts a slice of messages into a readable string.
 func formatHistoryMessages(msgs []model.Message) string {
 	var b strings.Builder
-	for _, m := range msgs {
-		switch m.Role {
+	for i := range msgs {
+		switch msgs[i].Role {
 		case model.RoleUser:
 			b.WriteString("User: ")
 		case model.RoleAssistant:
 			b.WriteString("Assistant: ")
 		default:
-			b.WriteString(m.Role + ": ")
+			b.WriteString(msgs[i].Role + ": ")
 		}
-		b.WriteString(m.Content)
+		b.WriteString(msgs[i].Content)
 		b.WriteString("\n")
 	}
 	return b.String()

@@ -24,7 +24,7 @@ func TestHandleReadiness_MigrateError_Push(t *testing.T) {
 	s := New(":0", &errMigrateMemStore{Store: base})
 	s.SetReady(true)
 
-	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health/ready", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 

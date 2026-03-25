@@ -68,10 +68,10 @@ func NewFileWriteTool(basePath string) *tool.Definition {
 				return nil, fmt.Errorf("file_write: 'path' argument is required")
 			}
 			resolved := resolvePath(basePath, p)
-			if err := os.MkdirAll(filepath.Dir(resolved), 0755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(resolved), 0o755); err != nil {
 				return nil, fmt.Errorf("file_write: creating dirs: %w", err)
 			}
-			if err := os.WriteFile(resolved, []byte(content), 0644); err != nil {
+			if err := os.WriteFile(resolved, []byte(content), 0o644); err != nil {
 				return nil, fmt.Errorf("file_write: %w", err)
 			}
 			return map[string]any{"path": resolved, "bytes_written": len(content)}, nil

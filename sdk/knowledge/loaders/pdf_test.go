@@ -28,7 +28,7 @@ startxref
 func TestPDFLoader_SingleFile(t *testing.T) {
 	dir := t.TempDir()
 	f := filepath.Join(dir, "test.pdf")
-	if err := os.WriteFile(f, minimalPDF("Hello PDF World"), 0644); err != nil {
+	if err := os.WriteFile(f, minimalPDF("Hello PDF World"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -51,7 +51,7 @@ func TestPDFLoader_SingleFile(t *testing.T) {
 func TestPDFLoader_Chunking(t *testing.T) {
 	dir := t.TempDir()
 	f := filepath.Join(dir, "big.pdf")
-	if err := os.WriteFile(f, minimalPDF("This is a longer text for chunking test purposes"), 0644); err != nil {
+	if err := os.WriteFile(f, minimalPDF("This is a longer text for chunking test purposes"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -71,7 +71,7 @@ func TestPDFLoader_Chunking(t *testing.T) {
 func TestPDFLoader_InvalidPDF(t *testing.T) {
 	dir := t.TempDir()
 	f := filepath.Join(dir, "bad.pdf")
-	os.WriteFile(f, []byte("not a pdf"), 0644)
+	os.WriteFile(f, []byte("not a pdf"), 0o644)
 
 	loader := NewPDFLoader([]string{f}, 0, 0)
 	_, err := loader.Load()
@@ -92,8 +92,8 @@ func TestPDFLoader_MultipleFiles(t *testing.T) {
 	dir := t.TempDir()
 	f1 := filepath.Join(dir, "a.pdf")
 	f2 := filepath.Join(dir, "b.pdf")
-	os.WriteFile(f1, minimalPDF("First document"), 0644)
-	os.WriteFile(f2, minimalPDF("Second document"), 0644)
+	os.WriteFile(f1, minimalPDF("First document"), 0o644)
+	os.WriteFile(f2, minimalPDF("Second document"), 0o644)
 
 	loader := NewPDFLoader([]string{f1, f2}, 0, 0)
 	docs, err := loader.Load()

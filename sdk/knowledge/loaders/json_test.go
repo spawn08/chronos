@@ -9,7 +9,7 @@ import (
 func TestJSONLoader_Array(t *testing.T) {
 	dir := t.TempDir()
 	f := filepath.Join(dir, "data.json")
-	os.WriteFile(f, []byte(`[{"name":"Alice"},{"name":"Bob"}]`), 0644)
+	os.WriteFile(f, []byte(`[{"name":"Alice"},{"name":"Bob"}]`), 0o644)
 
 	loader := NewJSONLoader([]string{f})
 	docs, err := loader.Load()
@@ -24,7 +24,7 @@ func TestJSONLoader_Array(t *testing.T) {
 func TestJSONLoader_Object(t *testing.T) {
 	dir := t.TempDir()
 	f := filepath.Join(dir, "data.json")
-	os.WriteFile(f, []byte(`{"key":"value"}`), 0644)
+	os.WriteFile(f, []byte(`{"key":"value"}`), 0o644)
 
 	loader := NewJSONLoader([]string{f})
 	docs, err := loader.Load()
@@ -39,7 +39,7 @@ func TestJSONLoader_Object(t *testing.T) {
 func TestJSONLoader_InvalidJSON(t *testing.T) {
 	dir := t.TempDir()
 	f := filepath.Join(dir, "bad.json")
-	os.WriteFile(f, []byte(`{invalid`), 0644)
+	os.WriteFile(f, []byte(`{invalid`), 0o644)
 
 	loader := NewJSONLoader([]string{f})
 	_, err := loader.Load()

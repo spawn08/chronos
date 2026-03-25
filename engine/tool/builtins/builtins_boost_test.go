@@ -104,7 +104,7 @@ func TestEvaluate_UnaryAndPower_Boost(t *testing.T) {
 func TestFileWriteTool_MkdirAllFails_Boost(t *testing.T) {
 	root := t.TempDir()
 	block := filepath.Join(root, "notadir")
-	if err := os.WriteFile(block, []byte("x"), 0644); err != nil {
+	if err := os.WriteFile(block, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

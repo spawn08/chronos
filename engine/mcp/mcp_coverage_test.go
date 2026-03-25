@@ -17,7 +17,7 @@ func TestConnect_StartCommandNotFound(t *testing.T) {
 	}
 	defer client.Close()
 
-	if err := client.Connect(context.Background()); err == nil {
+	if err = client.Connect(context.Background()); err == nil {
 		t.Fatal("expected start error")
 	}
 }
@@ -44,11 +44,11 @@ func TestConnect_InitializeParseFails(t *testing.T) {
 		sc := bufio.NewScanner(serverR)
 		if sc.Scan() {
 			// Send non-JSON then close stdout so ReadBytes gets EOF
-			_, _ = serverW.Write([]byte("not-json-at-all\n"))
+			_, _ = serverW.WriteString("not-json-at-all\n")
 		}
 	}()
 
-	if err := client.Connect(context.Background()); err == nil {
+	if err = client.Connect(context.Background()); err == nil {
 		t.Fatal("expected initialize parse failure")
 	}
 	_ = clientW.Close()
@@ -65,7 +65,7 @@ func TestListResources_Empty(t *testing.T) {
 	}
 	defer client.Close()
 
-	if err := client.Connect(context.Background()); err != nil {
+	if err = client.Connect(context.Background()); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 	res, err := client.ListResources(context.Background())
@@ -87,7 +87,7 @@ func TestListResources_RPCError(t *testing.T) {
 	}
 	defer client.Close()
 
-	if err := client.Connect(context.Background()); err != nil {
+	if err = client.Connect(context.Background()); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 	_, err = client.ListResources(context.Background())
@@ -122,7 +122,7 @@ func TestReadResource_ParseError(t *testing.T) {
 		var req jsonrpcRequest
 		_ = json.Unmarshal(sc.Bytes(), &req)
 		// Result is a JSON number — cannot unmarshal into struct expecting contents
-		_, _ = serverW.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":12345}` + "\n"))
+		_, _ = serverW.WriteString(`{"jsonrpc":"2.0","id":1,"result":12345}` + "\n")
 	}()
 
 	_, err = client.ReadResource(context.Background(), "file:///x")
@@ -146,7 +146,7 @@ type errWriter struct{}
 func (errWriter) Write(p []byte) (int, error) { return 0, io.ErrClosedPipe }
 
 // buildMCPEmptyResourcesServer is like echo server but returns empty resources list.
-func buildMCPEmptyResourcesServer(t *testing.T) (string, func()) {
+func buildMCPEmptyResourcesServer(t *testing.T) (binPath string, cleanup func()) {
 	t.Helper()
 	src := `package main
 

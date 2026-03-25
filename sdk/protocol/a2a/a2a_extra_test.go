@@ -61,7 +61,7 @@ func TestServer_HandleCancelTask_CompletedNotCancelled(t *testing.T) {
 	time.Sleep(80 * time.Millisecond)
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodDelete,
-		srv.URL+"/a2a/tasks/"+task.ID, nil)
+		srv.URL+"/a2a/tasks/"+task.ID, http.NoBody)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("cancel: %v", err)
@@ -82,7 +82,7 @@ func TestServer_HandleCancelTask_CompletedNotCancelled(t *testing.T) {
 func TestServer_ServeHTTP_WrongMethodOnTasks(t *testing.T) {
 	s := NewServer(AgentCard{Name: "agent"}, echoHandler)
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPatch, "/a2a/tasks/task_1", nil)
+	r := httptest.NewRequest(http.MethodPatch, "/a2a/tasks/task_1", http.NoBody)
 	s.ServeHTTP(w, r)
 	if w.Code != http.StatusNotFound {
 		t.Errorf("got %d, want 404", w.Code)
@@ -92,7 +92,7 @@ func TestServer_ServeHTTP_WrongMethodOnTasks(t *testing.T) {
 func TestServer_HandleGetTask_EmptyIDPath(t *testing.T) {
 	s := NewServer(AgentCard{Name: "agent"}, echoHandler)
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/a2a/tasks/", nil)
+	r := httptest.NewRequest(http.MethodGet, "/a2a/tasks/", http.NoBody)
 	s.ServeHTTP(w, r)
 	if w.Code != http.StatusNotFound {
 		t.Errorf("got %d, want 404 for empty task id segment", w.Code)

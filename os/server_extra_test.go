@@ -26,7 +26,7 @@ func TestHandleListTraces_WithSessionID(t *testing.T) {
 	}
 	_ = s.Store.InsertTrace(ctx, trace)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/traces?session_id=sess-a", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/traces?session_id=sess-a", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -38,7 +38,7 @@ func TestHandleListTraces_WithSessionID(t *testing.T) {
 func TestHandleSessionState_GET_NotFound(t *testing.T) {
 	s := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/sessions/state?session_id=nonexistent", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/state?session_id=nonexistent", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -62,7 +62,7 @@ func TestHandleSessionState_GET_WithCheckpoint(t *testing.T) {
 	}
 	_ = s.Store.SaveCheckpoint(ctx, cp)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/sessions/state?session_id=sess-with-cp", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/state?session_id=sess-with-cp", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -130,7 +130,7 @@ func TestHandleReadiness_WithStore(t *testing.T) {
 	s := New(":0", store)
 	s.SetReady(true)
 
-	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health/ready", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -142,7 +142,7 @@ func TestHandleReadiness_WithStore(t *testing.T) {
 func TestHandleSchedules_GET(t *testing.T) {
 	s := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/schedules", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/schedules", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -193,7 +193,7 @@ func TestHandleSchedules_POST_BadCron(t *testing.T) {
 func TestHandleSchedules_MethodNotAllowed(t *testing.T) {
 	s := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodPatch, "/api/schedules", nil)
+	req := httptest.NewRequest(http.MethodPatch, "/api/schedules", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -205,7 +205,7 @@ func TestHandleSchedules_MethodNotAllowed(t *testing.T) {
 func TestHandleScheduleByID_GET_NotFound(t *testing.T) {
 	s := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/schedules/nonexistent", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/schedules/nonexistent", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -230,7 +230,7 @@ func TestHandleScheduleByID_GET_Found(t *testing.T) {
 		t.Skip("could not create schedule for test")
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/schedules/"+created.ID, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/schedules/"+created.ID, http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -242,7 +242,7 @@ func TestHandleScheduleByID_GET_Found(t *testing.T) {
 func TestHandleScheduleByID_History(t *testing.T) {
 	s := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/schedules/any-id/history", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/schedules/any-id/history", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -254,7 +254,7 @@ func TestHandleScheduleByID_History(t *testing.T) {
 func TestHandleScheduleByID_DELETE(t *testing.T) {
 	s := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/schedules/nonexistent", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/schedules/nonexistent", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -266,7 +266,7 @@ func TestHandleScheduleByID_DELETE(t *testing.T) {
 func TestHandleScheduleByID_MethodNotAllowed(t *testing.T) {
 	s := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodPatch, "/api/schedules/some-id", nil)
+	req := httptest.NewRequest(http.MethodPatch, "/api/schedules/some-id", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -290,7 +290,7 @@ func TestHandleReadiness_NotReady(t *testing.T) {
 	s := newTestServer(t)
 	// SetReady defaults to false
 
-	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health/ready", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -310,7 +310,7 @@ func TestHandleListSessions_WithAgentFilter(t *testing.T) {
 		Status:  "active",
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/sessions?agent_id=agent-filter", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions?agent_id=agent-filter", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -322,7 +322,7 @@ func TestHandleListSessions_WithAgentFilter(t *testing.T) {
 func TestHandleListTraces_NoFilter(t *testing.T) {
 	s := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/traces", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/traces", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -334,7 +334,7 @@ func TestHandleListTraces_NoFilter(t *testing.T) {
 func TestHandleListSessions_WithLimitAndOffset(t *testing.T) {
 	s := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/sessions?limit=10&offset=5", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions?limit=10&offset=5", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -347,7 +347,7 @@ func TestHandleListSessions_InvalidLimit(t *testing.T) {
 	s := newTestServer(t)
 
 	// invalid limit/offset should be ignored, defaults used
-	req := httptest.NewRequest(http.MethodGet, "/api/sessions?limit=notanumber&offset=-1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions?limit=notanumber&offset=-1", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -361,7 +361,7 @@ func TestHandleReadiness_Ready(t *testing.T) {
 	s := New(":0", store)
 	s.SetReady(true)
 
-	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health/ready", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -373,7 +373,7 @@ func TestHandleReadiness_Ready(t *testing.T) {
 func TestHandleHealth(t *testing.T) {
 	s := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -385,7 +385,7 @@ func TestHandleHealth(t *testing.T) {
 func TestHandleLiveness(t *testing.T) {
 	s := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/health/live", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health/live", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -397,7 +397,7 @@ func TestHandleLiveness(t *testing.T) {
 func TestHandleHealthz(t *testing.T) {
 	s := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	req := httptest.NewRequest(http.MethodGet, "/healthz", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -409,7 +409,7 @@ func TestHandleHealthz(t *testing.T) {
 func TestHandleSessionState_GET_NoSessionID(t *testing.T) {
 	s := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/sessions/state", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/state", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 

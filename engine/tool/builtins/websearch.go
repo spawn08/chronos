@@ -55,7 +55,7 @@ func webSearchTool(client *http.Client, maxResults int, apiURLTemplate string) *
 
 			apiURL := fmt.Sprintf(apiURLTemplate, url.QueryEscape(query))
 
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, http.NoBody)
 			if err != nil {
 				return nil, fmt.Errorf("web_search: %w", err)
 			}
@@ -167,7 +167,7 @@ func NewWebSearchToolWithEngine(engineURL string, timeout time.Duration) *tool.D
 			}
 
 			searchURL := fmt.Sprintf(engineURL, url.QueryEscape(query))
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL, nil)
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL, http.NoBody)
 			if err != nil {
 				return nil, fmt.Errorf("web_search_custom: %w", err)
 			}

@@ -33,7 +33,7 @@ const (
 	TaskStatusRunning   TaskStatus = "running"
 	TaskStatusCompleted TaskStatus = "completed"
 	TaskStatusFailed    TaskStatus = "failed"
-	TaskStatusCancelled TaskStatus = "cancelled"
+	TaskStatusCancelled TaskStatus = "cancelled" //nolint:misspell // wire value; external clients may expect British spelling
 )
 
 // AgentCard describes an A2A agent's capabilities.
@@ -89,7 +89,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAgentCard(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.card)
+	_ = json.NewEncoder(w).Encode(s.card)
 }
 
 func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
@@ -120,7 +120,7 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(task)
+	_ = json.NewEncoder(w).Encode(task)
 }
 
 func (s *Server) handleGetTask(w http.ResponseWriter, _ *http.Request, taskID string) {
@@ -134,7 +134,7 @@ func (s *Server) handleGetTask(w http.ResponseWriter, _ *http.Request, taskID st
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(task)
+	_ = json.NewEncoder(w).Encode(task)
 }
 
 func (s *Server) handleCancelTask(w http.ResponseWriter, _ *http.Request, taskID string) {
@@ -152,7 +152,7 @@ func (s *Server) handleCancelTask(w http.ResponseWriter, _ *http.Request, taskID
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(task)
+	_ = json.NewEncoder(w).Encode(task)
 }
 
 func (s *Server) executeTask(task *Task) {
@@ -190,7 +190,7 @@ func NewClient(baseURL string) *Client {
 
 // GetAgentCard retrieves the agent's capability card.
 func (c *Client) GetAgentCard(ctx context.Context) (*AgentCard, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/a2a/agent", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/a2a/agent", http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("a2a agent card: %w", err)
 	}
@@ -244,7 +244,7 @@ func (c *Client) CreateTask(ctx context.Context, input string, metadata map[stri
 // GetTask polls the status of a task.
 func (c *Client) GetTask(ctx context.Context, taskID string) (*Task, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		c.baseURL+"/a2a/tasks/"+taskID, nil)
+		c.baseURL+"/a2a/tasks/"+taskID, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("a2a get task: %w", err)
 	}

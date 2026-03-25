@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func echoHandler(_ context.Context, chatID int64, userID int64, text string) (string, error) {
+func echoHandler(_ context.Context, chatID, userID int64, text string) (string, error) {
 	return "echo:" + text, nil
 }
 

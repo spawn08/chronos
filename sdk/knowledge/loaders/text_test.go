@@ -9,7 +9,7 @@ import (
 func TestTextLoader_SingleFile(t *testing.T) {
 	dir := t.TempDir()
 	f := filepath.Join(dir, "test.txt")
-	os.WriteFile(f, []byte("Hello, world!"), 0644)
+	os.WriteFile(f, []byte("Hello, world!"), 0o644)
 
 	loader := NewTextLoader([]string{f}, 0, 0)
 	docs, err := loader.Load()
@@ -30,7 +30,7 @@ func TestTextLoader_SingleFile(t *testing.T) {
 func TestTextLoader_Chunking(t *testing.T) {
 	dir := t.TempDir()
 	f := filepath.Join(dir, "big.txt")
-	os.WriteFile(f, []byte("ABCDEFGHIJ"), 0644)
+	os.WriteFile(f, []byte("ABCDEFGHIJ"), 0o644)
 
 	loader := NewTextLoader([]string{f}, 4, 1)
 	docs, err := loader.Load()
@@ -49,8 +49,8 @@ func TestTextLoader_MultipleFiles(t *testing.T) {
 	dir := t.TempDir()
 	f1 := filepath.Join(dir, "a.txt")
 	f2 := filepath.Join(dir, "b.txt")
-	os.WriteFile(f1, []byte("file one"), 0644)
-	os.WriteFile(f2, []byte("file two"), 0644)
+	os.WriteFile(f1, []byte("file one"), 0o644)
+	os.WriteFile(f2, []byte("file two"), 0o644)
 
 	loader := NewTextLoader([]string{f1, f2}, 0, 0)
 	docs, err := loader.Load()

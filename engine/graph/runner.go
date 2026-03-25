@@ -240,18 +240,21 @@ func (r *Runner) execute(ctx context.Context, rs *RunState) (*RunState, error) {
 
 		// Execute node with emitter context for custom events
 		nodeCtx := ctx
+		var emitCh chan stream.Event
 		if r.broker != nil {
-			emitCh := make(chan stream.Event, 64)
+			emitCh = make(chan stream.Event, 64)
 			nodeCtx = stream.WithEmitter(nodeCtx, emitCh)
 			go func() {
 				for evt := range emitCh {
 					r.broker.Publish(evt)
 				}
 			}()
-			defer close(emitCh)
 		}
 		r.emit(StreamEvent{Type: "node_start", NodeID: node.ID, State: rs.State})
 		newState, err := node.Fn(nodeCtx, rs.State)
+		if emitCh != nil {
+			close(emitCh)
+		}
 		if err != nil {
 			rs.Status = RunStatusFailed
 			r.emit(StreamEvent{Type: "error", NodeID: node.ID, Error: err.Error()})

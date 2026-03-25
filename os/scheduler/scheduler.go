@@ -232,7 +232,7 @@ func validateCron(expr string) error {
 	return nil
 }
 
-func parseCronField(field string, min, max int) (*cronField, error) {
+func parseCronField(field string, minVal, maxVal int) (*cronField, error) {
 	if field == "*" {
 		return &cronField{any: true}, nil
 	}
@@ -240,14 +240,15 @@ func parseCronField(field string, min, max int) (*cronField, error) {
 	cf := &cronField{values: make(map[int]bool)}
 
 	for _, part := range strings.Split(field, ",") {
-		if strings.Contains(part, "/") {
+		switch {
+		case strings.Contains(part, "/"):
 			// Step: */5 or 1-30/5
 			stepParts := strings.SplitN(part, "/", 2)
 			step, err := strconv.Atoi(stepParts[1])
 			if err != nil || step <= 0 {
 				return nil, fmt.Errorf("invalid step %q", stepParts[1])
 			}
-			rangeStart, rangeEnd := min, max
+			rangeStart, rangeEnd := minVal, maxVal
 			if stepParts[0] != "*" {
 				rangeParts := strings.SplitN(stepParts[0], "-", 2)
 				rangeStart, err = strconv.Atoi(rangeParts[0])
@@ -264,7 +265,7 @@ func parseCronField(field string, min, max int) (*cronField, error) {
 			for i := rangeStart; i <= rangeEnd; i += step {
 				cf.values[i] = true
 			}
-		} else if strings.Contains(part, "-") {
+		case strings.Contains(part, "-"):
 			// Range: 1-5
 			rangeParts := strings.SplitN(part, "-", 2)
 			start, err := strconv.Atoi(rangeParts[0])
@@ -275,20 +276,20 @@ func parseCronField(field string, min, max int) (*cronField, error) {
 			if err != nil {
 				return nil, fmt.Errorf("invalid value %q", rangeParts[1])
 			}
-			if start < min || end > max || start > end {
-				return nil, fmt.Errorf("range %d-%d out of bounds [%d,%d]", start, end, min, max)
+			if start < minVal || end > maxVal || start > end {
+				return nil, fmt.Errorf("range %d-%d out of bounds [%d,%d]", start, end, minVal, maxVal)
 			}
 			for i := start; i <= end; i++ {
 				cf.values[i] = true
 			}
-		} else {
+		default:
 			// Single value
 			v, err := strconv.Atoi(part)
 			if err != nil {
 				return nil, fmt.Errorf("invalid value %q", part)
 			}
-			if v < min || v > max {
-				return nil, fmt.Errorf("value %d out of bounds [%d,%d]", v, min, max)
+			if v < minVal || v > maxVal {
+				return nil, fmt.Errorf("value %d out of bounds [%d,%d]", v, minVal, maxVal)
 			}
 			cf.values[v] = true
 		}

@@ -67,6 +67,12 @@ func TestDocumentFields(t *testing.T) {
 	if doc.ID != "doc-1" {
 		t.Errorf("got ID %q", doc.ID)
 	}
+	if doc.Content != "hello world" {
+		t.Errorf("got Content %q", doc.Content)
+	}
+	if doc.Metadata["source"] != "test" {
+		t.Errorf("got Metadata %v", doc.Metadata)
+	}
 	if doc.Score != 0.95 {
 		t.Errorf("got Score %v", doc.Score)
 	}

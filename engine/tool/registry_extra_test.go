@@ -128,7 +128,7 @@ func TestRegistry_RequiresUserInput_HandlerError(t *testing.T) {
 		Handler:           func(_ context.Context, _ map[string]any) (any, error) { return "ok", nil },
 	})
 	r.SetUserInputHandler(func(_ context.Context, _ string, _ string) (string, error) {
-		return "", errors.New("user cancelled")
+		return "", errors.New("user canceled")
 	})
 
 	_, err := r.Execute(context.Background(), "input_tool", nil)

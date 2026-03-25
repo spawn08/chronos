@@ -99,7 +99,7 @@ func (r *Registry) Handler() http.Handler {
 			h.writeTo(&b)
 		}
 
-		w.Write([]byte(b.String()))
+		_, _ = w.Write([]byte(b.String()))
 	})
 }
 

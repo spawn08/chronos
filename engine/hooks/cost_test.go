@@ -181,7 +181,9 @@ type usageOutput struct {
 	completion int
 }
 
-func (u *usageOutput) GetUsage() (int, int) { return u.prompt, u.completion }
+func (u *usageOutput) GetUsage() (prompt, completion int) {
+	return u.prompt, u.completion
+}
 
 func TestExtractUsage_FromOutputInterface(t *testing.T) {
 	ct := NewCostTracker(map[string]ModelPrice{

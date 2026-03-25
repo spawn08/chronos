@@ -101,6 +101,13 @@ go run ./cli/main.go serve :8420
 
 # Tidy modules
 go mod tidy
+
+# Pre-push CI validation (run BEFORE pushing to avoid CI failures)
+./scripts/pre-push-check.sh         # full: format + vet + lint + build + test
+./scripts/pre-push-check.sh --quick # fast: format + vet + build only
+
+# Install as git hook (runs automatically on git push)
+ln -sf ../../scripts/pre-push-check.sh .git/hooks/pre-push
 ```
 
 ## Common Tasks

@@ -40,7 +40,7 @@ func (s *Store) CreateCollection(ctx context.Context, name string, dimension int
 		"dimension": dimension,
 		"metric":    "cosine",
 	}
-	_, err := s.doRequest(ctx, http.MethodPost,
+	_, err := s.doRequest(ctx,
 		fmt.Sprintf("/db/%s/table/%s/create/", s.dbName, name), body)
 	return err
 }
@@ -61,7 +61,7 @@ func (s *Store) Upsert(ctx context.Context, collection string, embeddings []stor
 		"data": records,
 		"mode": "overwrite",
 	}
-	_, err := s.doRequest(ctx, http.MethodPost,
+	_, err := s.doRequest(ctx,
 		fmt.Sprintf("/db/%s/table/%s/insert/", s.dbName, collection), body)
 	return err
 }
@@ -72,7 +72,7 @@ func (s *Store) Search(ctx context.Context, collection string, query []float32, 
 		"k":      topK,
 	}
 
-	data, err := s.doRequest(ctx, http.MethodPost,
+	data, err := s.doRequest(ctx,
 		fmt.Sprintf("/db/%s/table/%s/search/", s.dbName, collection), body)
 	if err != nil {
 		return nil, err
@@ -95,7 +95,7 @@ func (s *Store) Search(ctx context.Context, collection string, query []float32, 
 	for i, r := range resp.Results {
 		var meta map[string]any
 		if r.Metadata != "" {
-			json.Unmarshal([]byte(r.Metadata), &meta)
+			_ = json.Unmarshal([]byte(r.Metadata), &meta)
 		}
 		results[i] = storage.SearchResult{
 			Embedding: storage.Embedding{
@@ -115,7 +115,7 @@ func (s *Store) Delete(ctx context.Context, collection string, ids []string) err
 	body := map[string]any{
 		"filter": fmt.Sprintf("id IN (%s)", quoteIDs(ids)),
 	}
-	_, err := s.doRequest(ctx, http.MethodPost,
+	_, err := s.doRequest(ctx,
 		fmt.Sprintf("/db/%s/table/%s/delete/", s.dbName, collection), body)
 	return err
 }
@@ -124,7 +124,7 @@ func (s *Store) Close() error {
 	return nil
 }
 
-func (s *Store) doRequest(ctx context.Context, method, path string, body any) ([]byte, error) {
+func (s *Store) doRequest(ctx context.Context, path string, body any) ([]byte, error) {
 	var bodyReader io.Reader
 	if body != nil {
 		data, err := json.Marshal(body)
@@ -135,7 +135,7 @@ func (s *Store) doRequest(ctx context.Context, method, path string, body any) ([
 	}
 
 	url := s.baseURL + path
-	req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("lancedb: %w", err)
 	}

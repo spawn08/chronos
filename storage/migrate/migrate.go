@@ -182,7 +182,7 @@ func (m *Migrator) apply(ctx context.Context, mig Migration) error {
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	if _, err := tx.ExecContext(ctx, mig.Up); err != nil {
 		return fmt.Errorf("exec: %w", err)

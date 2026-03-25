@@ -100,35 +100,35 @@ func (g *Gemini) buildRequestBody(req *ChatRequest) map[string]any {
 	var systemInstruction map[string]any
 	contents := make([]map[string]any, 0, len(req.Messages))
 
-	for _, m := range req.Messages {
-		if m.Role == RoleSystem {
+	for i := range req.Messages {
+		if req.Messages[i].Role == RoleSystem {
 			systemInstruction = map[string]any{
-				"parts": []map[string]string{{"text": m.Content}},
+				"parts": []map[string]string{{"text": req.Messages[i].Content}},
 			}
 			continue
 		}
 
-		role := m.Role
+		role := req.Messages[i].Role
 		if role == RoleAssistant {
 			role = "model"
 		}
 
-		if m.Role == RoleTool {
+		if req.Messages[i].Role == RoleTool {
 			contents = append(contents, map[string]any{
 				"role": "function",
 				"parts": []map[string]any{{
 					"functionResponse": map[string]any{
-						"name":     m.Name,
-						"response": map[string]string{"result": m.Content},
+						"name":     req.Messages[i].Name,
+						"response": map[string]string{"result": req.Messages[i].Content},
 					},
 				}},
 			})
 			continue
 		}
 
-		parts := []map[string]any{{"text": m.Content}}
-		if len(m.ToolCalls) > 0 {
-			for _, tc := range m.ToolCalls {
+		parts := []map[string]any{{"text": req.Messages[i].Content}}
+		if len(req.Messages[i].ToolCalls) > 0 {
+			for _, tc := range req.Messages[i].ToolCalls {
 				var args any
 				_ = json.Unmarshal([]byte(tc.Arguments), &args)
 				parts = append(parts, map[string]any{

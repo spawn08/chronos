@@ -10,11 +10,6 @@ import (
 	"github.com/spawn08/chronos/storage"
 )
 
-// collectionResponse returns a JSON response for a ChromaDB collection.
-func collectionResponse(id, name string) string {
-	return `{"id":"` + id + `","name":"` + name + `"}`
-}
-
 func TestNew(t *testing.T) {
 	s := New("http://localhost:8000")
 	if s == nil {

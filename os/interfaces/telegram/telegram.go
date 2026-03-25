@@ -68,7 +68,7 @@ func (b *Bot) pollOnce(ctx context.Context) error {
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/getUpdates?offset=%d&timeout=30",
 		b.token, b.offset)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return fmt.Errorf("telegram poll: %w", err)
 	}
@@ -115,7 +115,7 @@ func (b *Bot) handleUpdate(ctx context.Context, chatID, userID int64, text strin
 		response = fmt.Sprintf("Error: %v", err)
 	}
 	if response != "" {
-		b.SendMessage(ctx, chatID, response)
+		_ = b.SendMessage(ctx, chatID, response)
 	}
 }
 
@@ -145,7 +145,7 @@ func (b *Bot) SendMessage(ctx context.Context, chatID int64, text string) error 
 		OK          bool   `json:"ok"`
 		Description string `json:"description"`
 	}
-	json.NewDecoder(resp.Body).Decode(&result)
+	_ = json.NewDecoder(resp.Body).Decode(&result)
 	if !result.OK {
 		return fmt.Errorf("telegram send: %s", result.Description)
 	}

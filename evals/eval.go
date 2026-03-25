@@ -65,11 +65,12 @@ func (s *Suite) Run(ctx context.Context) SuiteResult {
 		sr.TotalLatency += result.Latency
 		totalScore += result.Score
 
-		if result.Error != "" {
+		switch {
+		case result.Error != "":
 			sr.Errors++
-		} else if result.Passed {
+		case result.Passed:
 			sr.Passed++
-		} else {
+		default:
 			sr.Failed++
 		}
 	}
@@ -125,7 +126,7 @@ func (e *ContainsEval) Name() string { return e.EvalName }
 
 func (e *ContainsEval) Run(_ context.Context, input, expected string) EvalResult {
 	start := time.Now()
-	passed := len(expected) > 0 && contains(input, expected)
+	passed := expected != "" && contains(input, expected)
 	score := 0.0
 	if passed {
 		score = 1.0

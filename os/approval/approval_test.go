@@ -22,7 +22,7 @@ func TestNewService(t *testing.T) {
 func TestHandlePendingEmpty(t *testing.T) {
 	svc := NewService()
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/approve/pending", nil)
+	r := httptest.NewRequest(http.MethodGet, "/approve/pending", http.NoBody)
 	svc.HandlePending(w, r)
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -151,7 +151,7 @@ func TestHandlePendingWithRequests(t *testing.T) {
 	svc.mu.Unlock()
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/approve/pending", nil)
+	r := httptest.NewRequest(http.MethodGet, "/approve/pending", http.NoBody)
 	svc.HandlePending(w, r)
 
 	var resp map[string]any
@@ -176,7 +176,7 @@ func TestRequestIDGeneration(t *testing.T) {
 	for k, v := range svc.pending {
 		if v.ToolName == "tool_a" {
 			// ID should contain tool name
-			if len(k) == 0 {
+			if k == "" {
 				t.Errorf("empty ID")
 			}
 		}

@@ -30,7 +30,7 @@ func TestSSEHandler_NoFlusher_Deep(t *testing.T) {
 	b := NewBroker()
 	h := b.SSEHandler("sub-1")
 	w := &noFlushResponseWriter{}
-	r, _ := http.NewRequest(http.MethodGet, "/sse", nil)
+	r, _ := http.NewRequest(http.MethodGet, "/sse", http.NoBody)
 	h(w, r)
 	if w.code != http.StatusInternalServerError {
 		t.Fatalf("want 500, got %d", w.code)

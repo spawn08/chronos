@@ -18,10 +18,6 @@ func openAISuccessBody(content string) string {
 	return fmt.Sprintf(`{"id":"r1","choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":%q}}],"usage":{"prompt_tokens":5,"completion_tokens":3}}`, content)
 }
 
-func openAIToolCallBody() string {
-	return `{"id":"r2","choices":[{"index":0,"finish_reason":"tool_calls","message":{"role":"assistant","content":"","tool_calls":[{"id":"t1","type":"function","function":{"name":"fn","arguments":"{}"}}]}}],"usage":{}}`
-}
-
 func buildTestServer(t *testing.T, status int, body string) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

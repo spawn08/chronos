@@ -74,7 +74,7 @@ func TestClient_WaitForCompletion_DefaultPollInterval_Boost(t *testing.T) {
 func TestServer_HandleCancelTask_UnknownID_Boost(t *testing.T) {
 	s := NewServer(AgentCard{Name: "agent"}, echoHandler)
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodDelete, "/a2a/tasks/task_missing", nil)
+	r := httptest.NewRequest(http.MethodDelete, "/a2a/tasks/task_missing", http.NoBody)
 	s.ServeHTTP(w, r)
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", w.Code)

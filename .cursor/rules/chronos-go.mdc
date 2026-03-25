@@ -23,8 +23,19 @@ Chronos is a Go-based agentic framework. Module: `github.com/spawn08/chronos`.
 - **No** `init()`; no global state; no `os` in library packages.
 - **Naming**: Interfaces = noun (Storage, Provider); no `I` prefix. Files = lowercase matching type.
 
+## CI / Lint Rules (Enforced by golangci-lint)
+- **errcheck**: All error return values must be handled (`_ = fn()` if intentionally discarded).
+- **gofmt**: All files must pass `gofmt`. Run `gofmt -w .` before committing.
+- **govet**: Enabled with all checks except `fieldalignment`. No variable shadowing in non-test files.
+- **gocritic**: Diagnostic, style, performance tags enabled. Use `http.NoBody` not `nil`, `0o644` not `0644`, index-based range for large structs.
+- **misspell**: US locale. Use "canceled" not "cancelled".
+- **prealloc**: Pre-allocate slices when size is known.
+- **unparam**: No unused parameters in non-test/non-example files.
+- Run `./scripts/pre-push-check.sh` before pushing to catch CI failures locally.
+
 ## Do NOT
 - Add `init()` or package-level mutable state.
 - Skip error wrapping.
 - Use panic for recoverable errors.
 - Add dependencies without checking stdlib first.
+- Push without running `./scripts/pre-push-check.sh --quick` (or full).

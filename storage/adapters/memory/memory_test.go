@@ -52,7 +52,7 @@ func TestSessionCRUD(t *testing.T) {
 	}
 
 	sess.Status = "completed"
-	if err := s.UpdateSession(ctx, sess); err != nil {
+	if err = s.UpdateSession(ctx, sess); err != nil {
 		t.Fatal(err)
 	}
 	got, _ = s.GetSession(ctx, "s1")
@@ -60,7 +60,7 @@ func TestSessionCRUD(t *testing.T) {
 		t.Errorf("got status=%q, want completed", got.Status)
 	}
 
-	if err := s.UpdateSession(ctx, &storage.Session{ID: "nonexistent"}); err == nil {
+	if err = s.UpdateSession(ctx, &storage.Session{ID: "nonexistent"}); err == nil {
 		t.Error("expected error updating nonexistent session")
 	}
 

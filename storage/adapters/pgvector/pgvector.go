@@ -101,7 +101,7 @@ func (s *Store) Search(ctx context.Context, collection string, query []float32, 
 		}
 
 		if metaJSON != "" {
-			json.Unmarshal([]byte(metaJSON), &r.Metadata)
+			_ = json.Unmarshal([]byte(metaJSON), &r.Metadata)
 		}
 		results = append(results, r)
 	}

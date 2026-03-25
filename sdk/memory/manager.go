@@ -43,8 +43,8 @@ Only extract clear, factual information — not opinions or speculation.`
 func (m *Manager) ExtractMemories(ctx context.Context, messages []model.Message) error {
 	// Build the conversation text for the model
 	convo := ""
-	for _, msg := range messages {
-		convo += fmt.Sprintf("%s: %s\n", msg.Role, msg.Content)
+	for i := range messages {
+		convo += fmt.Sprintf("%s: %s\n", messages[i].Role, messages[i].Content)
 	}
 
 	resp, err := m.model.Chat(ctx, &model.ChatRequest{

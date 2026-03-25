@@ -260,7 +260,7 @@ func TestStateToPrompt(t *testing.T) {
 	}
 	// Hidden keys should not appear
 	for _, hidden := range []string{"_task_description", "_delegated_by"} {
-		if len(result) > 0 {
+		if result != "" {
 			found := false
 			for i := 0; i <= len(result)-len(hidden); i++ {
 				if result[i:i+len(hidden)] == hidden {

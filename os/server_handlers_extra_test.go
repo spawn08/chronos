@@ -25,7 +25,7 @@ func (s *listSessionsErrStore) ListSessions(ctx context.Context, agentID string,
 func TestHandleListSessions_StoreError(t *testing.T) {
 	s := New(":0", &listSessionsErrStore{Store: memory.New()})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/sessions", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -45,7 +45,7 @@ func (s *listTracesErrStore) ListTraces(ctx context.Context, sessionID string) (
 func TestHandleListTraces_StoreError(t *testing.T) {
 	s := New(":0", &listTracesErrStore{Store: memory.New()})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/traces?session_id=s1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/traces?session_id=s1", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -75,7 +75,7 @@ func TestHandleSessionState_GetSuccess(t *testing.T) {
 	}
 
 	s := New(":0", store)
-	req := httptest.NewRequest(http.MethodGet, "/api/sessions/state?session_id=sess-cp", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/state?session_id=sess-cp", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -147,7 +147,7 @@ func TestHandleReadiness_MigrateFails(t *testing.T) {
 	s := New(":0", &migrateErrStore{Store: memory.New()})
 	s.SetReady(true)
 
-	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health/ready", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 

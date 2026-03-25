@@ -187,7 +187,7 @@ func TestCancelTask(t *testing.T) {
 
 	// Cancel via direct HTTP call
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodDelete,
-		srv.URL+"/a2a/tasks/"+task.ID, nil)
+		srv.URL+"/a2a/tasks/"+task.ID, http.NoBody)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("cancel request failed: %v", err)
@@ -202,7 +202,7 @@ func TestCancelTask(t *testing.T) {
 func TestServeHTTPUnknownRoute(t *testing.T) {
 	s := NewServer(AgentCard{Name: "agent"}, echoHandler)
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/a2a/unknown", nil)
+	r := httptest.NewRequest(http.MethodGet, "/a2a/unknown", http.NoBody)
 	s.ServeHTTP(w, r)
 	if w.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", w.Code)

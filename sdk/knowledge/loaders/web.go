@@ -85,7 +85,7 @@ func (l *WebLoader) Load() ([]knowledge.Document, error) {
 
 // fetchAndExtract fetches a URL and extracts readable text content.
 func (l *WebLoader) fetchAndExtract(url string) (content, title string, err error) {
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req, err := http.NewRequest(http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return "", "", fmt.Errorf("creating request: %w", err)
 	}

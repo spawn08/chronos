@@ -109,7 +109,9 @@ func TestExecute_MockFullFlow(t *testing.T) {
 				// minimal docker multiplexed frame: 8-byte header + payload
 				payload := []byte("out")
 				hdr := []byte{1, 0, 0, 0, 0, 0, 0, byte(len(payload))}
-				body := append(hdr, payload...)
+				body := make([]byte, 0, len(hdr)+len(payload))
+				body = append(body, hdr...)
+				body = append(body, payload...)
 				return &http.Response{
 					StatusCode: http.StatusOK,
 					Body:       io.NopCloser(strings.NewReader(string(body))),

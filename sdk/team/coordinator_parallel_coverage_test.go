@@ -76,7 +76,7 @@ func TestNewSwarm_ZeroAgents_Table(t *testing.T) {
 }
 
 // MaxConcurrency=1: one agent holds the semaphore for a sleep; the other blocks on sem acquisition.
-// Cancelling the context while the waiter is blocked exercises runParallel's select on ctx.Done() before sem.
+// Canceling the context while the waiter is blocked exercises runParallel's select on ctx.Done() before sem.
 func TestRunParallel_ContextCancelWhileWaitingOnSemaphore(t *testing.T) {
 	tm := New("sem-wait", "Sem", StrategyParallel)
 	tm.SetMaxConcurrency(1)

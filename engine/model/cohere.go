@@ -116,14 +116,14 @@ func (c *Cohere) StreamChat(ctx context.Context, req *ChatRequest) (<-chan *Chat
 func (c *Cohere) buildRequestBody(req *ChatRequest, stream bool) map[string]any {
 	messages := make([]map[string]any, 0, len(req.Messages))
 
-	for _, m := range req.Messages {
-		role := m.Role
+	for i := range req.Messages {
+		role := req.Messages[i].Role
 		if role == RoleSystem {
 			role = "system"
 		}
 		messages = append(messages, map[string]any{
 			"role":    role,
-			"content": m.Content,
+			"content": req.Messages[i].Content,
 		})
 	}
 

@@ -14,7 +14,7 @@ import (
 )
 
 // buildMCPEchoServer compiles a minimal MCP server binary for use in tests.
-func buildMCPEchoServer(t *testing.T) (string, func()) {
+func buildMCPEchoServer(t *testing.T) (binPath string, cleanup func()) {
 	t.Helper()
 	src := `package main
 
@@ -120,7 +120,7 @@ func TestClient_ConnectAndListTools(t *testing.T) {
 	}
 	defer client.Close()
 
-	if err := client.Connect(context.Background()); err != nil {
+	if err = client.Connect(context.Background()); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 
@@ -154,7 +154,7 @@ func TestClient_CallTool(t *testing.T) {
 	}
 	defer client.Close()
 
-	if err := client.Connect(context.Background()); err != nil {
+	if err = client.Connect(context.Background()); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 
@@ -177,7 +177,7 @@ func TestClient_ListResources(t *testing.T) {
 	}
 	defer client.Close()
 
-	if err := client.Connect(context.Background()); err != nil {
+	if err = client.Connect(context.Background()); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 
@@ -203,7 +203,7 @@ func TestClient_ReadResource(t *testing.T) {
 	}
 	defer client.Close()
 
-	if err := client.Connect(context.Background()); err != nil {
+	if err = client.Connect(context.Background()); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 
@@ -228,7 +228,7 @@ func TestClient_CloseProcess(t *testing.T) {
 		t.Fatalf("NewClient: %v", err)
 	}
 
-	if err := client.Connect(context.Background()); err != nil {
+	if err = client.Connect(context.Background()); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 	if err := client.Close(); err != nil {
@@ -248,7 +248,7 @@ func TestClient_CallAfterClose(t *testing.T) {
 		t.Fatalf("NewClient: %v", err)
 	}
 
-	if err := client.Connect(context.Background()); err != nil {
+	if err = client.Connect(context.Background()); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 	client.Close()
@@ -259,7 +259,7 @@ func TestClient_CallAfterClose(t *testing.T) {
 	}
 }
 
-func buildErrorMCPServer(t *testing.T) (string, func()) {
+func buildErrorMCPServer(t *testing.T) (binPath string, cleanup func()) {
 	t.Helper()
 	src := `package main
 
@@ -334,7 +334,7 @@ func TestClient_ToolCallError(t *testing.T) {
 	}
 	defer client.Close()
 
-	if err := client.Connect(context.Background()); err != nil {
+	if err = client.Connect(context.Background()); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 
@@ -357,7 +357,7 @@ func TestClient_ListToolsServerError(t *testing.T) {
 	}
 	defer client.Close()
 
-	if err := client.Connect(context.Background()); err != nil {
+	if err = client.Connect(context.Background()); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 
@@ -367,7 +367,7 @@ func TestClient_ListToolsServerError(t *testing.T) {
 	}
 }
 
-func buildMultiContentMCPServer(t *testing.T) (string, func()) {
+func buildMultiContentMCPServer(t *testing.T) (binPath string, cleanup func()) {
 	t.Helper()
 	src := `package main
 
@@ -434,7 +434,7 @@ func TestClient_CallTool_MultipleContent(t *testing.T) {
 	}
 	defer client.Close()
 
-	if err := client.Connect(context.Background()); err != nil {
+	if err = client.Connect(context.Background()); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 

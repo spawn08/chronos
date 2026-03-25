@@ -27,7 +27,9 @@ func TestStripDockerLogHeaders_ValidFrame(t *testing.T) {
 	payload := []byte("hello world")
 	size := len(payload)
 	header := []byte{1, 0, 0, 0, byte(size >> 24), byte(size >> 16), byte(size >> 8), byte(size)}
-	data := append(header, payload...)
+	data := make([]byte, 0, len(header)+len(payload))
+	data = append(data, header...)
+	data = append(data, payload...)
 
 	result := stripDockerLogHeaders(data)
 	if result != "hello world" {
@@ -87,7 +89,9 @@ func TestStripDockerLogHeaders_TruncatedPayload(t *testing.T) {
 	// Header says 100 bytes but only 5 bytes available
 	header := []byte{1, 0, 0, 0, 0, 0, 0, 100}
 	payload := []byte("hello")
-	data := append(header, payload...)
+	data := make([]byte, 0, len(header)+len(payload))
+	data = append(data, header...)
+	data = append(data, payload...)
 	result := stripDockerLogHeaders(data)
 	// Should not panic, should return what we have
 	if result == "" {
@@ -112,7 +116,9 @@ func TestStripDockerLogHeaders_ExactlyEightBytes(t *testing.T) {
 
 func TestStripDockerLogHeaders_SingleBytePayload(t *testing.T) {
 	header := []byte{1, 0, 0, 0, 0, 0, 0, 1}
-	data := append(header, 'X')
+	data := make([]byte, 0, len(header)+1)
+	data = append(data, header...)
+	data = append(data, 'X')
 	result := stripDockerLogHeaders(data)
 	if result != "X" {
 		t.Errorf("expected 'X', got %q", result)

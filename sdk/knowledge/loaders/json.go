@@ -12,7 +12,7 @@ import (
 // Supports both JSON arrays (one document per element) and single objects (one document).
 type JSONLoader struct {
 	paths    []string
-	jmesPath string // reserved for future JMESPath filtering
+	jmesPath string //nolint:unused // reserved for future JMESPath filtering
 }
 
 // NewJSONLoader creates a loader for JSON files.

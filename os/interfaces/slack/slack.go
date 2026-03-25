@@ -67,7 +67,7 @@ func (b *Bot) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// URL verification challenge
 	if envelope.Type == "url_verification" {
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte(envelope.Challenge))
+		_, _ = w.Write([]byte(envelope.Challenge))
 		return
 	}
 
@@ -98,7 +98,7 @@ func (b *Bot) handleMessage(ctx context.Context, channel, user, text, threadTS s
 	// Reply in thread if the message was in a thread
 	replyTS := threadTS
 
-	b.PostMessage(ctx, channel, response, replyTS)
+	_ = b.PostMessage(ctx, channel, response, replyTS)
 }
 
 // PostMessage sends a message to a Slack channel.
@@ -134,7 +134,7 @@ func (b *Bot) PostMessage(ctx context.Context, channel, text, threadTS string) e
 		OK    bool   `json:"ok"`
 		Error string `json:"error"`
 	}
-	json.NewDecoder(resp.Body).Decode(&result)
+	_ = json.NewDecoder(resp.Body).Decode(&result)
 	if !result.OK {
 		return fmt.Errorf("slack post: %s", result.Error)
 	}
@@ -152,7 +152,7 @@ func (b *Bot) Start(ctx context.Context, addr string) error {
 
 	go func() {
 		<-ctx.Done()
-		b.Stop()
+		_ = b.Stop()
 	}()
 
 	return b.server.ListenAndServe()

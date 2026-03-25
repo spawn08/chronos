@@ -95,7 +95,9 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	wildcardHandlers := s.handlers["*"]
 	s.mu.RUnlock()
 
-	allHandlers := append(handlers, wildcardHandlers...)
+	allHandlers := make([]Handler, 0, len(handlers)+len(wildcardHandlers))
+	allHandlers = append(allHandlers, handlers...)
+	allHandlers = append(allHandlers, wildcardHandlers...)
 
 	var errs []error
 	for _, h := range allHandlers {
@@ -110,5 +112,5 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"ok"}`))
+	_, _ = w.Write([]byte(`{"status":"ok"}`))
 }

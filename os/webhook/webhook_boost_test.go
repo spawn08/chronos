@@ -19,7 +19,7 @@ func TestServer_BodyReadError_Boost(t *testing.T) {
 	s := NewServer("")
 	s.On("test", func(context.Context, Event) error { return nil })
 
-	req := httptest.NewRequest(http.MethodPost, "/webhook", nil)
+	req := httptest.NewRequest(http.MethodPost, "/webhook", http.NoBody)
 	req.Body = io.NopCloser(errBody{})
 	req.Header.Set("X-Event-Type", "test")
 	w := httptest.NewRecorder()

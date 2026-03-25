@@ -31,7 +31,7 @@ func TestJWTMiddleware_ValidToken(t *testing.T) {
 		}),
 	)
 
-	req := httptest.NewRequest("GET", "/api/test", nil)
+	req := httptest.NewRequest("GET", "/api/test", http.NoBody)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -48,7 +48,7 @@ func TestJWTMiddleware_MissingHeader(t *testing.T) {
 		}),
 	)
 
-	req := httptest.NewRequest("GET", "/api/test", nil)
+	req := httptest.NewRequest("GET", "/api/test", http.NoBody)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -64,7 +64,7 @@ func TestJWTMiddleware_InvalidToken(t *testing.T) {
 		}),
 	)
 
-	req := httptest.NewRequest("GET", "/api/test", nil)
+	req := httptest.NewRequest("GET", "/api/test", http.NoBody)
 	req.Header.Set("Authorization", "Bearer invalid.token.here")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -87,7 +87,7 @@ func TestJWTMiddleware_ExpiredToken(t *testing.T) {
 		}),
 	)
 
-	req := httptest.NewRequest("GET", "/api/test", nil)
+	req := httptest.NewRequest("GET", "/api/test", http.NoBody)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -107,7 +107,7 @@ func TestJWTMiddleware_SkipPaths(t *testing.T) {
 		}),
 	)
 
-	req := httptest.NewRequest("GET", "/health", nil)
+	req := httptest.NewRequest("GET", "/health", http.NoBody)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -126,7 +126,7 @@ func TestJWTMiddleware_WrongSecret(t *testing.T) {
 		}),
 	)
 
-	req := httptest.NewRequest("GET", "/api/test", nil)
+	req := httptest.NewRequest("GET", "/api/test", http.NoBody)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)

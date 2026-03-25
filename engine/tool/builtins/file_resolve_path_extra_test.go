@@ -14,8 +14,8 @@ func TestResolvePath_Absolute(t *testing.T) {
 
 func TestResolvePath_RelativeWithBase(t *testing.T) {
 	base := "/workspace/proj"
-	got := resolvePath(base, "src/main.go")
-	want := filepath.Join(base, "src/main.go")
+	got := resolvePath(base, filepath.Join("src", "main.go"))
+	want := filepath.Join(base, "src", "main.go")
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}

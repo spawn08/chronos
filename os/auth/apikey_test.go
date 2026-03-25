@@ -27,7 +27,7 @@ func TestAPIKeyMiddleware_ValidKey(t *testing.T) {
 		}),
 	)
 
-	req := httptest.NewRequest("GET", "/api/test", nil)
+	req := httptest.NewRequest("GET", "/api/test", http.NoBody)
 	req.Header.Set("X-Api-Key", "test-key-123")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -45,7 +45,7 @@ func TestAPIKeyMiddleware_MissingKey(t *testing.T) {
 		}),
 	)
 
-	req := httptest.NewRequest("GET", "/api/test", nil)
+	req := httptest.NewRequest("GET", "/api/test", http.NoBody)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -62,7 +62,7 @@ func TestAPIKeyMiddleware_InvalidKey(t *testing.T) {
 		}),
 	)
 
-	req := httptest.NewRequest("GET", "/api/test", nil)
+	req := httptest.NewRequest("GET", "/api/test", http.NoBody)
 	req.Header.Set("X-Api-Key", "wrong-key")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -83,7 +83,7 @@ func TestAPIKeyMiddleware_CustomHeader(t *testing.T) {
 		}),
 	)
 
-	req := httptest.NewRequest("GET", "/api/test", nil)
+	req := httptest.NewRequest("GET", "/api/test", http.NoBody)
 	req.Header.Set("X-Custom-Key", "my-key")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -104,7 +104,7 @@ func TestAPIKeyMiddleware_SkipPaths(t *testing.T) {
 		}),
 	)
 
-	req := httptest.NewRequest("GET", "/health", nil)
+	req := httptest.NewRequest("GET", "/health", http.NoBody)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 

@@ -103,19 +103,18 @@ func countCommonWords(a, b string) int {
 	return count
 }
 
-func parseJudgeResponse(content string) (float64, string) {
+func parseJudgeResponse(content string) (score float64, explanation string) {
 	content = strings.TrimSpace(content)
-	var score float64
-	explanation := content
+	explanation = content
 
 	idx := strings.Index(content, "\"score\"")
 	if idx < 0 {
-		return 0.5, content
+		return 0.5, explanation
 	}
 
 	rest := content[idx+7:]
 	rest = strings.TrimLeft(rest, ": ")
-	fmt.Sscanf(rest, "%f", &score)
+	_, _ = fmt.Sscanf(rest, "%f", &score)
 
 	expIdx := strings.Index(content, "\"explanation\"")
 	if expIdx >= 0 {

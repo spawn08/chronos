@@ -19,7 +19,7 @@ type AudioProvider interface {
 	Transcribe(ctx context.Context, audio AudioContent) (string, error)
 	// Synthesize converts text to speech using a TTS model.
 	// voice is the voice ID (e.g., "alloy", "echo", "fable", "onyx", "nova", "shimmer").
-	Synthesize(ctx context.Context, text string, voice string) (*AudioContent, error)
+	Synthesize(ctx context.Context, text, voice string) (*AudioContent, error)
 }
 
 // OpenAIAudio implements AudioProvider for OpenAI's Whisper transcription and TTS endpoints.
@@ -132,21 +132,21 @@ func (o *OpenAIAudio) Transcribe(ctx context.Context, audio AudioContent) (strin
 	if err != nil {
 		return "", fmt.Errorf("openai audio transcribe: create file part: %w", err)
 	}
-	if _, err := fw.Write(audio.Data); err != nil {
+	if _, err = fw.Write(audio.Data); err != nil {
 		return "", fmt.Errorf("openai audio transcribe: write audio data: %w", err)
 	}
 
 	// Add the model field.
-	if err := mw.WriteField("model", o.transcribeModel); err != nil {
+	if err = mw.WriteField("model", o.transcribeModel); err != nil {
 		return "", fmt.Errorf("openai audio transcribe: write model field: %w", err)
 	}
 
 	// Add response_format field to get plain text back.
-	if err := mw.WriteField("response_format", "json"); err != nil {
+	if err = mw.WriteField("response_format", "json"); err != nil {
 		return "", fmt.Errorf("openai audio transcribe: write response_format field: %w", err)
 	}
 
-	if err := mw.Close(); err != nil {
+	if err = mw.Close(); err != nil {
 		return "", fmt.Errorf("openai audio transcribe: close multipart writer: %w", err)
 	}
 
@@ -180,7 +180,7 @@ func (o *OpenAIAudio) Transcribe(ctx context.Context, audio AudioContent) (strin
 // Synthesize sends text to the OpenAI TTS endpoint and returns an AudioContent with
 // the synthesized audio bytes. voice should be one of: "alloy", "echo", "fable",
 // "onyx", "nova", "shimmer". An empty voice defaults to "alloy".
-func (o *OpenAIAudio) Synthesize(ctx context.Context, text string, voice string) (*AudioContent, error) {
+func (o *OpenAIAudio) Synthesize(ctx context.Context, text, voice string) (*AudioContent, error) {
 	if strings.TrimSpace(text) == "" {
 		return nil, fmt.Errorf("openai audio synthesize: text is empty")
 	}

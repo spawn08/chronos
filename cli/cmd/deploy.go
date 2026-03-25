@@ -49,7 +49,7 @@ func runDeploy() error {
 	}
 
 	var dc DeployConfig
-	if err := yaml.Unmarshal(data, &dc); err != nil {
+	if err = yaml.Unmarshal(data, &dc); err != nil {
 		return fmt.Errorf("parse deploy config: %w", err)
 	}
 
@@ -67,8 +67,10 @@ func runDeploy() error {
 	// Set up sandbox
 	timeout := 5 * time.Minute
 	if dc.Sandbox.Timeout != "" {
-		if t, err := time.ParseDuration(dc.Sandbox.Timeout); err == nil {
-			timeout = t
+		var td time.Duration
+		td, err = time.ParseDuration(dc.Sandbox.Timeout)
+		if err == nil {
+			timeout = td
 		}
 	}
 

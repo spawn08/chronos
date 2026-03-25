@@ -35,7 +35,7 @@ func TestHealthEndpoints(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.path, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			req := httptest.NewRequest(http.MethodGet, tc.path, http.NoBody)
 			w := httptest.NewRecorder()
 			s.mux.ServeHTTP(w, req)
 
@@ -53,7 +53,7 @@ func TestReadinessNotReady(t *testing.T) {
 	s := newTestServer(t)
 	// ready flag defaults to false
 
-	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health/ready", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -66,7 +66,7 @@ func TestReadinessReady(t *testing.T) {
 	s := newTestServer(t)
 	s.SetReady(true)
 
-	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health/ready", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -90,7 +90,7 @@ func TestSetReady(t *testing.T) {
 func TestListSessionsEmpty(t *testing.T) {
 	s := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/sessions", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -121,7 +121,7 @@ func TestListSessionsWithData(t *testing.T) {
 		t.Fatalf("create session: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/sessions?agent_id=agent-1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions?agent_id=agent-1", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -133,7 +133,7 @@ func TestListSessionsWithData(t *testing.T) {
 func TestListSessionsLimitOffset(t *testing.T) {
 	s := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/sessions?limit=10&offset=0", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions?limit=10&offset=0", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -145,7 +145,7 @@ func TestListSessionsLimitOffset(t *testing.T) {
 func TestListTracesNoSessionID(t *testing.T) {
 	s := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/traces", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/traces", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -164,7 +164,7 @@ func TestListTracesNoSessionID(t *testing.T) {
 func TestSessionStateMissingID(t *testing.T) {
 	s := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/sessions/state", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/state", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -176,7 +176,7 @@ func TestSessionStateMissingID(t *testing.T) {
 func TestSessionStateMethodNotAllowed(t *testing.T) {
 	s := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/sessions/state?session_id=abc", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/sessions/state?session_id=abc", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -188,7 +188,7 @@ func TestSessionStateMethodNotAllowed(t *testing.T) {
 func TestSchedulesGetEmpty(t *testing.T) {
 	s := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/schedules", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/schedules", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -219,7 +219,7 @@ func TestSchedulesPostInvalidJSON(t *testing.T) {
 func TestSchedulesMethodNotAllowed(t *testing.T) {
 	s := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/schedules", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/schedules", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -231,7 +231,7 @@ func TestSchedulesMethodNotAllowed(t *testing.T) {
 func TestScheduleByIDNotFound(t *testing.T) {
 	s := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/schedules/nonexistent", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/schedules/nonexistent", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -243,7 +243,7 @@ func TestScheduleByIDNotFound(t *testing.T) {
 func TestScheduleByIDDeleteNotFound(t *testing.T) {
 	s := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/schedules/nope", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/schedules/nope", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
@@ -255,7 +255,7 @@ func TestScheduleByIDDeleteNotFound(t *testing.T) {
 func TestScheduleByIDHistory(t *testing.T) {
 	s := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/schedules/some-id/history", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/schedules/some-id/history", http.NoBody)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 

@@ -127,7 +127,7 @@ func (c *Client) Connect(ctx context.Context) error {
 		return fmt.Errorf("mcp: stdout pipe: %w", err)
 	}
 
-	if err := cmd.Start(); err != nil {
+	if err = cmd.Start(); err != nil {
 		return fmt.Errorf("mcp: start %q: %w", c.config.Command, err)
 	}
 
@@ -228,9 +228,9 @@ func (c *Client) CallTool(ctx context.Context, name string, args map[string]any)
 		return resp.Content[0].Text, nil
 	}
 
-	var texts []string
-	for _, c := range resp.Content {
-		texts = append(texts, c.Text)
+	texts := make([]string, len(resp.Content))
+	for i := range resp.Content {
+		texts[i] = resp.Content[i].Text
 	}
 	return texts, nil
 }
@@ -279,22 +279,22 @@ func (c *Client) Info() ServerInfo {
 func (c *Client) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.closeProcess()
+	c.closeProcess()
+	return nil
 }
 
-func (c *Client) closeProcess() error {
+func (c *Client) closeProcess() {
 	if c.closed {
-		return nil
+		return
 	}
 	c.closed = true
 	if c.stdin != nil {
 		c.stdin.Close()
 	}
 	if c.cmd != nil && c.cmd.Process != nil {
-		c.cmd.Process.Kill()
-		c.cmd.Wait()
+		_ = c.cmd.Process.Kill()
+		_ = c.cmd.Wait()
 	}
-	return nil
 }
 
 // call acquires c.mu and sends a JSON-RPC request, waiting for the matching response.

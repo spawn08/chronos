@@ -71,8 +71,8 @@ func (s *Summarizer) Summarize(ctx context.Context, existingSummary string, mess
 	} else {
 		b.WriteString("Summarize the following conversation concisely, preserving key facts, decisions, and context:\n\n")
 	}
-	for _, m := range toSummarize {
-		fmt.Fprintf(&b, "%s: %s\n", m.Role, m.Content)
+	for i := range toSummarize {
+		fmt.Fprintf(&b, "%s: %s\n", toSummarize[i].Role, toSummarize[i].Content)
 	}
 
 	resp, err := s.provider.Chat(ctx, &ChatRequest{

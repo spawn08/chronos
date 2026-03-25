@@ -96,27 +96,27 @@ func (a *Anthropic) buildRequestBody(req *ChatRequest, stream bool) map[string]a
 
 	var system string
 	messages := make([]map[string]any, 0, len(req.Messages))
-	for _, m := range req.Messages {
-		if m.Role == RoleSystem {
-			system = m.Content
+	for i := range req.Messages {
+		if req.Messages[i].Role == RoleSystem {
+			system = req.Messages[i].Content
 			continue
 		}
-		msg := map[string]any{"role": m.Role}
+		msg := map[string]any{"role": req.Messages[i].Role}
 
 		switch {
-		case m.Role == RoleTool:
+		case req.Messages[i].Role == RoleTool:
 			msg["role"] = RoleUser
 			msg["content"] = []map[string]any{{
 				"type":        "tool_result",
-				"tool_use_id": m.ToolCallID,
-				"content":     m.Content,
+				"tool_use_id": req.Messages[i].ToolCallID,
+				"content":     req.Messages[i].Content,
 			}}
-		case len(m.ToolCalls) > 0:
-			content := make([]map[string]any, 0, len(m.ToolCalls)+1)
-			if m.Content != "" {
-				content = append(content, map[string]any{"type": "text", "text": m.Content})
+		case len(req.Messages[i].ToolCalls) > 0:
+			content := make([]map[string]any, 0, len(req.Messages[i].ToolCalls)+1)
+			if req.Messages[i].Content != "" {
+				content = append(content, map[string]any{"type": "text", "text": req.Messages[i].Content})
 			}
-			for _, tc := range m.ToolCalls {
+			for _, tc := range req.Messages[i].ToolCalls {
 				var args any
 				_ = json.Unmarshal([]byte(tc.Arguments), &args)
 				content = append(content, map[string]any{
@@ -128,7 +128,7 @@ func (a *Anthropic) buildRequestBody(req *ChatRequest, stream bool) map[string]a
 			}
 			msg["content"] = content
 		default:
-			msg["content"] = m.Content
+			msg["content"] = req.Messages[i].Content
 		}
 		messages = append(messages, msg)
 	}

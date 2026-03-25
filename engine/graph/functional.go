@@ -82,7 +82,7 @@ func TaskGraph(id string, tasks map[string]TaskFunc) (*CompiledGraph, error) {
 	}
 
 	g := New(id)
-	var names []string
+	names := make([]string, 0, len(tasks))
 	for name := range tasks {
 		names = append(names, name)
 	}

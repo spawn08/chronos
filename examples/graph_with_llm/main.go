@@ -12,10 +12,11 @@
 //   - At least one LLM API key (or Ollama running locally)
 //
 // Environment variables (set ONE of these):
-//   OPENAI_API_KEY=sk-...               → uses GPT-4o
-//   ANTHROPIC_API_KEY=sk-ant-...        → uses Claude Sonnet 4
-//   GEMINI_API_KEY=AIza...              → uses Gemini 2.0 Flash
-//   (none)                              → uses Ollama at localhost:11434
+//
+//	OPENAI_API_KEY=sk-...               → uses GPT-4o
+//	ANTHROPIC_API_KEY=sk-ant-...        → uses Claude Sonnet 4
+//	GEMINI_API_KEY=AIza...              → uses Gemini 2.0 Flash
+//	(none)                              → uses Ollama at localhost:11434
 //
 // Run:
 //

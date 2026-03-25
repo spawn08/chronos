@@ -32,7 +32,7 @@ func TestScheduler_ExecuteSched_ReuseSession(t *testing.T) {
 	s := New(func(ctx context.Context, agentID, input, sessionID string) error {
 		return nil
 	})
-	sched, _ := s.Add("a", "* * * * *", "input", false) // newSession=false
+	sched, _ := s.Add("a", "* * * * *", "input", false)
 
 	// Run twice
 	s.executeSched(context.Background(), sched)
@@ -51,7 +51,7 @@ func TestScheduler_ExecuteSched_NewSession(t *testing.T) {
 	s := New(func(ctx context.Context, agentID, input, sessionID string) error {
 		return nil
 	})
-	sched, _ := s.Add("a", "* * * * *", "input", true) // newSession=true
+	sched, _ := s.Add("a", "* * * * *", "input", true)
 
 	s.executeSched(context.Background(), sched)
 	first := sched.SessionID

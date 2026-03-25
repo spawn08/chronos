@@ -19,7 +19,7 @@ func TestReadResource_RPCError(t *testing.T) {
 	}
 	defer client.Close()
 
-	if err := client.Connect(context.Background()); err != nil {
+	if err = client.Connect(context.Background()); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 
@@ -57,7 +57,7 @@ func TestListResources_ParseError(t *testing.T) {
 		}
 		var req jsonrpcRequest
 		_ = json.Unmarshal(sc.Bytes(), &req)
-		_, _ = serverW.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"not-an-object"}` + "\n"))
+		_, _ = serverW.WriteString(`{"jsonrpc":"2.0","id":1,"result":"not-an-object"}` + "\n")
 	}()
 
 	_, err = c.ListResources(context.Background())
@@ -79,12 +79,12 @@ func TestNotify_AfterClientClose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	if err := client.Connect(context.Background()); err != nil {
+	if err = client.Connect(context.Background()); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 	_ = client.Close()
 
-	if err := client.notify("notifications/initialized", nil); err == nil {
+	if err = client.notify("notifications/initialized", nil); err == nil {
 		t.Fatal("expected notify error after close")
 	}
 }

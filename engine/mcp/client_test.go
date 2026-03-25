@@ -152,6 +152,12 @@ func TestResourceInfo_Fields(t *testing.T) {
 	if res.URI != "file:///tmp/test.txt" {
 		t.Errorf("URI = %q", res.URI)
 	}
+	if res.Name != "test.txt" {
+		t.Errorf("Name = %q", res.Name)
+	}
+	if res.Description != "Test file" {
+		t.Errorf("Description = %q", res.Description)
+	}
 	if res.MimeType != "text/plain" {
 		t.Errorf("MimeType = %q", res.MimeType)
 	}

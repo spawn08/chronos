@@ -13,7 +13,7 @@ func TestCORS_Preflight(t *testing.T) {
 		}),
 	)
 
-	req := httptest.NewRequest("OPTIONS", "/api/test", nil)
+	req := httptest.NewRequest("OPTIONS", "/api/test", http.NoBody)
 	req.Header.Set("Origin", "http://localhost:3000")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -40,7 +40,7 @@ func TestCORS_RestrictedOrigins(t *testing.T) {
 		}),
 	)
 
-	req := httptest.NewRequest("GET", "/api/test", nil)
+	req := httptest.NewRequest("GET", "/api/test", http.NoBody)
 	req.Header.Set("Origin", "https://example.com")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -49,7 +49,7 @@ func TestCORS_RestrictedOrigins(t *testing.T) {
 		t.Errorf("got allow-origin=%q, want https://example.com", got)
 	}
 
-	req2 := httptest.NewRequest("GET", "/api/test", nil)
+	req2 := httptest.NewRequest("GET", "/api/test", http.NoBody)
 	req2.Header.Set("Origin", "https://evil.com")
 	rec2 := httptest.NewRecorder()
 	handler.ServeHTTP(rec2, req2)
@@ -68,7 +68,7 @@ func TestCORS_Credentials(t *testing.T) {
 		}),
 	)
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -85,7 +85,7 @@ func TestCORS_RegularRequest(t *testing.T) {
 		}),
 	)
 
-	req := httptest.NewRequest("GET", "/api/test", nil)
+	req := httptest.NewRequest("GET", "/api/test", http.NoBody)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 

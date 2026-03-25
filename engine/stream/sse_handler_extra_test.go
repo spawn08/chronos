@@ -32,7 +32,7 @@ func (m *minimalResponseWriter) WriteHeader(statusCode int) {
 func TestBroker_SSEHandler_RequiresFlusher(t *testing.T) {
 	b := NewBroker()
 	h := b.SSEHandler("sub1")
-	req := httptest.NewRequest(http.MethodGet, "/sse", nil)
+	req := httptest.NewRequest(http.MethodGet, "/sse", http.NoBody)
 	var w minimalResponseWriter
 	h.ServeHTTP(&w, req)
 	if w.code != http.StatusInternalServerError {

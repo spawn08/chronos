@@ -173,7 +173,7 @@ func TestRenderDashboard_NoError(t *testing.T) {
 		renderDashboard(stats, "http://localhost:8420", 2*time.Second)
 	})
 	if !strings.Contains(output, "CHRONOS MONITOR") {
-		t.Errorf("expected CHRONOS MONITOR in output, got: %q", output[:min(200, len(output))])
+		t.Errorf("expected CHRONOS MONITOR in output, got: %q", output[:minInt(200, len(output))])
 	}
 }
 
@@ -208,7 +208,7 @@ func TestRenderDashboard_ManySessionsTruncated(t *testing.T) {
 		renderDashboard(stats, "http://localhost:8420", 2*time.Second)
 	})
 	if !strings.Contains(output, "more") {
-		t.Errorf("expected truncation note for >5 sessions, got: %q", output[:min(500, len(output))])
+		t.Errorf("expected truncation note for >5 sessions, got: %q", output[:minInt(500, len(output))])
 	}
 }
 
@@ -221,7 +221,7 @@ func TestRenderDashboard_NoSessions(t *testing.T) {
 		renderDashboard(stats, "http://localhost:8420", 2*time.Second)
 	})
 	if !strings.Contains(output, "No sessions found") {
-		t.Errorf("expected 'No sessions found', got: %q", output[:min(500, len(output))])
+		t.Errorf("expected 'No sessions found', got: %q", output[:minInt(500, len(output))])
 	}
 }
 
@@ -295,7 +295,7 @@ func TestSplitPrometheusLine_EmptyRestAfterBrace(t *testing.T) {
 	}
 }
 
-func min(a, b int) int {
+func minInt(a, b int) int {
 	if a < b {
 		return a
 	}

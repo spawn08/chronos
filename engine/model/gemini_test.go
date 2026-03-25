@@ -320,7 +320,7 @@ data: {"candidates":[{"content":{"parts":[{"text":" Gemini"}],"role":"model"},"f
 		t.Fatalf("StreamChat: %v", err)
 	}
 
-	var chunks []string
+	chunks := make([]string, 0, 2)
 	for cr := range ch {
 		chunks = append(chunks, cr.Content)
 	}
