@@ -24,13 +24,13 @@ func TestCollectAgents_Table(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "supervisor_only",
-			node: &SupervisorNode{Supervisor: root},
+			name:    "supervisor_only",
+			node:    &SupervisorNode{Supervisor: root},
 			wantLen: 1,
 		},
 		{
-			name: "supervisor_and_workers",
-			node: &SupervisorNode{Supervisor: root, Workers: []*agent.Agent{w1}},
+			name:    "supervisor_and_workers",
+			node:    &SupervisorNode{Supervisor: root, Workers: []*agent.Agent{w1}},
 			wantLen: 2,
 		},
 		{
@@ -44,8 +44,8 @@ func TestCollectAgents_Table(t *testing.T) {
 			wantLen: 3,
 		},
 		{
-			name: "nil_supervisor",
-			node: &SupervisorNode{Supervisor: nil},
+			name:    "nil_supervisor",
+			node:    &SupervisorNode{Supervisor: nil},
 			wantErr: true,
 		},
 	}

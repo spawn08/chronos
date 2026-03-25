@@ -67,12 +67,12 @@ func TestBuildProvider_CompatibleName(t *testing.T) {
 
 func TestExpandEnvInConfig_NoPanic(t *testing.T) {
 	cfg := &AgentConfig{
-		ID:          "id",
-		Name:        "n",
-		System:      "s",
+		ID:           "id",
+		Name:         "n",
+		System:       "s",
 		Instructions: []string{"a"},
-		Model:       ModelConfig{APIKey: "k"},
-		Storage:     StorageConfig{DSN: "d"},
+		Model:        ModelConfig{APIKey: "k"},
+		Storage:      StorageConfig{DSN: "d"},
 	}
 	expandEnvInConfig(cfg)
 	_ = cfg.ID

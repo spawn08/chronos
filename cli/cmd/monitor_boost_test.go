@@ -90,7 +90,7 @@ func TestFetchStats_SessionsInvalidJSON_Boost(t *testing.T) {
 type errReadCloser struct{}
 
 func (errReadCloser) Read([]byte) (int, error) { return 0, errors.New("read failed") }
-func (errReadCloser) Close() error            { return nil }
+func (errReadCloser) Close() error             { return nil }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 

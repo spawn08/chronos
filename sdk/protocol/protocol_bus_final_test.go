@@ -64,11 +64,11 @@ func TestSendAndWait_ContextCanceledWaitingForReply(t *testing.T) {
 	cancel()
 
 	_, err := b.SendAndWait(ctx, &Envelope{
-		ID:      "r2",
-		Type:    TypeQuestion,
-		From:    "alice",
-		To:      "bob",
-		Body:    []byte(`"q"`),
+		ID:   "r2",
+		Type: TypeQuestion,
+		From: "alice",
+		To:   "bob",
+		Body: []byte(`"q"`),
 	})
 	if err != context.Canceled {
 		t.Fatalf("want canceled, got %v", err)

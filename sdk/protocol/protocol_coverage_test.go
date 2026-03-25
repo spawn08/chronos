@@ -83,4 +83,3 @@ func TestDeliverToLocked_Backpressure(t *testing.T) {
 		t.Fatal("expected inbox full error")
 	}
 }
-

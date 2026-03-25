@@ -21,4 +21,3 @@ func TestMigrate_AfterClose_Push(t *testing.T) {
 		t.Fatal("expected Migrate error after Close")
 	}
 }
-

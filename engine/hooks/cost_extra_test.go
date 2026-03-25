@@ -12,8 +12,8 @@ func TestCostTracker_Before_BudgetExactlyReached(t *testing.T) {
 	ct.Budget = 100
 	ctx := context.Background()
 	ct.After(ctx, &Event{
-		Type:  EventModelCallAfter,
-		Name:  "m",
+		Type: EventModelCallAfter,
+		Name: "m",
 		Metadata: map[string]any{
 			"prompt_tokens": 100,
 		},
@@ -29,7 +29,7 @@ func TestCostTracker_Before_NonBudgetEventIgnored(t *testing.T) {
 	ct.Budget = 0.01
 	ctx := context.Background()
 	ct.After(ctx, &Event{
-		Type:  EventModelCallAfter,
+		Type: EventModelCallAfter,
 		Name: "m",
 		Metadata: map[string]any{
 			"prompt_tokens": 100,

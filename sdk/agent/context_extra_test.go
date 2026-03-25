@@ -43,11 +43,11 @@ func TestReadStoredResult_MapValueMarshalsToJSON(t *testing.T) {
 	store := memory.New()
 	ctx := context.Background()
 	_ = store.PutMemory(ctx, &storage.MemoryRecord{
-		ID:        "k1",
-		AgentID:   "agent1",
-		Kind:      "tool_result_evicted",
-		Key:       "k1",
-		Value:     map[string]any{"nested": 42},
+		ID:      "k1",
+		AgentID: "agent1",
+		Kind:    "tool_result_evicted",
+		Key:     "k1",
+		Value:   map[string]any{"nested": 42},
 	})
 
 	out, err := ReadStoredResult(ctx, store, "agent1", "k1")

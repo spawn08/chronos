@@ -13,7 +13,7 @@ import (
 type errBody struct{}
 
 func (errBody) Read([]byte) (int, error) { return 0, errors.New("body read error") }
-func (errBody) Close() error            { return nil }
+func (errBody) Close() error             { return nil }
 
 func TestServer_BodyReadError_Boost(t *testing.T) {
 	s := NewServer("")

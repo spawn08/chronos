@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	mockPGVecExecFail   = "pgvector_iter6_exec_fail"
-	mockPGVecQueryFail  = "pgvector_iter6_query_fail"
-	mockPGVecScanFail   = "pgvector_iter6_scan_fail"
+	mockPGVecExecFail  = "pgvector_iter6_exec_fail"
+	mockPGVecQueryFail = "pgvector_iter6_query_fail"
+	mockPGVecScanFail  = "pgvector_iter6_scan_fail"
 )
 
 func init() {
@@ -31,15 +31,17 @@ func (d *vecExecFailDriver) Open(string) (driver.Conn, error) { return &vecExecF
 type vecExecFailConn struct{}
 
 func (c *vecExecFailConn) Prepare(string) (driver.Stmt, error) { return &vecExecFailStmt{}, nil }
-func (c *vecExecFailConn) Close() error                         { return nil }
-func (c *vecExecFailConn) Begin() (driver.Tx, error)            { return &mockTx{}, nil }
+func (c *vecExecFailConn) Close() error                        { return nil }
+func (c *vecExecFailConn) Begin() (driver.Tx, error)           { return &mockTx{}, nil }
 
 type vecExecFailStmt struct{}
 
-func (s *vecExecFailStmt) Close() error                               { return nil }
-func (s *vecExecFailStmt) NumInput() int                              { return -1 }
-func (s *vecExecFailStmt) Exec([]driver.Value) (driver.Result, error) { return nil, errors.New("exec fail") }
-func (s *vecExecFailStmt) Query([]driver.Value) (driver.Rows, error)  { return &mockRows{}, nil }
+func (s *vecExecFailStmt) Close() error  { return nil }
+func (s *vecExecFailStmt) NumInput() int { return -1 }
+func (s *vecExecFailStmt) Exec([]driver.Value) (driver.Result, error) {
+	return nil, errors.New("exec fail")
+}
+func (s *vecExecFailStmt) Query([]driver.Value) (driver.Rows, error) { return &mockRows{}, nil }
 
 type vecQueryFailDriver struct{}
 
@@ -56,7 +58,9 @@ type vecQueryFailStmt struct{}
 func (s *vecQueryFailStmt) Close() error                               { return nil }
 func (s *vecQueryFailStmt) NumInput() int                              { return -1 }
 func (s *vecQueryFailStmt) Exec([]driver.Value) (driver.Result, error) { return &mockResult{}, nil }
-func (s *vecQueryFailStmt) Query([]driver.Value) (driver.Rows, error)  { return nil, errors.New("query fail") }
+func (s *vecQueryFailStmt) Query([]driver.Value) (driver.Rows, error) {
+	return nil, errors.New("query fail")
+}
 
 type vecScanFailDriver struct{}
 

@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/spawn08/chronos/engine/graph"
-	"github.com/spawn08/chronos/engine/model"
 	"github.com/spawn08/chronos/engine/mcp"
+	"github.com/spawn08/chronos/engine/model"
 	"github.com/spawn08/chronos/storage"
 )
 

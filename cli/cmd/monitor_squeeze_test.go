@@ -13,10 +13,10 @@ import (
 
 func TestSplitPrometheusLine_Squeeze(t *testing.T) {
 	tests := []struct {
-		line       string
-		wantName   string
-		wantVal    string
-		wantOK     bool
+		line     string
+		wantName string
+		wantVal  string
+		wantOK   bool
 	}{
 		{`chronos_tool_calls_total 42`, "chronos_tool_calls_total", "42", true},
 		{`chronos_model_latency_seconds_sum{le="0.5"} 1.25`, "chronos_model_latency_seconds_sum", "1.25", true},
@@ -110,15 +110,15 @@ func TestFetchStats_Squeeze(t *testing.T) {
 func TestRenderDashboard_Squeeze(t *testing.T) {
 	longID := strings.Repeat("x", 30)
 	st := monitorStats{
-		HealthStatus:     "down",
-		FetchErr:         "health: connection refused",
-		RecentSessions:   nil,
-		ToolCallsTotal:   1,
-		ModelCallsTotal:  10,
-		TokensUsedTotal:  100,
-		ErrorsTotal:      5,
-		ModelLatencyP50:  2.5,
-		ActiveSessionsG:  7,
+		HealthStatus:    "down",
+		FetchErr:        "health: connection refused",
+		RecentSessions:  nil,
+		ToolCallsTotal:  1,
+		ModelCallsTotal: 10,
+		TokensUsedTotal: 100,
+		ErrorsTotal:     5,
+		ModelLatencyP50: 2.5,
+		ActiveSessionsG: 7,
 	}
 	out := captureStdout(t, func() {
 		renderDashboard(st, "http://test:8420", time.Second)

@@ -44,7 +44,7 @@ func TestSQLTool_ExecInsert_Boost(t *testing.T) {
 	def := NewSQLTool(db, []string{"INSERT", "SELECT"})
 	h := def.Handler
 	out, err := h(context.Background(), map[string]any{
-		"query": "INSERT INTO u (v) VALUES (?)",
+		"query":  "INSERT INTO u (v) VALUES (?)",
 		"params": []any{"hello"},
 	})
 	if err != nil {

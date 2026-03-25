@@ -29,7 +29,7 @@ func TestCORS_Preflight_NoMaxAge(t *testing.T) {
 func TestCORS_ExposeHeadersSet(t *testing.T) {
 	cfg := CORSConfig{
 		AllowOrigins:  []string{"*"},
-		AllowMethods:    []string{"GET"},
+		AllowMethods:  []string{"GET"},
 		ExposeHeaders: []string{"X-Request-Id", "X-Trace"},
 	}
 	handler := CORS(cfg)(
