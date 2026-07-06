@@ -9,6 +9,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/spawn08/chronos/engine/mcp"
 	"github.com/spawn08/chronos/engine/model"
 	"github.com/spawn08/chronos/engine/tool"
 	"github.com/spawn08/chronos/engine/tool/builtins"
@@ -29,6 +30,10 @@ type AgentConfig struct {
 	Instructions []string      `yaml:"instructions,omitempty"`
 	Tools        []ToolConfig  `yaml:"tools,omitempty"`
 	Capabilities []string      `yaml:"capabilities,omitempty"`
+
+	// MCPServers lists Model Context Protocol servers whose tools are
+	// registered with the agent when ConnectMCP is called after Build.
+	MCPServers []mcp.ServerConfig `yaml:"mcp_servers,omitempty"`
 
 	OutputSchema   map[string]any `yaml:"output_schema,omitempty"`
 	NumHistoryRuns int            `yaml:"num_history_runs,omitempty"`
@@ -199,6 +204,12 @@ func BuildAgent(ctx context.Context, cfg *AgentConfig) (*Agent, error) {
 		if toolDef != nil {
 			b.AddTool(toolDef)
 		}
+	}
+
+	// MCP servers: register their configs so ConnectMCP can connect and
+	// import their tools into the registry after Build.
+	for _, srv := range cfg.MCPServers {
+		b.AddMCPServer(srv)
 	}
 
 	// Model provider
@@ -451,6 +462,13 @@ func expandEnvInConfig(cfg *AgentConfig) {
 	cfg.Storage.DSN = expandEnv(cfg.Storage.DSN)
 	for i := range cfg.Instructions {
 		cfg.Instructions[i] = expandEnv(cfg.Instructions[i])
+	}
+	for i := range cfg.MCPServers {
+		cfg.MCPServers[i].Command = expandEnv(cfg.MCPServers[i].Command)
+		cfg.MCPServers[i].URL = expandEnv(cfg.MCPServers[i].URL)
+		for j := range cfg.MCPServers[i].Args {
+			cfg.MCPServers[i].Args[j] = expandEnv(cfg.MCPServers[i].Args[j])
+		}
 	}
 }
 

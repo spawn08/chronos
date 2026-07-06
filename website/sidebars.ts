@@ -25,6 +25,7 @@ const sidebars: SidebarsConfig = {
         'guides/agents',
         'guides/models',
         'guides/tools',
+        'guides/mcp',
         'guides/memory',
         'guides/context-management',
         'guides/teams',

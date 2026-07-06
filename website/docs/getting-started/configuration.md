@@ -70,6 +70,7 @@ agents:
       - Additional instruction 2
     tools: []
     capabilities: []
+    mcp_servers: []                # Model Context Protocol servers (see guide)
     sub_agents: []
     output_schema: {}
     num_history_runs: 0
@@ -112,6 +113,28 @@ teams:
 |-------|-------------|
 | `backend` | `sqlite` or `postgres` |
 | `dsn` | Connection string or file path (e.g., `chronos.db` for SQLite) |
+
+## MCP servers (`mcp_servers`)
+
+Each entry connects the agent to a [Model Context Protocol](/guides/mcp) server whose tools are imported into the registry when `ConnectMCP` is called.
+
+| Field | Description |
+|-------|-------------|
+| `name` | Logical server name (used in error messages) |
+| `transport` | `stdio` (default) or `sse` (planned) |
+| `command` | Executable to launch for stdio (e.g., `npx`, `uvx`); supports `${VAR}` |
+| `args` | Arguments passed to the command; each supports `${VAR}` |
+| `url` | Endpoint for SSE transport; supports `${VAR}` |
+
+```yaml
+    mcp_servers:
+      - name: filesystem
+        transport: stdio
+        command: npx
+        args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+```
+
+See the [MCP guide](/guides/mcp) for the full workflow.
 
 ## TeamConfig
 
