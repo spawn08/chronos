@@ -27,10 +27,10 @@ type Provider interface {
 
 | Provider | Constructor | Notes |
 |----------|--------------|-------|
-| OpenAI | `model.NewOpenAI(apiKey)` | GPT-4, GPT-4o, GPT-3.5-turbo, o1, o3 |
-| Anthropic | `model.NewAnthropic(apiKey)` | Claude models |
-| Gemini | `model.NewGemini(apiKey)` | Google Gemini |
-| Mistral | `model.NewMistral(apiKey)` | Mistral models |
+| OpenAI | `model.NewOpenAI(apiKey)` | GPT-5.5, GPT-5, GPT-4o, o-series (o3, o4-mini) |
+| Anthropic | `model.NewAnthropic(apiKey)` | Claude Opus 4.8, Sonnet 5, Haiku 4.5, Fable 5 |
+| Gemini | `model.NewGemini(apiKey)` | Gemini 3.5 Flash, 3.1 Pro, 3 Flash |
+| Mistral | `model.NewMistral(apiKey)` | Mistral Large / Medium / Small |
 | Ollama | `model.NewOllama(host, model)` | Local models (e.g., `http://localhost:11434`, `llama3.2`) |
 | Azure | `model.NewAzureOpenAI(endpoint, key, deployment)` | Azure OpenAI |
 | Compatible | `model.NewOpenAICompatible(name, url, key, model)` | Any OpenAI-compatible API |
@@ -63,7 +63,7 @@ For full configuration, use `ProviderConfig` with the `WithConfig` constructor:
 cfg := model.ProviderConfig{
     APIKey:        os.Getenv("OPENAI_API_KEY"),
     BaseURL:       "https://api.openai.com/v1",
-    Model:         "gpt-4o",
+    Model:         "gpt-5.5",
     MaxRetries:    3,
     TimeoutSec:    60,
     OrgID:         "org-xxx",

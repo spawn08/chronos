@@ -18,6 +18,28 @@ type Provider interface {
 }
 ```
 
+## Latest model IDs
+
+Chronos never hardcodes a model — you pass the ID as a string, so any model a
+provider ships works immediately. The table below lists commonly used current
+model IDs (as of mid-2026). Provider catalogs change frequently; check each
+provider's model list for the authoritative, up-to-date IDs and snapshots.
+
+| Provider | Current models | Example ID |
+|----------|----------------|------------|
+| OpenAI | GPT-5.5, GPT-5.5 Pro, GPT-5, GPT-4o, o-series reasoning | `gpt-5.5` |
+| Anthropic | Claude Opus 4.8, Claude Sonnet 5, Claude Haiku 4.5, Claude Opus 4.7, Claude Fable 5 | `claude-opus-4-8` |
+| Google Gemini | Gemini 3.5 Flash, Gemini 3.1 Pro, Gemini 3 Flash, Gemini 3.1 Flash-Lite | `gemini-3.5-flash` |
+| Mistral | Mistral Large, Mistral Medium, Mistral Small | `mistral-large-latest` |
+| Groq / Together / Fireworks | Hosted open models (Llama, Qwen, DeepSeek, …) | provider-specific |
+| DeepSeek | DeepSeek-V3, DeepSeek-R1 (reasoning) | `deepseek-chat` |
+
+:::note
+Anthropic model IDs above are exact. OpenAI and Gemini IDs track the mid-2026
+release lines — snapshot/date-suffixed variants (e.g. `gpt-5.5-2026-04-23`) and
+newer releases may exist; consult the provider's model list before pinning one.
+:::
+
 ## Supported Providers
 
 ### OpenAI
@@ -29,13 +51,13 @@ p := model.NewOpenAI(apiKey)
 // With configuration
 p := model.NewOpenAIWithConfig(model.ProviderConfig{
     APIKey:     apiKey,
-    Model:      "gpt-4o",
+    Model:      "gpt-5.5",
     MaxRetries: 3,
     TimeoutSec: 60,
 })
 ```
 
-Supports: GPT-4o, GPT-4o-mini, GPT-4, GPT-3.5-turbo, o1, o1-mini, o3, o3-mini.
+Supports the GPT-5.5 line (`gpt-5.5`, `gpt-5.5-pro`), GPT-5, GPT-4o/GPT-4o-mini, and the o-series reasoning models (o3, o4-mini). Older `gpt-4` / `gpt-3.5-turbo` IDs still work.
 
 ### Anthropic
 
@@ -43,11 +65,11 @@ Supports: GPT-4o, GPT-4o-mini, GPT-4, GPT-3.5-turbo, o1, o1-mini, o3, o3-mini.
 p := model.NewAnthropic(apiKey)
 p := model.NewAnthropicWithConfig(model.ProviderConfig{
     APIKey: apiKey,
-    Model:  "claude-sonnet-4-6",
+    Model:  "claude-opus-4-8",
 })
 ```
 
-Supports: Claude Sonnet 4, Claude 3.5 Sonnet, Claude 3 Opus, Claude 3 Haiku.
+Supports Claude Opus 4.8 (`claude-opus-4-8`), Claude Sonnet 5 (`claude-sonnet-5`), Claude Haiku 4.5 (`claude-haiku-4-5`), Claude Opus 4.7 (`claude-opus-4-7`), and Claude Fable 5 (`claude-fable-5`, most capable).
 
 ### Google Gemini
 
@@ -55,9 +77,11 @@ Supports: Claude Sonnet 4, Claude 3.5 Sonnet, Claude 3 Opus, Claude 3 Haiku.
 p := model.NewGemini(apiKey)
 p := model.NewGeminiWithConfig(model.ProviderConfig{
     APIKey: apiKey,
-    Model:  "gemini-2.0-flash",
+    Model:  "gemini-3.5-flash",
 })
 ```
+
+Supports the Gemini 3 line: Gemini 3.5 Flash (`gemini-3.5-flash`), Gemini 3.1 Pro (`gemini-3.1-pro`), Gemini 3 Flash (`gemini-3-flash`), and Gemini 3.1 Flash-Lite (`gemini-3.1-flash-lite`).
 
 ### Mistral
 
@@ -82,7 +106,7 @@ p := model.NewAzureOpenAIWithConfig(model.AzureConfig{
         APIKey:  apiKey,
         BaseURL: endpoint,
     },
-    Deployment: "gpt-4o",
+    Deployment: "gpt-5.5",
     APIVersion: "2024-12-01-preview",
 })
 ```
@@ -179,7 +203,7 @@ agents:
   - id: my-agent
     model:
       provider: openai          # or anthropic, gemini, mistral, ollama, azure, groq, etc.
-      model: gpt-4o
+      model: gpt-5.5
       api_key: ${OPENAI_API_KEY}
 ```
 
