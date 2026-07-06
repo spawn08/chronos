@@ -5,7 +5,7 @@ title: "Examples"
 
 # Examples Guide
 
-Chronos ships with 12+ runnable examples covering every major feature. Most require **no API keys** and run entirely with mock providers and SQLite.
+Chronos ships with **16 runnable examples** covering every major feature. Most require **no API keys** and run entirely with mock providers and SQLite.
 
 ## Running Examples
 
@@ -17,6 +17,27 @@ cd chronos
 # Run any example
 go run ./examples/<name>/
 ```
+
+## Feature Index
+
+| Example | Feature area | API key |
+|---------|-------------|---------|
+| [quickstart](#quickstart) | Agent builder, SQLite, StateGraph | No |
+| [chat_with_tools](#chat_with_tools) | Tool calling loop | No |
+| [tools_and_guardrails](#tools_and_guardrails) | Permissions, guardrails | No |
+| [hooks_observability](#hooks_observability) | Metrics, cost, cache, retry, rate limit | No |
+| [graph_patterns](#graph_patterns) | Conditional edges, interrupts, streaming | No |
+| [memory_and_sessions](#memory_and_sessions) | Short/long-term memory, sessions | No |
+| [streaming_sse](#streaming_sse) | Event broker, SSE | No |
+| [fallback_provider](#fallback_provider) | Provider failover | No |
+| [sandbox_execution](#sandbox_execution) | Process sandbox | No |
+| [multi_agent](#multi_agent) | 4 team strategies | Optional |
+| [graph_with_llm](#graph_with_llm) | StateGraph + live LLM | Yes |
+| [mcp_agent](#mcp_agent) | Model Context Protocol tools | Optional |
+| [coding_agent](#coding_agent) | Autonomous coding agent + RAG | Optional |
+| [team_deploy](#team_deploy) | YAML teams + sandbox deploy | Optional |
+| [multi_provider](#multi_provider) | Multiple providers side by side | Yes |
+| [azure](#azure) | Azure OpenAI | Yes |
 
 ## Real LLM Examples
 
@@ -203,7 +224,63 @@ go run ./examples/sandbox_execution/
 
 ## API Keys Required
 
-These examples connect to real LLM APIs:
+These examples connect to real LLM APIs (most fall back to a mock provider when no key is set):
+
+### mcp_agent
+
+**Model Context Protocol integration.** Connects to an MCP server over stdio, imports every tool it advertises into the agent's registry, and lets the model call them. Uses the official filesystem MCP server.
+
+```bash
+# Optional live tool server:
+npm install -g @modelcontextprotocol/server-filesystem
+OPENAI_API_KEY=sk-... go run ./examples/mcp_agent/
+```
+
+**Demonstrates:**
+- `AddMCPServer(mcp.ServerConfig{...})` — register an MCP server on the agent
+- `ConnectMCP(ctx)` — launch servers and import their tools
+- Inspecting imported tools via `agent.Tools.List()`
+- Graceful degradation when the server binary is absent
+
+See the [Model Context Protocol guide](/guides/mcp) for the full workflow.
+
+---
+
+### coding_agent
+
+**Autonomous, Cursor/Aider-style coding agent.** Reads, writes, and searches files, runs shell commands (git, build, tests), and uses a vector store for semantic code search (RAG). Runs an autonomous multi-step loop.
+
+```bash
+OPENAI_API_KEY=sk-... go run ./examples/coding_agent/
+```
+
+**Demonstrates:**
+- Wiring built-in file tools + shell tools + custom tools onto one agent
+- `VectorKnowledge` with in-memory embeddings for code search (RAG)
+- An autonomous agent loop bounded by `MaxIterations`
+- Combining tools with system prompts for effective coding workflows
+- Mock fallback when no API key is set
+
+---
+
+### team_deploy
+
+**Deploy multi-agent teams from YAML with sandbox isolation.** Loads a team deployment config, builds agents with YAML-defined tools, and runs them in a sandboxed process environment using sequential and coordinator strategies.
+
+```bash
+OPENAI_API_KEY=sk-... go run ./examples/team_deploy/
+
+# Or via the CLI:
+go run ./cli/main.go deploy examples/team_deploy/deploy.yaml "Add error handling to the API"
+```
+
+**Demonstrates:**
+- YAML-driven agent and team configuration
+- Sandbox-backed tool execution for safe agent autonomy
+- Sequential pipeline vs. coordinator strategies
+- Deploying a full coding team from a single config file
+
+---
 
 ### multi_agent
 

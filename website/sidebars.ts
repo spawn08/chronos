@@ -56,6 +56,7 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Deployment',
       items: [
+        'guides/scaling-best-practices',
         'deployment/docker',
         'deployment/kubernetes',
         'deployment/cicd',
