@@ -102,7 +102,7 @@ agents:
     name: Assistant
     model:
       provider: openai
-      model: gpt-4o
+      model: gpt-5.5
       api_key: \${OPENAI_API_KEY}
     system_prompt: You are a helpful assistant.`;
 

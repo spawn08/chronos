@@ -27,7 +27,7 @@ go run ./cli/main.go repl
 defaults:
   model:
     provider: openai
-    model: gpt-4o
+    model: gpt-5.5
     api_key: ${OPENAI_API_KEY}
     base_url: ""
     org_id: ""
@@ -52,7 +52,7 @@ agents:
     description: Optional description
     model:
       provider: openai
-      model: gpt-4o
+      model: gpt-5.5
       api_key: ${OPENAI_API_KEY}
       base_url: ""
       org_id: ""
@@ -98,7 +98,7 @@ teams:
 | Field | Description |
 |-------|-------------|
 | `provider` | One of: `openai`, `anthropic`, `gemini`, `mistral`, `ollama`, `azure`, `groq`, `together`, `deepseek`, `openrouter`, `fireworks`, `perplexity`, `anyscale`, `compatible` |
-| `model` | Model ID (e.g., `gpt-4o`, `claude-sonnet-4-6`, `llama3.3`) |
+| `model` | Model ID (e.g., `gpt-5.5`, `claude-opus-4-8`, `llama3.3`) |
 | `api_key` | API key; supports `${VAR}` expansion |
 | `base_url` | Custom base URL for compatible providers |
 | `org_id` | OpenAI organization ID |
@@ -193,14 +193,14 @@ agents:
   - id: dev
     name: Dev Agent
     model:
-      model: gpt-4o
+      model: gpt-5.5
     system_prompt: You are a senior engineer.
 
   - id: researcher
     name: Research Agent
     model:
       provider: anthropic
-      model: claude-sonnet-4-6
+      model: claude-opus-4-8
       api_key: ${ANTHROPIC_API_KEY}
 ```
 
@@ -211,8 +211,8 @@ agents:
 
 | Provider | Description |
 |----------|-------------|
-| `openai` | OpenAI GPT-4o, GPT-4, GPT-3.5-turbo, o1, o3 |
-| `anthropic` | Claude models |
+| `openai` | OpenAI GPT-5.5, GPT-5, GPT-4o, o-series (o3, o4-mini) |
+| `anthropic` | Claude Opus 4.8, Sonnet 5, Haiku 4.5, Fable 5 |
 | `gemini` | Google Gemini |
 | `mistral` | Mistral AI |
 | `ollama` | Local Ollama (no API key) |

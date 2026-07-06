@@ -25,7 +25,7 @@ type Provider interface {
 | `Chat` | Send a request and receive a complete response |
 | `StreamChat` | Return a channel of partial responses for streaming |
 | `Name` | Human-readable provider name (e.g., "openai") |
-| `Model` | Default model ID (e.g., "gpt-4o") |
+| `Model` | Default model ID (e.g., "gpt-5.5") |
 
 **Implementations:** `OpenAI`, `Anthropic`, `Gemini`, `Mistral`, `Ollama`, `AzureOpenAI`, `OpenAICompatible`, `FallbackProvider`
 

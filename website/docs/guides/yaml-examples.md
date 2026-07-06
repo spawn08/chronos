@@ -18,7 +18,7 @@ agents:
     name: Research Analyst
     model:
       provider: openai
-      model: gpt-4o
+      model: gpt-5.5
       api_key: ${OPENAI_API_KEY}
     system_prompt: You are a research analyst.
 
@@ -26,7 +26,7 @@ agents:
     name: Content Writer
     model:
       provider: openai
-      model: gpt-4o
+      model: gpt-5.5
       api_key: ${OPENAI_API_KEY}
     system_prompt: You are a content writer.
 
@@ -117,7 +117,7 @@ agents:
     name: Personal Assistant
     model:
       provider: openai
-      model: gpt-4o
+      model: gpt-5.5
       api_key: ${OPENAI_API_KEY}
     storage:
       backend: none
@@ -157,7 +157,7 @@ defaults:
   model:
     provider: openai
     api_key: ${OPENAI_API_KEY}
-    model: gpt-4o
+    model: gpt-5.5
   storage:
     backend: none
 
@@ -260,7 +260,7 @@ defaults:
   model:
     provider: openai
     api_key: ${OPENAI_API_KEY}
-    model: gpt-4o
+    model: gpt-5.5
   storage:
     backend: none
 
@@ -349,7 +349,7 @@ defaults:
   model:
     provider: openai
     api_key: ${OPENAI_API_KEY}
-    model: gpt-4o
+    model: gpt-5.5
   storage:
     backend: none
 
@@ -452,7 +452,7 @@ agents:
     name: GPT-4o Agent
     model:
       provider: openai
-      model: gpt-4o
+      model: gpt-5.5
       api_key: ${OPENAI_API_KEY}
     storage:
       backend: none
@@ -462,7 +462,7 @@ agents:
     name: Claude Agent
     model:
       provider: anthropic
-      model: claude-sonnet-4-6
+      model: claude-opus-4-8
       api_key: ${ANTHROPIC_API_KEY}
     storage:
       backend: none

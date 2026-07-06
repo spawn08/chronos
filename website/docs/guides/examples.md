@@ -313,7 +313,7 @@ Azure OpenAI provider with standard and streaming modes.
 ```bash
 export AZURE_OPENAI_API_KEY=...
 export AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
-export AZURE_OPENAI_DEPLOYMENT=gpt-4o
+export AZURE_OPENAI_DEPLOYMENT=gpt-5.5
 export AZURE_OPENAI_API_VERSION=2024-12-01-preview
 go run ./examples/azure/
 go run ./examples/azure/ -stream

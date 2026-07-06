@@ -13,9 +13,9 @@ Before running any example, you need exactly one thing: an LLM API key.
 
 | Provider | Env Variable | Default Model | Sign Up |
 |----------|-------------|---------------|---------|
-| **OpenAI** | `OPENAI_API_KEY` | `gpt-4o` | [platform.openai.com](https://platform.openai.com) |
-| **Anthropic** | `ANTHROPIC_API_KEY` | `claude-sonnet-4-20250514` | [console.anthropic.com](https://console.anthropic.com) |
-| **Google Gemini** | `GEMINI_API_KEY` | `gemini-2.0-flash` | [ai.google.dev](https://ai.google.dev) |
+| **OpenAI** | `OPENAI_API_KEY` | `gpt-5.5` | [platform.openai.com](https://platform.openai.com) |
+| **Anthropic** | `ANTHROPIC_API_KEY` | `claude-opus-4-8` | [console.anthropic.com](https://console.anthropic.com) |
+| **Google Gemini** | `GEMINI_API_KEY` | `gemini-3.5-flash` | [ai.google.dev](https://ai.google.dev) |
 | **Mistral** | `MISTRAL_API_KEY` | `mistral-large-latest` | [console.mistral.ai](https://console.mistral.ai) |
 | **Groq** | `GROQ_API_KEY` | *(your choice)* | [console.groq.com](https://console.groq.com) |
 | **DeepSeek** | `DEEPSEEK_API_KEY` | *(your choice)* | [platform.deepseek.com](https://platform.deepseek.com) |
@@ -68,19 +68,19 @@ func resolveProvider() model.Provider {
 # OpenAI
 model:
   provider: openai
-  model: gpt-4o
+  model: gpt-5.5
   api_key: ${OPENAI_API_KEY}
 
 # Anthropic
 model:
   provider: anthropic
-  model: claude-sonnet-4-20250514
+  model: claude-opus-4-8
   api_key: ${ANTHROPIC_API_KEY}
 
 # Gemini
 model:
   provider: gemini
-  model: gemini-2.0-flash
+  model: gemini-3.5-flash
   api_key: ${GEMINI_API_KEY}
 
 # Ollama (no API key, fully local)
@@ -162,7 +162,7 @@ agents:
     name: Assistant
     model:
       provider: openai
-      model: gpt-4o
+      model: gpt-5.5
       api_key: ${OPENAI_API_KEY}
     storage:
       backend: none
@@ -254,7 +254,7 @@ agents:
     name: Tool Agent
     model:
       provider: openai
-      model: gpt-4o
+      model: gpt-5.5
       api_key: ${OPENAI_API_KEY}
     system_prompt: You are a helpful assistant with access to tools.
     tools:
@@ -497,7 +497,7 @@ The router strategy in YAML provides the same classification behavior as the Go 
 defaults:
   model:
     provider: openai
-    model: gpt-4o
+    model: gpt-5.5
     api_key: ${OPENAI_API_KEY}
   storage:
     backend: none
@@ -604,7 +604,7 @@ agents:
     name: Memory Agent
     model:
       provider: openai
-      model: gpt-4o
+      model: gpt-5.5
       api_key: ${OPENAI_API_KEY}
     storage:
       backend: sqlite
@@ -685,7 +685,7 @@ func main() {
 defaults:
   model:
     provider: openai
-    model: gpt-4o
+    model: gpt-5.5
     api_key: ${OPENAI_API_KEY}
   storage:
     backend: none
@@ -761,7 +761,7 @@ fmt.Println(result["response"])
 defaults:
   model:
     provider: openai
-    model: gpt-4o
+    model: gpt-5.5
     api_key: ${OPENAI_API_KEY}
   storage:
     backend: none
@@ -935,7 +935,7 @@ sandbox:
 defaults:
   model:
     provider: openai
-    model: gpt-4o
+    model: gpt-5.5
     api_key: ${OPENAI_API_KEY}
 
 agents:
@@ -987,7 +987,7 @@ go run ./cli/main.go deploy deploy-config.yaml "Create a hello world HTTP server
 | `CHRONOS_CONFIG` | CLI | Path to YAML config file |
 | `CHRONOS_DB_PATH` | CLI | SQLite database path (default: `chronos.db`) |
 | `CHRONOS_API_KEY` | CLI | Default provider API key |
-| `CHRONOS_MODEL` | CLI | Default model (default: `gpt-4o`) |
+| `CHRONOS_MODEL` | CLI | Default model (default: `gpt-5.5`) |
 
 ---
 
