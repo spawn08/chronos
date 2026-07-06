@@ -22,8 +22,8 @@ func TestGemini_NewGemini_Defaults(t *testing.T) {
 	if p.Name() != "gemini" {
 		t.Errorf("Name()=%q, want gemini", p.Name())
 	}
-	if p.Model() != "gemini-2.0-flash" {
-		t.Errorf("Model()=%q, want gemini-2.0-flash", p.Model())
+	if p.Model() != "gemini-3.5-flash" {
+		t.Errorf("Model()=%q, want gemini-3.5-flash", p.Model())
 	}
 }
 

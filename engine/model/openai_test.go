@@ -24,8 +24,8 @@ func TestOpenAI_NewOpenAI_Defaults(t *testing.T) {
 	if p.Name() != "openai" {
 		t.Errorf("Name()=%q, want openai", p.Name())
 	}
-	if p.Model() != "gpt-4o" {
-		t.Errorf("Model()=%q, want gpt-4o", p.Model())
+	if p.Model() != "gpt-5.5" {
+		t.Errorf("Model()=%q, want gpt-5.5", p.Model())
 	}
 }
 

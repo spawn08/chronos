@@ -20,7 +20,7 @@ func NewAnthropic(apiKey string) *Anthropic {
 	return NewAnthropicWithConfig(ProviderConfig{
 		APIKey:  apiKey,
 		BaseURL: "https://api.anthropic.com",
-		Model:   "claude-sonnet-4-20250514",
+		Model:   "claude-opus-4-8",
 	})
 }
 
@@ -30,7 +30,7 @@ func NewAnthropicWithConfig(cfg ProviderConfig) *Anthropic {
 		cfg.BaseURL = "https://api.anthropic.com"
 	}
 	if cfg.Model == "" {
-		cfg.Model = "claude-sonnet-4-20250514"
+		cfg.Model = "claude-opus-4-8"
 	}
 	headers := map[string]string{
 		"x-api-key":         cfg.APIKey,

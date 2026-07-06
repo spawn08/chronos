@@ -153,6 +153,8 @@ func extractUsage(evt *Event) (prompt, completion int) {
 
 func defaultPriceTable() map[string]ModelPrice {
 	return map[string]ModelPrice{
+		"gpt-5.5":     {PromptPricePerToken: 0.000005, CompletionPricePerToken: 0.00003},
+		"gpt-5":       {PromptPricePerToken: 0.00000125, CompletionPricePerToken: 0.00001},
 		"gpt-4o":      {PromptPricePerToken: 0.0000025, CompletionPricePerToken: 0.00001},
 		"gpt-4o-mini": {PromptPricePerToken: 0.00000015, CompletionPricePerToken: 0.0000006},
 		"gpt-4-turbo": {PromptPricePerToken: 0.00001, CompletionPricePerToken: 0.00003},
@@ -161,6 +163,11 @@ func defaultPriceTable() map[string]ModelPrice {
 		"o3":          {PromptPricePerToken: 0.00001, CompletionPricePerToken: 0.00004},
 		"o3-mini":     {PromptPricePerToken: 0.0000011, CompletionPricePerToken: 0.0000044},
 
+		"claude-fable-5":    {PromptPricePerToken: 0.00001, CompletionPricePerToken: 0.00005},
+		"claude-opus-4-8":   {PromptPricePerToken: 0.000005, CompletionPricePerToken: 0.000025},
+		"claude-opus-4-7":   {PromptPricePerToken: 0.000005, CompletionPricePerToken: 0.000025},
+		"claude-sonnet-5":   {PromptPricePerToken: 0.000003, CompletionPricePerToken: 0.000015},
+		"claude-haiku-4-5":  {PromptPricePerToken: 0.000001, CompletionPricePerToken: 0.000005},
 		"claude-sonnet-4-6": {PromptPricePerToken: 0.000003, CompletionPricePerToken: 0.000015},
 		"claude-3-5-sonnet": {PromptPricePerToken: 0.000003, CompletionPricePerToken: 0.000015},
 		"claude-3-opus":     {PromptPricePerToken: 0.000015, CompletionPricePerToken: 0.000075},

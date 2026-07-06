@@ -21,7 +21,7 @@ func NewOpenAI(apiKey string) *OpenAI {
 	return NewOpenAIWithConfig(ProviderConfig{
 		APIKey:  apiKey,
 		BaseURL: "https://api.openai.com/v1",
-		Model:   "gpt-4o",
+		Model:   "gpt-5.5",
 	})
 }
 
@@ -31,7 +31,7 @@ func NewOpenAIWithConfig(cfg ProviderConfig) *OpenAI {
 		cfg.BaseURL = "https://api.openai.com/v1"
 	}
 	if cfg.Model == "" {
-		cfg.Model = "gpt-4o"
+		cfg.Model = "gpt-5.5"
 	}
 	headers := map[string]string{
 		"Authorization": "Bearer " + cfg.APIKey,

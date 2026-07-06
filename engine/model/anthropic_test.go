@@ -22,8 +22,8 @@ func TestAnthropic_NewAnthropic_Defaults(t *testing.T) {
 	if p.Name() != "anthropic" {
 		t.Errorf("Name()=%q, want anthropic", p.Name())
 	}
-	if p.Model() != "claude-sonnet-4-20250514" {
-		t.Errorf("Model()=%q, want claude-sonnet-4-20250514", p.Model())
+	if p.Model() != "claude-opus-4-8" {
+		t.Errorf("Model()=%q, want claude-opus-4-8", p.Model())
 	}
 }
 

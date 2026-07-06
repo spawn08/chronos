@@ -15,10 +15,10 @@ func TestNewGeminiWithConfig_DefaultBaseURLAndModel_Squeeze(t *testing.T) {
 	if g.config.BaseURL != "https://generativelanguage.googleapis.com/v1beta" {
 		t.Errorf("BaseURL=%q", g.config.BaseURL)
 	}
-	if g.config.Model != "gemini-2.0-flash" {
+	if g.config.Model != "gemini-3.5-flash" {
 		t.Errorf("Model=%q", g.config.Model)
 	}
-	if g.Model() != "gemini-2.0-flash" {
+	if g.Model() != "gemini-3.5-flash" {
 		t.Errorf("Model()=%q", g.Model())
 	}
 }

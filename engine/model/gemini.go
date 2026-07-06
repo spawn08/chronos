@@ -20,7 +20,7 @@ func NewGemini(apiKey string) *Gemini {
 	return NewGeminiWithConfig(ProviderConfig{
 		APIKey:  apiKey,
 		BaseURL: "https://generativelanguage.googleapis.com/v1beta",
-		Model:   "gemini-2.0-flash",
+		Model:   "gemini-3.5-flash",
 	})
 }
 
@@ -30,7 +30,7 @@ func NewGeminiWithConfig(cfg ProviderConfig) *Gemini {
 		cfg.BaseURL = "https://generativelanguage.googleapis.com/v1beta"
 	}
 	if cfg.Model == "" {
-		cfg.Model = "gemini-2.0-flash"
+		cfg.Model = "gemini-3.5-flash"
 	}
 	return &Gemini{
 		config: cfg,

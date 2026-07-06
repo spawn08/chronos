@@ -64,6 +64,9 @@ const defaultContextLimit = 8192
 // modelContextLimits maps well-known model identifiers to their context window sizes.
 var modelContextLimits = map[string]int{
 	// OpenAI
+	"gpt-5.5":       1000000,
+	"gpt-5.5-pro":   1000000,
+	"gpt-5":         400000,
 	"gpt-4o":        128000,
 	"gpt-4o-mini":   128000,
 	"gpt-4-turbo":   128000,
@@ -78,6 +81,11 @@ var modelContextLimits = map[string]int{
 	"o4-mini":       200000,
 
 	// Anthropic
+	"claude-fable-5":    1000000,
+	"claude-opus-4-8":   1000000,
+	"claude-opus-4-7":   1000000,
+	"claude-sonnet-5":   1000000,
+	"claude-haiku-4-5":  200000,
 	"claude-sonnet-4-6": 200000,
 	"claude-sonnet-4-5": 200000,
 	"claude-3-5-sonnet": 200000,
@@ -86,10 +94,14 @@ var modelContextLimits = map[string]int{
 	"claude-3-5-haiku":  200000,
 
 	// Google Gemini
-	"gemini-2.0-flash": 1048576,
-	"gemini-2.0-pro":   1048576,
-	"gemini-1.5-flash": 1048576,
-	"gemini-1.5-pro":   2097152,
+	"gemini-3.5-flash":      1048576,
+	"gemini-3.1-pro":        1048576,
+	"gemini-3-flash":        1048576,
+	"gemini-3.1-flash-lite": 1048576,
+	"gemini-2.0-flash":      1048576,
+	"gemini-2.0-pro":        1048576,
+	"gemini-1.5-flash":      1048576,
+	"gemini-1.5-pro":        2097152,
 
 	// Mistral
 	"mistral-large-latest":  128000,
