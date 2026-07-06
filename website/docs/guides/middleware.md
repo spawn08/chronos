@@ -156,7 +156,7 @@ fmt.Printf("Total: $%.4f, Session: $%.4f\n", global.TotalCost, sessionCost.Total
 |-------|------|-------------|
 | `Budget` | float64 | Max total spend (USD); 0 = unlimited |
 
-Built-in price table includes GPT-4o, GPT-4o-mini, GPT-4-turbo, o1, o1-mini, o3, o3-mini, Claude models, Gemini, and Mistral. Pass a custom `map[string]ModelPrice` to `NewCostTracker` to override.
+Built-in price table includes GPT-5.5, GPT-5, GPT-4o, o-series, Claude (Opus 4.8, Sonnet 5, Haiku 4.5, Fable 5), Gemini, and Mistral. Pass a custom `map[string]ModelPrice` to `NewCostTracker` to override. Prices track mid-2026 rates — override for current pricing.
 
 ### CacheHook
 

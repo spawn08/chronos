@@ -59,8 +59,8 @@ Estimates API costs using configurable per-token pricing. Supports budget limits
 
 ```go
 tracker := hooks.NewCostTracker(map[string]hooks.ModelPrice{
-    "gpt-4o":      {PromptPricePerToken: 0.0000025, CompletionPricePerToken: 0.00001},
-    "gpt-4o-mini": {PromptPricePerToken: 0.00000015, CompletionPricePerToken: 0.0000006},
+    "gpt-5.5":         {PromptPricePerToken: 0.000005, CompletionPricePerToken: 0.00003},
+    "claude-opus-4-8": {PromptPricePerToken: 0.000005, CompletionPricePerToken: 0.000025},
 })
 tracker.Budget = 1.00 // $1.00 max spend — blocks calls when exceeded
 

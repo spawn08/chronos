@@ -43,13 +43,13 @@ Override the default prices by passing a custom price table:
 
 ```go
 prices := map[string]hooks.ModelPrice{
-    "gpt-4o": {
-        PromptPricePerToken:     0.0000025,
-        CompletionPricePerToken: 0.00001,
+    "gpt-5.5": {
+        PromptPricePerToken:     0.000005,
+        CompletionPricePerToken: 0.00003,
     },
-    "claude-sonnet-4-6": {
-        PromptPricePerToken:     0.000003,
-        CompletionPricePerToken: 0.000015,
+    "claude-opus-4-8": {
+        PromptPricePerToken:     0.000005,
+        CompletionPricePerToken: 0.000025,
     },
 }
 
@@ -58,21 +58,20 @@ tracker := hooks.NewCostTracker(prices)
 
 ### Default Price Table
 
-The built-in table covers these models:
+The built-in table covers these models (prices as of mid-2026 — override with a custom table for current rates):
 
 | Model | Prompt (per token) | Completion (per token) |
 |-------|-------------------|----------------------|
+| gpt-5.5 | $0.000005 | $0.00003 |
+| gpt-5 | $0.00000125 | $0.00001 |
 | gpt-4o | $0.0000025 | $0.00001 |
 | gpt-4o-mini | $0.00000015 | $0.0000006 |
-| gpt-4-turbo | $0.00001 | $0.00003 |
-| o1 | $0.000015 | $0.00006 |
 | o3 | $0.00001 | $0.00004 |
-| o3-mini | $0.0000011 | $0.0000044 |
-| claude-sonnet-4-6 | $0.000003 | $0.000015 |
-| claude-3-opus | $0.000015 | $0.000075 |
-| claude-3-haiku | $0.00000025 | $0.00000125 |
+| claude-fable-5 | $0.00001 | $0.00005 |
+| claude-opus-4-8 | $0.000005 | $0.000025 |
+| claude-sonnet-5 | $0.000003 | $0.000015 |
+| claude-haiku-4-5 | $0.000001 | $0.000005 |
 | gemini-2.0-flash | $0.00000015 | $0.0000006 |
-| gemini-1.5-pro | $0.00000125 | $0.000005 |
 | mistral-large-latest | $0.000002 | $0.000006 |
 
 ## Budget Enforcement

@@ -63,9 +63,9 @@ counter := &model.EstimatingCounter{CharsPerToken: 3.5}
 Chronos maintains built-in context limits for well-known models. Use `ContextLimit` to resolve the limit for a given model:
 
 ```go
-limit := model.ContextLimit("gpt-4o", 0)      // 128000
-limit := model.ContextLimit("claude-3-5-sonnet", 0)  // 200000
-limit := model.ContextLimit("gemini-1.5-pro", 0)      // 2097152
+limit := model.ContextLimit("gpt-5.5", 0)            // 1000000
+limit := model.ContextLimit("claude-opus-4-8", 0)    // 1000000
+limit := model.ContextLimit("gemini-3.5-flash", 0)   // 1048576
 limit := model.ContextLimit("unknown-model", 8192)   // fallback 8192
 ```
 
@@ -73,10 +73,13 @@ Built-in limits include:
 
 | Provider | Models | Limit (tokens) |
 |----------|--------|----------------|
+| OpenAI | gpt-5.5, gpt-5.5-pro | 1M |
+| OpenAI | gpt-5 | 400K |
 | OpenAI | gpt-4o, gpt-4o-mini, gpt-4-turbo | 128K |
 | OpenAI | o1, o3, o3-mini, o4-mini | 200K |
-| Anthropic | claude-sonnet-4-6, claude-3-5-sonnet, claude-3-opus, claude-3-haiku | 200K |
-| Google | gemini-2.0-flash, gemini-2.0-pro, gemini-1.5-flash | 1M |
+| Anthropic | claude-fable-5, claude-opus-4-8, claude-opus-4-7, claude-sonnet-5 | 1M |
+| Anthropic | claude-haiku-4-5, claude-sonnet-4-6, claude-3-5-sonnet, claude-3-opus | 200K |
+| Google | gemini-3.5-flash, gemini-3.1-pro, gemini-3-flash, gemini-3.1-flash-lite | 1M |
 | Google | gemini-1.5-pro | 2M |
 | Mistral | mistral-large-latest | 128K |
 | Meta | llama3.3, llama3.2, llama3.1 | 131K |
