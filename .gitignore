@@ -54,3 +54,5 @@ tmp/
 *.log
 # Autoresearch runtime (secrets and logs — never commit)
 autoresearch/
+# Agent worktrees (never track)
+.claude/worktrees/
