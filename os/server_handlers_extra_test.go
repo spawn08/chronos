@@ -143,6 +143,9 @@ func (s *migrateErrStore) Migrate(ctx context.Context) error {
 	return fmt.Errorf("migrate failed")
 }
 
+// TestHandleReadiness_MigrateFails verifies that readiness is a cheap check
+// (P0-011): even with a store whose Migrate always fails, /health/ready returns
+// 200 once ready, because migration is no longer run on the readiness path.
 func TestHandleReadiness_MigrateFails(t *testing.T) {
 	s := New(":0", &migrateErrStore{Store: memory.New()})
 	s.SetReady(true)
@@ -151,8 +154,8 @@ func TestHandleReadiness_MigrateFails(t *testing.T) {
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
-	if w.Code != http.StatusServiceUnavailable {
-		t.Errorf("got %d, want 503", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("got %d, want 200 (readiness must not run Migrate)", w.Code)
 	}
 }
 

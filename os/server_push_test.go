@@ -19,6 +19,8 @@ func (e *errMigrateMemStore) Migrate(ctx context.Context) error {
 	return errors.New("migrate failed (push test)")
 }
 
+// TestHandleReadiness_MigrateError_Push verifies readiness no longer triggers
+// Migrate (P0-011): a store whose Migrate always fails still yields a ready 200.
 func TestHandleReadiness_MigrateError_Push(t *testing.T) {
 	base := memory.New()
 	s := New(":0", &errMigrateMemStore{Store: base})
@@ -28,8 +30,8 @@ func TestHandleReadiness_MigrateError_Push(t *testing.T) {
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
-	if w.Code != http.StatusServiceUnavailable {
-		t.Errorf("expected 503 when Migrate fails, got %d body=%q", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 (readiness must not run Migrate), got %d body=%q", w.Code, w.Body.String())
 	}
 }
 
