@@ -88,6 +88,9 @@ func (s *Store) Migrate(ctx context.Context) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_events_session_seq ON events(session_id, seq_num)`,
 		`CREATE INDEX IF NOT EXISTS idx_checkpoints_session ON checkpoints(session_id, created_at DESC)`,
+		// One checkpoint per (session, seq_num): enforces a gap-free ledger and
+		// backs deterministic ORDER BY seq_num resume (P0-003, P0-004).
+		`CREATE UNIQUE INDEX IF NOT EXISTS uq_checkpoints_session_seq ON checkpoints(session_id, seq_num)`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
@@ -283,10 +286,13 @@ func (s *Store) ListTraces(ctx context.Context, sessionID string) ([]*storage.Tr
 
 // --- Events ---
 
+// AppendEvent appends a ledger event. It is idempotent: re-appending an event
+// with an existing id is a no-op, so replay/resume cannot error on the primary
+// key or duplicate the ledger (P0-004).
 func (s *Store) AppendEvent(ctx context.Context, e *storage.Event) error {
 	payload, _ := json.Marshal(e.Payload)
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO events (id, session_id, seq_num, type, payload, created_at) VALUES (?,?,?,?,?,?)`,
+		`INSERT OR IGNORE INTO events (id, session_id, seq_num, type, payload, created_at) VALUES (?,?,?,?,?,?)`,
 		e.ID, e.SessionID, e.SeqNum, e.Type, string(payload), e.CreatedAt,
 	)
 	return err
@@ -316,13 +322,50 @@ func (s *Store) ListEvents(ctx context.Context, sessionID string, afterSeq int64
 
 // --- Checkpoints ---
 
+// SaveCheckpoint persists a checkpoint. It is idempotent: saving a checkpoint
+// with an existing id overwrites it, so resuming/replaying a run cannot error on
+// the primary key (P0-004).
 func (s *Store) SaveCheckpoint(ctx context.Context, cp *storage.Checkpoint) error {
 	state, _ := json.Marshal(cp.State)
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO checkpoints (id, session_id, run_id, node_id, state, seq_num, created_at) VALUES (?,?,?,?,?,?,?)`,
+		`INSERT OR REPLACE INTO checkpoints (id, session_id, run_id, node_id, state, seq_num, created_at) VALUES (?,?,?,?,?,?,?)`,
 		cp.ID, cp.SessionID, cp.RunID, cp.NodeID, string(state), cp.SeqNum, cp.CreatedAt,
 	)
 	return err
+}
+
+// SaveCheckpointAndEvent persists a checkpoint and its ledger event atomically in
+// a single transaction, satisfying graph.CheckpointCommitter. A crash cannot
+// leave the checkpoint and event ledger out of sync (P0-004).
+func (s *Store) SaveCheckpointAndEvent(ctx context.Context, cp *storage.Checkpoint, evt *storage.Event) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	state, _ := json.Marshal(cp.State)
+	if _, err := tx.ExecContext(ctx,
+		`INSERT OR REPLACE INTO checkpoints (id, session_id, run_id, node_id, state, seq_num, created_at) VALUES (?,?,?,?,?,?,?)`,
+		cp.ID, cp.SessionID, cp.RunID, cp.NodeID, string(state), cp.SeqNum, cp.CreatedAt,
+	); err != nil {
+		return fmt.Errorf("save checkpoint: %w", err)
+	}
+
+	if evt != nil {
+		payload, _ := json.Marshal(evt.Payload)
+		if _, err := tx.ExecContext(ctx,
+			`INSERT OR IGNORE INTO events (id, session_id, seq_num, type, payload, created_at) VALUES (?,?,?,?,?,?)`,
+			evt.ID, evt.SessionID, evt.SeqNum, evt.Type, string(payload), evt.CreatedAt,
+		); err != nil {
+			return fmt.Errorf("append event: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit checkpoint and event: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) GetCheckpoint(ctx context.Context, id string) (*storage.Checkpoint, error) {
@@ -337,8 +380,10 @@ func (s *Store) GetCheckpoint(ctx context.Context, id string) (*storage.Checkpoi
 }
 
 func (s *Store) GetLatestCheckpoint(ctx context.Context, sessionID string) (*storage.Checkpoint, error) {
+	// Order by seq_num (monotonic) rather than wall-clock: same-tick timestamps
+	// would otherwise make the "latest" checkpoint non-deterministic (P0-003).
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, session_id, run_id, node_id, state, seq_num, created_at FROM checkpoints WHERE session_id=? ORDER BY created_at DESC LIMIT 1`,
+		`SELECT id, session_id, run_id, node_id, state, seq_num, created_at FROM checkpoints WHERE session_id=? ORDER BY seq_num DESC LIMIT 1`,
 		sessionID,
 	)
 	cp := &storage.Checkpoint{}

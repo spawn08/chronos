@@ -686,17 +686,20 @@ func TestRunner_ResumeWithTracer(t *testing.T) {
 	tracesBeforeResume := len(store.traces)
 	store.mu.Unlock()
 
-	// Resume — since pause_node is an interrupt node, it will pause again,
-	// but the important thing is that the runner was configured with a tracer
-	// and additional trace spans are recorded.
+	// Resume — with the P0-001 fix, resuming advances PAST the interrupt node
+	// exactly once, so the approved workflow runs pause_node and completes
+	// instead of re-pausing forever. Additional trace spans are recorded.
 	runner2 := NewRunner(compiled, store).WithTracer(collector)
 	result2, err := runner2.Resume(context.Background(), "s-resume")
 	if err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
-	// Interrupt node pauses again on resume
-	if result2.Status != RunStatusPaused {
-		t.Errorf("resumed status = %q, want paused", result2.Status)
+	// Interrupt node executes once on resume, then the run completes.
+	if result2.Status != RunStatusCompleted {
+		t.Errorf("resumed status = %q, want completed", result2.Status)
+	}
+	if approved, _ := result2.State["paused"].(bool); !approved {
+		t.Error("expected pause_node to have executed on resume (state[paused]=true)")
 	}
 
 	store.mu.Lock()
