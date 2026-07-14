@@ -131,21 +131,11 @@ ln -sf ../../scripts/pre-push-check.sh .git/hooks/pre-push
 1. Write a `graph.NodeFunc`: `func(ctx context.Context, state graph.State) (graph.State, error)`
 2. Register: `graph.New("id").AddNode("name", fn)` or `.AddInterruptNode("name", fn)` for human-in-the-loop
 
-## Gap Analysis (Current State)
+## Status & Planning
 
-- **Working:** Agent builder, Chat, Execute, Run, Resume; StateGraph with checkpoints; team orchestration (sequential, parallel, router, coordinator) with lightweight model-only agents; protocol bus with back-pressure, object pooling, direct channels; memory Store + Manager; VectorKnowledge; model providers (OpenAI, Anthropic, Gemini, Mistral, Ollama, Azure, Compatible); SQLite + Postgres Storage; Qdrant VectorStore; tool registry + approval; guardrails + hooks; stream Broker; ProcessSandbox; ChronosOS server + approval API.
-- **Not wired in agent:** OutputSchema, NumHistoryRuns are stored on the agent but not fully used in Run. Fix in Tier 1 (see DEVELOPMENT.md).
-- **Stubs or missing:** Storage adapters (dynamo, mongo, redis, redisvector, pinecone, weaviate, milvus); concrete EmbeddingsProvider (none yet); CLI `run` and most subcommands (sessions, skills, kb, memory, mcp, config, db, monitor); ChronosOS sessions/traces APIs (return empty); auth (always allows); Runner→Broker publishing; trace collector during execution; container sandbox; Helm secrets/Ingress/HPA; migration framework; MCP client; evals; built-in skill tool implementations; tests.
+The seven-tier build-out roadmap is complete (see [ROADMAP.md](ROADMAP.md) for the delivered-capabilities history). Forward-looking work — the production-hardening and high-scale plan, including known correctness bugs to fix — is tracked in **[PLAN.md](PLAN.md)**. Consult PLAN.md before starting new work.
 
-Re-run a full gap report with the **gap-analysis** slash command (see below).
-
-- **Full Roadmap:** See [ROADMAP.md](ROADMAP.md) for 101 prioritized items (P0–P3) with checkboxes. When completing an item, change `[ ]` to `[x]` and append `<!-- done: YYYY-MM-DD -->` in that file. Also add an entry to the Completion Log table at the bottom.
-
-## Development Workflow
-
-- **Roadmap:** See [DEVELOPMENT.md](DEVELOPMENT.md) for the seven-tier implementation plan, acceptance criteria, and dependency order (Tier 1 → 4 → 2 → 5 → 3 → 6 → 7).
-- **Slash commands** (in `.claude/commands/`): Use **implement-tier** with a tier number (1–7) to implement that tier. Use **gap-analysis** to regenerate the gap report. Use **add-tests** with a package path to add table-driven tests. Use **add-embedding-provider** or **add-cli-command** with a name/spec to scaffold. Use **scale-sandbox** for container-based sandbox work.
-- **Cursor rules** (in `.cursor/rules/`): Apply when editing matching paths — `chronos-go.mdc` (always), `storage-adapters.mdc` for `storage/adapters/**/*.go`, `cli-commands.mdc` for `cli/**/*.go`, `model-providers.mdc` for `engine/model/**/*.go`.
+- **Slash commands** (in `.claude/commands/`): `add-tests` (table-driven tests for a package), `add-embedding-provider` / `add-cli-command` (scaffolding), `new-adapter` / `new-tool` / `new-node` / `new-hook` / `new-guardrail` / `new-skill`.
 
 ## Do NOT
 - Add `init()` functions
