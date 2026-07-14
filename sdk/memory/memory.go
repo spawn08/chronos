@@ -151,7 +151,7 @@ func (s *Store) ListLongTerm(ctx context.Context) ([]*storage.MemoryRecord, erro
 		return nil, err
 	}
 	prefix := s.bucketToken() + ltKeySep
-	var out []*storage.MemoryRecord
+	out := make([]*storage.MemoryRecord, 0, len(all))
 	for _, m := range all {
 		// HasPrefix is boundary-safe here: the token contains no ':' so no other
 		// tenant's namespaced key can begin with this exact "token::" prefix.

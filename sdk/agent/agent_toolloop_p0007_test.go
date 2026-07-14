@@ -30,8 +30,8 @@ func (p *recordingProvider) Chat(_ context.Context, req *model.ChatRequest) (*mo
 	defer p.mu.Unlock()
 
 	roles := make([]string, len(req.Messages))
-	for i, m := range req.Messages {
-		roles[i] = m.Role
+	for i := range req.Messages {
+		roles[i] = req.Messages[i].Role
 	}
 	p.msgLens = append(p.msgLens, len(req.Messages))
 	p.toolCount = append(p.toolCount, len(req.Tools))

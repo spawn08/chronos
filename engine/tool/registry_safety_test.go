@@ -34,7 +34,7 @@ func TestExecutePanicRecovery(t *testing.T) {
 			name: "nil deref panic",
 			handler: func(_ context.Context, _ map[string]any) (any, error) {
 				var m map[string]any
-				m["x"] = 1 // assignment to entry in nil map panics
+				m["x"] = 1 //nolint:govet,staticcheck // deliberate nil-map write to exercise panic recovery
 				return nil, nil
 			},
 			wantSubstr: "panicked",

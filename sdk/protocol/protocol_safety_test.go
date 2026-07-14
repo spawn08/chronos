@@ -64,10 +64,10 @@ func TestHandlerPanicRecovery(t *testing.T) {
 			}
 
 			// Bus still works: a healthy handler responds normally.
-			if err := b.Register("healthy", "Healthy", "", nil, func(_ context.Context, env *Envelope) (*Envelope, error) {
+			if regErr := b.Register("healthy", "Healthy", "", nil, func(_ context.Context, env *Envelope) (*Envelope, error) {
 				return &Envelope{Type: TypeAck, Body: env.Body}, nil
-			}); err != nil {
-				t.Fatalf("register healthy: %v", err)
+			}); regErr != nil {
+				t.Fatalf("register healthy: %v", regErr)
 			}
 			reply2, err := b.SendAndWait(ctx, &Envelope{
 				Type:    TypeTaskRequest,
