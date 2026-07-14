@@ -30,7 +30,7 @@ func (p *mockProvider) Model() string { return "mock-model" }
 
 func TestManager_ExtractMemories_Success(t *testing.T) {
 	backend := newMemStorage()
-	store := NewStore("agent1", backend)
+	store := NewStoreForUser("agent1", "user1", backend)
 	provider := &mockProvider{
 		response: `[{"key":"user_name","value":"Alice"},{"key":"favorite_color","value":"blue"}]`,
 	}
@@ -55,7 +55,7 @@ func TestManager_ExtractMemories_Success(t *testing.T) {
 
 func TestManager_ExtractMemories_ProviderError(t *testing.T) {
 	backend := newMemStorage()
-	store := NewStore("agent1", backend)
+	store := NewStoreForUser("agent1", "user1", backend)
 	provider := &mockProvider{err: errors.New("provider down")}
 	mgr := NewManager("agent1", "user1", store, provider)
 
@@ -73,7 +73,7 @@ func TestManager_ExtractMemories_ProviderError(t *testing.T) {
 func TestManager_ExtractMemories_InvalidJSON(t *testing.T) {
 	// When model returns invalid JSON, should not error — just skip
 	backend := newMemStorage()
-	store := NewStore("agent1", backend)
+	store := NewStoreForUser("agent1", "user1", backend)
 	provider := &mockProvider{response: "this is not json"}
 	mgr := NewManager("agent1", "user1", store, provider)
 
@@ -86,7 +86,7 @@ func TestManager_ExtractMemories_InvalidJSON(t *testing.T) {
 
 func TestManager_ExtractMemories_EmptyArray(t *testing.T) {
 	backend := newMemStorage()
-	store := NewStore("agent1", backend)
+	store := NewStoreForUser("agent1", "user1", backend)
 	provider := &mockProvider{response: "[]"}
 	mgr := NewManager("agent1", "user1", store, provider)
 
@@ -105,7 +105,7 @@ func TestManager_ExtractMemories_EmptyArray(t *testing.T) {
 func TestManager_OptimizeMemories_TooFew(t *testing.T) {
 	// With fewer than 5 memories, OptimizeMemories should be a no-op
 	backend := newMemStorage()
-	store := NewStore("agent1", backend)
+	store := NewStoreForUser("agent1", "user1", backend)
 	provider := &mockProvider{response: "[]"}
 	mgr := NewManager("agent1", "user1", store, provider)
 
@@ -126,7 +126,7 @@ func TestManager_OptimizeMemories_TooFew(t *testing.T) {
 
 func TestManager_OptimizeMemories_Success(t *testing.T) {
 	backend := newMemStorage()
-	store := NewStore("agent1", backend)
+	store := NewStoreForUser("agent1", "user1", backend)
 	provider := &mockProvider{response: `[{"key":"merged","value":"combined fact"}]`}
 	mgr := NewManager("agent1", "user1", store, provider)
 
@@ -148,7 +148,7 @@ func TestManager_OptimizeMemories_Success(t *testing.T) {
 
 func TestManager_OptimizeMemories_InvalidJSON(t *testing.T) {
 	backend := newMemStorage()
-	store := NewStore("agent1", backend)
+	store := NewStoreForUser("agent1", "user1", backend)
 	provider := &mockProvider{response: "not json"}
 	mgr := NewManager("agent1", "user1", store, provider)
 
@@ -165,7 +165,7 @@ func TestManager_OptimizeMemories_InvalidJSON(t *testing.T) {
 
 func TestManager_GetUserMemories_Empty(t *testing.T) {
 	backend := newMemStorage()
-	store := NewStore("agent1", backend)
+	store := NewStoreForUser("agent1", "user1", backend)
 	provider := &mockProvider{}
 	mgr := NewManager("agent1", "user1", store, provider)
 
@@ -180,7 +180,7 @@ func TestManager_GetUserMemories_Empty(t *testing.T) {
 
 func TestManager_GetUserMemories_WithMemories(t *testing.T) {
 	backend := newMemStorage()
-	store := NewStore("agent1", backend)
+	store := NewStoreForUser("agent1", "user1", backend)
 	provider := &mockProvider{}
 	mgr := NewManager("agent1", "user1", store, provider)
 
@@ -202,7 +202,7 @@ func TestManager_GetUserMemories_WithMemories(t *testing.T) {
 
 func TestManager_MemoryTools_Remember(t *testing.T) {
 	backend := newMemStorage()
-	store := NewStore("agent1", backend)
+	store := NewStoreForUser("agent1", "user1", backend)
 	provider := &mockProvider{}
 	mgr := NewManager("agent1", "user1", store, provider)
 
@@ -235,7 +235,7 @@ func TestManager_MemoryTools_Remember(t *testing.T) {
 
 func TestManager_MemoryTools_Remember_MissingKey(t *testing.T) {
 	backend := newMemStorage()
-	store := NewStore("agent1", backend)
+	store := NewStoreForUser("agent1", "user1", backend)
 	mgr := NewManager("agent1", "user1", store, &mockProvider{})
 
 	tools := mgr.MemoryTools()
@@ -254,7 +254,7 @@ func TestManager_MemoryTools_Remember_MissingKey(t *testing.T) {
 
 func TestManager_MemoryTools_Forget(t *testing.T) {
 	backend := newMemStorage()
-	store := NewStore("agent1", backend)
+	store := NewStoreForUser("agent1", "user1", backend)
 	mgr := NewManager("agent1", "user1", store, &mockProvider{})
 
 	ctx := context.Background()
@@ -284,7 +284,7 @@ func TestManager_MemoryTools_Forget(t *testing.T) {
 
 func TestManager_MemoryTools_Recall(t *testing.T) {
 	backend := newMemStorage()
-	store := NewStore("agent1", backend)
+	store := NewStoreForUser("agent1", "user1", backend)
 	mgr := NewManager("agent1", "user1", store, &mockProvider{})
 
 	ctx := context.Background()

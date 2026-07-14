@@ -20,14 +20,32 @@ type Manager struct {
 	agentID string
 }
 
-// NewManager creates an LLM-powered memory manager.
+// NewManager creates an LLM-powered memory manager. The underlying store is
+// scoped to userID so that all reads and writes are isolated per tenant. An
+// empty userID uses the global/tenantless bucket.
 func NewManager(agentID, userID string, store *Store, provider model.Provider) *Manager {
+	if store != nil {
+		store = store.ForUser(userID)
+	}
 	return &Manager{
 		store:   store,
 		model:   provider,
 		userID:  userID,
 		agentID: agentID,
 	}
+}
+
+// UserID reports the tenant this manager is scoped to ("" means global).
+func (m *Manager) UserID() string { return m.userID }
+
+// WithUserID returns a copy of the manager scoped to a different tenant,
+// re-scoping the underlying store as well. The original manager is unchanged,
+// so a shared agent-level manager can be safely re-scoped per request.
+func (m *Manager) WithUserID(userID string) *Manager {
+	cp := *m
+	cp.userID = userID
+	cp.store = m.store.ForUser(userID)
+	return &cp
 }
 
 const memorySystemPrompt = `You are a memory manager. Given a conversation, decide what facts are worth remembering about the user for future conversations.
@@ -152,8 +170,7 @@ func (m *Manager) MemoryTools() []MemoryTool {
 			Description: "Remove a stored memory by key",
 			Handler: func(ctx context.Context, args map[string]any) (any, error) {
 				key, _ := args["key"].(string)
-				id := fmt.Sprintf("mem_%s_lt_%s", m.agentID, key)
-				return nil, m.store.backend.DeleteMemory(ctx, id)
+				return nil, m.store.DeleteLongTerm(ctx, key)
 			},
 		},
 		{

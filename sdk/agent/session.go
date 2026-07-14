@@ -270,9 +270,19 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 		return nil, fmt.Errorf("agent %q session chat: %w", a.ID, err)
 	}
 
-	// Handle tool calls
-	if resp.StopReason == model.StopReasonToolCall && len(resp.ToolCalls) > 0 {
-		resp, err = a.handleToolCalls(ctx, messages, resp)
+	// Handle tool calls across multiple rounds, threading the accumulated
+	// message history and passing the tool definitions on every follow-up.
+	maxIter := a.MaxIterations
+	if maxIter <= 0 {
+		maxIter = 25
+	}
+	iteration := 0
+	for resp.StopReason == model.StopReasonToolCall && len(resp.ToolCalls) > 0 {
+		iteration++
+		if iteration > maxIter {
+			return nil, fmt.Errorf("agent %q: exceeded max tool-calling iterations (%d) with unsatisfied tool calls", a.ID, maxIter)
+		}
+		resp, messages, err = a.handleToolCalls(ctx, messages, resp, req.Tools)
 		if err != nil {
 			return nil, err
 		}
@@ -302,9 +312,9 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 		}
 	}
 
-	// Extract memories
-	if a.MemoryManager != nil {
-		_ = a.MemoryManager.ExtractMemories(ctx, cs.Messages)
+	// Extract memories (scoped to the agent's tenant)
+	if mgr := a.memoryManager(); mgr != nil {
+		_ = mgr.ExtractMemories(ctx, cs.Messages)
 	}
 
 	return resp, nil
@@ -320,8 +330,8 @@ func (a *Agent) buildSystemContext(ctx context.Context, userQuery string) []mode
 	for _, inst := range a.Instructions {
 		messages = append(messages, model.Message{Role: model.RoleSystem, Content: inst})
 	}
-	if a.MemoryManager != nil {
-		if memCtx, err := a.MemoryManager.GetUserMemories(ctx); err == nil && memCtx != "" {
+	if mgr := a.memoryManager(); mgr != nil {
+		if memCtx, err := mgr.GetUserMemories(ctx); err == nil && memCtx != "" {
 			messages = append(messages, model.Message{Role: model.RoleSystem, Content: memCtx})
 		}
 	}
