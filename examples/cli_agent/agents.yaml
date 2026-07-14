@@ -1,0 +1,79 @@
+# Chronos CLI Agent configuration
+#
+# This file defines agents that the Chronos CLI can list, inspect, chat with,
+# and serve — no Go code required for the basics.
+#
+# Point the CLI at this file with CHRONOS_CONFIG, then use commands like:
+#   CHRONOS_CONFIG=examples/cli_agent/agents.yaml go run ./cli/main.go agent list
+#
+# API keys are injected from the environment via ${VAR} expansion, so no secret
+# is ever committed here. Export OPENAI_API_KEY before running any command that
+# actually talks to the model (agent chat, run, repl).
+
+# Defaults are merged into every agent unless the agent overrides them.
+defaults:
+  model:
+    provider: openai
+    model: gpt-4o
+    api_key: ${OPENAI_API_KEY}
+  storage:
+    backend: sqlite
+    dsn: cli_agent.db
+
+agents:
+  # A general-purpose assistant — the simplest possible agent.
+  - id: assistant
+    name: CLI Assistant
+    description: A concise general-purpose assistant driven entirely from the CLI.
+    system_prompt: |
+      You are a helpful, concise assistant operated from a terminal.
+      Prefer short, direct answers. Use plain text (no markdown tables).
+    instructions:
+      - Keep answers under 6 sentences unless asked for detail.
+      - When unsure, say so plainly instead of guessing.
+    capabilities:
+      - general
+      - qa
+
+  # A repository explorer that uses Chronos' built-in file tools. These built-in
+  # tool names resolve to real handlers automatically (see sdk/agent/config.go).
+  - id: repo-explorer
+    name: Repository Explorer
+    description: Answers questions about the current working directory using file tools.
+    system_prompt: |
+      You are a codebase assistant. Use the file tools to read and search files
+      in the current working directory before answering. Cite the file paths you
+      inspected.
+    instructions:
+      - Never fabricate file contents — always read the file first.
+      - Summarize findings with the relevant file paths.
+    tools:
+      - name: file_read
+        description: Read a file from the working directory
+      - name: file_list
+        description: List files in a directory
+      - name: file_grep
+        description: Search file contents with a pattern
+      # A CUSTOM tool declared in YAML registers only as a placeholder (no real
+      # handler). To give it behavior, wire it in Go — see custom_tool.go.
+      - name: word_count
+        description: Count the words in a piece of text
+        parameters:
+          type: object
+          properties:
+            text:
+              type: string
+          required: [text]
+    capabilities:
+      - code-search
+      - file-io
+
+# A team lets the CLI orchestrate multiple agents. This sequential team pipes
+# the repo-explorer's findings into the assistant for a final summary.
+teams:
+  - id: review
+    name: Repo Review Team
+    strategy: sequential
+    agents:
+      - repo-explorer
+      - assistant
