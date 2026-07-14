@@ -22,7 +22,7 @@ func (e *errListStorage) ListMemory(ctx context.Context, agentID, kind string) (
 
 func TestManager_OptimizeMemories_ListError(t *testing.T) {
 	backend := &errListStorage{memStorage: newMemStorage()}
-	store := NewStore("agent1", backend)
+	store := NewStoreForUser("agent1", "u1", backend)
 	mgr := NewManager("agent1", "u1", store, &mockProvider{response: `[]`})
 
 	ctx := context.Background()
@@ -38,7 +38,7 @@ func TestManager_OptimizeMemories_ListError(t *testing.T) {
 
 func TestManager_GetUserMemories_ListError(t *testing.T) {
 	backend := &errListStorage{memStorage: newMemStorage()}
-	store := NewStore("agent1", backend)
+	store := NewStoreForUser("agent1", "u1", backend)
 	mgr := NewManager("agent1", "u1", store, &mockProvider{})
 
 	_, err := mgr.GetUserMemories(context.Background())

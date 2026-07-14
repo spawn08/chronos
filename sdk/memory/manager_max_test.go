@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/spawn08/chronos/storage"
 )
@@ -29,7 +28,7 @@ func (f *failListBackend) ListMemory(_ context.Context, _, _ string) ([]*storage
 func TestManager_ExtractMemories_SetLongTermError_Max(t *testing.T) {
 	base := newMemStorage()
 	backend := &failPutBackend{memStorage: base}
-	store := NewStore("agent1", backend)
+	store := NewStoreForUser("agent1", "u1", backend)
 	mgr := NewManager("agent1", "u1", store, &mockProvider{
 		response: `[{"key":"k","value":"v"}]`,
 	})
@@ -41,17 +40,12 @@ func TestManager_ExtractMemories_SetLongTermError_Max(t *testing.T) {
 func TestManager_OptimizeMemories_ProviderError_Max(t *testing.T) {
 	backend := newMemStorage()
 	ctx := context.Background()
+	store := NewStoreForUser("agent1", "u1", backend)
 	for i := 0; i < 5; i++ {
-		_ = backend.PutMemory(ctx, &storage.MemoryRecord{
-			ID:        fmt.Sprintf("m%d", i),
-			AgentID:   "agent1",
-			Kind:      "long_term",
-			Key:       fmt.Sprintf("k%d", i),
-			Value:     i,
-			CreatedAt: time.Now(),
-		})
+		// Seed via the tenant-scoped store so keys are namespaced to "u1" and
+		// visible to the u1-scoped manager below.
+		_ = store.SetLongTerm(ctx, fmt.Sprintf("k%d", i), i)
 	}
-	store := NewStore("agent1", backend)
 	mgr := NewManager("agent1", "u1", store, &mockProvider{err: errors.New("boom")})
 	if err := mgr.OptimizeMemories(ctx); err == nil {
 		t.Fatal("expected provider error")
@@ -60,7 +54,7 @@ func TestManager_OptimizeMemories_ProviderError_Max(t *testing.T) {
 
 func TestMemoryTools_Recall_ListError_Max(t *testing.T) {
 	backend := &failListBackend{memStorage: newMemStorage()}
-	store := NewStore("agent1", backend)
+	store := NewStoreForUser("agent1", "u1", backend)
 	mgr := NewManager("agent1", "u1", store, &mockProvider{})
 	var recall MemoryTool
 	for _, mt := range mgr.MemoryTools() {
