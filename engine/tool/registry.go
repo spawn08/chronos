@@ -55,11 +55,15 @@ func NewRegistry() *Registry {
 
 // SetApprovalHandler sets the function called for tools requiring approval.
 func (r *Registry) SetApprovalHandler(fn ApprovalFunc) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.approval = fn
 }
 
 // SetUserInputHandler sets the function called for tools requiring user input.
 func (r *Registry) SetUserInputHandler(fn UserInputFunc) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.userInput = fn
 }
 
@@ -85,6 +89,8 @@ func (r *Registry) List() []*Definition {
 func (r *Registry) Execute(ctx context.Context, name string, args map[string]any) (any, error) {
 	r.mu.RLock()
 	def, ok := r.tools[name]
+	approval := r.approval
+	userInput := r.userInput
 	r.mu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("tool %q not found", name)
@@ -94,10 +100,10 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]any
 	case PermDeny:
 		return nil, fmt.Errorf("tool %q is denied", name)
 	case PermRequireApproval:
-		if r.approval == nil {
+		if approval == nil {
 			return nil, fmt.Errorf("tool %q requires approval but no handler set", name)
 		}
-		approved, err := r.approval(ctx, name, args)
+		approved, err := approval(ctx, name, args)
 		if err != nil {
 			return nil, fmt.Errorf("approval for %q: %w", name, err)
 		}
@@ -107,10 +113,10 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]any
 	}
 
 	if def.RequiresConfirmation {
-		if r.approval == nil {
+		if approval == nil {
 			return nil, fmt.Errorf("tool %q requires confirmation but no approval handler set", name)
 		}
-		confirmed, err := r.approval(ctx, name, args)
+		confirmed, err := approval(ctx, name, args)
 		if err != nil {
 			return nil, fmt.Errorf("confirmation for %q: %w", name, err)
 		}
@@ -120,10 +126,10 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]any
 	}
 
 	if def.RequiresUserInput {
-		if r.userInput == nil {
+		if userInput == nil {
 			return nil, fmt.Errorf("tool %q requires user input but no handler set", name)
 		}
-		input, err := r.userInput(ctx, name, def.Description)
+		input, err := userInput(ctx, name, def.Description)
 		if err != nil {
 			return nil, fmt.Errorf("user input for %q: %w", name, err)
 		}
@@ -133,6 +139,18 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]any
 		args["__user_input__"] = input
 	}
 
+	return r.invokeHandler(ctx, def, args)
+}
+
+// invokeHandler runs a tool handler, converting any panic into an error so a
+// misbehaving tool fails only its own call rather than crashing the process.
+func (r *Registry) invokeHandler(ctx context.Context, def *Definition, args map[string]any) (result any, err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			result = nil
+			err = fmt.Errorf("tool %q panicked: %v", def.Name, rec)
+		}
+	}()
 	return def.Handler(ctx, args)
 }
 
