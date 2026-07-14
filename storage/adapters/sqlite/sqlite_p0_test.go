@@ -135,6 +135,50 @@ func TestCheckpoints_UniqueSessionSeq(t *testing.T) {
 	}
 }
 
+// P0-004 regression (CRITICAL-Q01): re-running on an already-used session must
+// upsert each (session, seq) slot, not collide with uq_checkpoints_session_seq.
+// The runner derives the checkpoint id from (session, seq), so a second run —
+// which restarts seq at 0 — reuses the same ids and upserts. The previous
+// run-scoped id scheme minted new ids at existing slots, which hard-errored on
+// Postgres and silently dropped the prior row on SQLite's INSERT OR REPLACE.
+func TestCheckpoints_RerunSameSession_Upserts(t *testing.T) {
+	ctx := context.Background()
+	st := newMigratedStore(t)
+
+	// id mirrors runner.commit: cp_<session>_<seq>.
+	id := func(session string, seq int64) string {
+		return "cp_" + session + "_" + strconv.FormatInt(seq, 10)
+	}
+
+	save := func(runID, nodeID string) {
+		for seq := int64(0); seq < 3; seq++ {
+			if err := st.SaveCheckpoint(ctx, &storage.Checkpoint{
+				ID: id("s1", seq), SessionID: "s1", RunID: runID, NodeID: nodeID,
+				State: map[string]any{"run": runID}, SeqNum: seq, CreatedAt: time.Now(),
+			}); err != nil {
+				t.Fatalf("%s seq %d: %v", runID, seq, err)
+			}
+		}
+	}
+
+	save("run1", "a")
+	// Second run on the SAME session: same ids, must upsert (not collide).
+	save("run2", "b")
+
+	cps, err := st.ListCheckpoints(ctx, "s1")
+	if err != nil {
+		t.Fatalf("ListCheckpoints: %v", err)
+	}
+	if len(cps) != 3 {
+		t.Fatalf("checkpoint count = %d, want 3 (one row per seq, upserted)", len(cps))
+	}
+	for _, cp := range cps {
+		if cp.RunID != "run2" {
+			t.Errorf("seq %d run_id = %q, want run2 (latest run overwrites in place)", cp.SeqNum, cp.RunID)
+		}
+	}
+}
+
 // P0-004: AppendEvent is idempotent — re-appending the same event id is a no-op
 // rather than a primary-key error, so replay does not gap or duplicate.
 func TestAppendEvent_Idempotent(t *testing.T) {

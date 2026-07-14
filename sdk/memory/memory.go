@@ -3,6 +3,7 @@ package memory
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"time"
@@ -10,14 +11,11 @@ import (
 	"github.com/spawn08/chronos/storage"
 )
 
-// globalUserBucket is the tenant bucket used for long-term memory when no
-// userID is set. It keeps the tenantless/global path working while still
-// giving every long-term record a stable, scopable namespace.
-const globalUserBucket = "_global_"
-
-// ltKeySep separates the tenant bucket from the logical key in a stored
-// long-term memory key. Snake_case keys never contain this sequence, so it is
-// safe to use as a namespace delimiter.
+// ltKeySep separates the encoded tenant token from the logical key in a stored
+// long-term memory key. The token (see bucketToken) is base64url, which never
+// contains ':' — so this delimiter is unambiguous even when the logical key or
+// the userID itself contains "::". This closes the cross-tenant read that a raw
+// "userBucket::key" scheme allowed when userID/key were attacker-influenced.
 const ltKeySep = "::"
 
 // Store provides a high-level memory API on top of storage.Storage.
@@ -60,24 +58,33 @@ func (s *Store) ForUser(userID string) *Store {
 // UserID reports the tenant this store is scoped to ("" means global).
 func (s *Store) UserID() string { return s.userID }
 
-// userBucket returns the tenant bucket used for namespacing long-term memory.
-func (s *Store) userBucket() string {
-	if s.userID == "" {
-		return globalUserBucket
+// bucketToken returns a collision-free token identifying the tenant this store
+// is scoped to. The pre-encoding source is tagged ("g" for the global/tenantless
+// bucket, "u:"+userID for a named tenant) and then base64url-encoded. Tagging
+// keeps the empty-userID bucket distinct from a tenant literally named
+// "_global_", and base64 encoding both makes the token free of the ltKeySep
+// delimiter and injective in userID — so no two distinct tenants (and no tenant
+// vs. global) can ever share a namespace.
+func (s *Store) bucketToken() string {
+	src := "g"
+	if s.userID != "" {
+		src = "u:" + s.userID
 	}
-	return s.userID
+	return base64.RawURLEncoding.EncodeToString([]byte(src))
 }
 
-// longTermKey namespaces a logical key with the current tenant bucket so that
-// same-named keys from different tenants do not collide in storage.
+// longTermKey namespaces a logical key with the current tenant token so that
+// same-named keys from different tenants do not collide in storage. Because the
+// token contains no ':' and the logical key is appended verbatim after the
+// delimiter, the boundary is unambiguous regardless of the key's contents.
 func (s *Store) longTermKey(key string) string {
-	return s.userBucket() + ltKeySep + key
+	return s.bucketToken() + ltKeySep + key
 }
 
 // longTermID builds the storage ID for a long-term record, scoped by
-// (agentID, userBucket, key).
+// (agentID, tenant token, key).
 func (s *Store) longTermID(key string) string {
-	return fmt.Sprintf("mem_%s_%s_lt_%s", s.agentID, s.userBucket(), key)
+	return fmt.Sprintf("mem_%s_%s_lt_%s", s.agentID, s.bucketToken(), key)
 }
 
 // SetShortTerm stores a value in session-scoped working memory.
@@ -121,8 +128,11 @@ func (s *Store) Get(ctx context.Context, key string) (any, error) {
 	if err == nil {
 		return rec.Value, nil
 	}
-	// Fall back to the raw key (short-term or pre-namespacing records).
-	if rec, rawErr := s.backend.GetMemory(ctx, s.agentID, key); rawErr == nil {
+	// Fall back to the raw key for short-term (session) records, which are
+	// stored un-namespaced. Long-term records resolve only through the
+	// tenant-scoped key above, so the fallback must never return a long_term
+	// record — doing so would reopen a cross-tenant/legacy read path (P0-008).
+	if rec, rawErr := s.backend.GetMemory(ctx, s.agentID, key); rawErr == nil && rec.Kind != "long_term" {
 		return rec.Value, nil
 	}
 	return nil, err
@@ -140,9 +150,11 @@ func (s *Store) ListLongTerm(ctx context.Context) ([]*storage.MemoryRecord, erro
 	if err != nil {
 		return nil, err
 	}
-	prefix := s.userBucket() + ltKeySep
+	prefix := s.bucketToken() + ltKeySep
 	var out []*storage.MemoryRecord
 	for _, m := range all {
+		// HasPrefix is boundary-safe here: the token contains no ':' so no other
+		// tenant's namespaced key can begin with this exact "token::" prefix.
 		if !strings.HasPrefix(m.Key, prefix) {
 			continue
 		}

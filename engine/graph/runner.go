@@ -265,9 +265,12 @@ func (r *Runner) ReplayFrom(ctx context.Context, checkpointID string) (*RunState
 	return r.execute(ctx, rs, true)
 }
 
-// execute drives the run loop. skipFirstInterrupt, when true, causes the first
-// interrupt node encountered to execute instead of pausing — this is how a
-// resumed (approved) workflow advances past its pause point exactly once.
+// execute drives the run loop. skipFirstInterrupt, when true, causes the
+// interrupt node the run resumes at — and only that node — to execute instead
+// of pausing. This is how a resumed (approved) workflow advances past its own
+// pause point exactly once; a different interrupt reached later (e.g. after
+// crash-recovery resuming from a normal node, or replay/fork from a
+// non-interrupt checkpoint) still pauses for approval (P0-001).
 func (r *Runner) execute(ctx context.Context, rs *RunState, skipFirstInterrupt bool) (*RunState, error) {
 	if err := r.begin(); err != nil {
 		return nil, err
@@ -285,6 +288,10 @@ func (r *Runner) execute(ctx context.Context, rs *RunState, skipFirstInterrupt b
 	}
 
 	steps := 0
+	// firstNode is true only while the loop processes the node the run resumed
+	// at. skipFirstInterrupt is honored solely for that node, so a downstream
+	// interrupt is never advanced past without approval (P0-001).
+	firstNode := true
 	for rs.Status == RunStatusRunning {
 		// Terminal marker: the checkpoint of a completed run records EndNode as
 		// the "next" node, so resuming a finished run completes immediately.
@@ -315,25 +322,26 @@ func (r *Runner) execute(ctx context.Context, rs *RunState, skipFirstInterrupt b
 			return rs, fmt.Errorf("node %q not found", rs.CurrentNode)
 		}
 
-		// Check for interrupt (human-in-the-loop pause). On resume we skip the
-		// first interrupt exactly once so the approved node runs (P0-001).
-		if node.Interrupt {
-			if skipFirstInterrupt {
-				skipFirstInterrupt = false
-			} else {
-				rs.Status = RunStatusPaused
-				r.emit(StreamEvent{Type: "interrupt", NodeID: node.ID, State: rs.State})
-				if r.store != nil {
-					if err := r.commit(ctx, rs, node.ID, nil); err != nil {
-						return rs, fmt.Errorf("checkpoint on interrupt: %w", err)
-					}
+		// Check for interrupt (human-in-the-loop pause). A resume advances past
+		// the interrupt it paused at exactly once, but only when that interrupt
+		// IS the resumed node (firstNode). Any interrupt reached from a later
+		// node must still pause for approval (P0-001).
+		if node.Interrupt && !(skipFirstInterrupt && firstNode) {
+			rs.Status = RunStatusPaused
+			r.emit(StreamEvent{Type: "interrupt", NodeID: node.ID, State: rs.State})
+			if r.store != nil {
+				if err := r.commit(ctx, rs, node.ID, nil); err != nil {
+					return rs, fmt.Errorf("checkpoint on interrupt: %w", err)
 				}
-				if graphSpan != nil {
-					_ = r.tracer.EndSpan(ctx, graphSpan, rs.State, "paused at interrupt node "+node.ID)
-				}
-				return rs, nil
 			}
+			if graphSpan != nil {
+				_ = r.tracer.EndSpan(ctx, graphSpan, rs.State, "paused at interrupt node "+node.ID)
+			}
+			return rs, nil
 		}
+		// The run has now committed to executing a node; any subsequent
+		// interrupt is downstream of the resume point and must pause.
+		firstNode = false
 
 		// Start node-level trace span
 		var nodeSpan *storage.Trace
@@ -459,7 +467,15 @@ func (r *Runner) findNext(from string, state State) string {
 // no longer discards the AppendEvent error (P0-004).
 func (r *Runner) commit(ctx context.Context, rs *RunState, nodeID string, evt *storage.Event) error {
 	cp := &storage.Checkpoint{
-		ID:        fmt.Sprintf("cp_%s_%d", rs.RunID, rs.SeqNum),
+		// Derive the id from (session, seq) so it aligns with the
+		// uq_checkpoints_session_seq unique index. Re-running or replaying an
+		// existing session then upserts the row at each (session, seq) via the
+		// id primary key instead of minting a new id that collides with the
+		// unique index — which hard-errors on Postgres (ON CONFLICT (id) does
+		// not cover it) and silently replaces the prior row on SQLite. Both
+		// adapters now converge on identical rows. RunID is still recorded in
+		// its own column.
+		ID:        fmt.Sprintf("cp_%s_%d", rs.SessionID, rs.SeqNum),
 		SessionID: rs.SessionID,
 		RunID:     rs.RunID,
 		NodeID:    nodeID,

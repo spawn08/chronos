@@ -392,7 +392,10 @@ func (s *Server) handleSessionState(w http.ResponseWriter, r *http.Request) {
 			cp.State[k] = v
 		}
 
-		cp.ID = fmt.Sprintf("cp_modified_%d", time.Now().UnixNano())
+		// Upsert the latest checkpoint in place (same id and seq_num) so the
+		// edited state is what a subsequent Resume loads. Minting a new id at the
+		// same (session, seq_num) would violate the uq_checkpoints_session_seq
+		// index: a hard error on Postgres and a silent row-replace on SQLite.
 		cp.CreatedAt = time.Now()
 		if err := s.Store.SaveCheckpoint(r.Context(), cp); err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusInternalServerError)

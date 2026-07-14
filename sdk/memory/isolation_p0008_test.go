@@ -80,6 +80,61 @@ func TestLongTerm_TenantIsolation(t *testing.T) {
 	}
 }
 
+// TestLongTerm_TenantIsolation_DelimiterInjection is the adversarial companion
+// to TestLongTerm_TenantIsolation. It proves the tokenized namespacing is
+// collision-free even when userID or key contains the "::" delimiter, or a
+// tenant is named like the old global sentinel. A naive "userID::key" scheme
+// leaked here: (userID="a::b", key="c") and (userID="a", key="b::c") both
+// produced the stored key "a::b::c", so one tenant could read another's memory.
+func TestLongTerm_TenantIsolation_DelimiterInjection(t *testing.T) {
+	backend := newMemStorage()
+	ctx := context.Background()
+
+	// These two collide under naive concatenation ("a::b"+"::"+"c" == "a"+"::"+"b::c").
+	victim := NewStoreForUser("agent1", "a::b", backend)
+	attacker := NewStoreForUser("agent1", "a", backend)
+	// A tenant literally named like the reserved global bucket must not alias
+	// the empty-userID (global/tenantless) bucket.
+	named := NewStoreForUser("agent1", "_global_", backend)
+	global := NewStore("agent1", backend)
+
+	if err := victim.SetLongTerm(ctx, "c", "victim-secret"); err != nil {
+		t.Fatalf("victim SetLongTerm: %v", err)
+	}
+	if err := named.SetLongTerm(ctx, "x", "named-secret"); err != nil {
+		t.Fatalf("named SetLongTerm: %v", err)
+	}
+	if err := global.SetLongTerm(ctx, "x", "global-secret"); err != nil {
+		t.Fatalf("global SetLongTerm: %v", err)
+	}
+
+	// Attacker crafts key "b::c" trying to reach victim's ("a::b", "c") record.
+	if got, err := attacker.Get(ctx, "b::c"); err == nil {
+		t.Fatalf("attacker read %v via crafted key; want an isolation miss", got)
+	}
+	if recs, _ := attacker.ListLongTerm(ctx); len(recs) != 0 {
+		t.Errorf("attacker sees %d long-term records, want 0 (no cross-tenant leak)", len(recs))
+	}
+	// Victim still reads its own value unaffected.
+	if got, err := victim.Get(ctx, "c"); err != nil || got != "victim-secret" {
+		t.Errorf("victim Get = %v, %v; want victim-secret", got, err)
+	}
+
+	// The "_global_"-named tenant and the real global bucket stay distinct.
+	if got, _ := named.Get(ctx, "x"); got != "named-secret" {
+		t.Errorf(`tenant "_global_" Get = %v, want named-secret`, got)
+	}
+	if got, _ := global.Get(ctx, "x"); got != "global-secret" {
+		t.Errorf("global bucket Get = %v, want global-secret", got)
+	}
+	if recs, _ := named.ListLongTerm(ctx); len(recs) != 1 || recs[0].Value != "named-secret" {
+		t.Errorf(`tenant "_global_" list = %+v, want exactly its own record`, recs)
+	}
+	if recs, _ := global.ListLongTerm(ctx); len(recs) != 1 || recs[0].Value != "global-secret" {
+		t.Errorf("global bucket list = %+v, want exactly its own record", recs)
+	}
+}
+
 // TestManager_TenantIsolation verifies that two managers on the same agent but
 // different users never see each other's memories, and that WithUserID and the
 // empty-userID/global path both behave correctly.

@@ -60,6 +60,14 @@ func (s *statusRecorder) Unwrap() http.ResponseWriter {
 	return s.ResponseWriter
 }
 
+// Flush implements http.Flusher by delegating to the underlying writer via
+// http.ResponseController. Without this, wrapping a ResponseWriter in
+// statusRecorder hides the underlying Flusher, so a `w.(http.Flusher)` check
+// (as SSE streaming does) would fail and the stream would return 500.
+func (s *statusRecorder) Flush() {
+	_ = http.NewResponseController(s.ResponseWriter).Flush()
+}
+
 // RequestLogger returns middleware that logs each request's method, path,
 // status code, and duration. If logger is nil, logging is skipped.
 func RequestLogger(logger *log.Logger) func(http.Handler) http.Handler {

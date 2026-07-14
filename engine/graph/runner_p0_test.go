@@ -182,6 +182,67 @@ func TestRunner_ResumeFromCheckpoint_NoReExecution(t *testing.T) {
 	}
 }
 
+// P0-001 regression: resuming from a NON-interrupt checkpoint that lies upstream
+// of an interrupt must still pause at that interrupt. The skip-once behavior
+// applies only to the resumed node, never to a downstream gate. This models
+// crash recovery / replay landing on a normal node with an unapproved
+// human-in-the-loop gate ahead — the previous flag misfired and ran the gate.
+func TestRunner_ResumeFromNormalNode_StillPausesAtDownstreamInterrupt(t *testing.T) {
+	ctx := context.Background()
+	var n1Count, gateCount, n3Count int64
+
+	// n1(normal) -> gate(interrupt) -> n3.
+	g := New("downstream-gate")
+	g.AddNode("n1", func(_ context.Context, s State) (State, error) {
+		atomic.AddInt64(&n1Count, 1)
+		return s, nil
+	})
+	g.AddInterruptNode("gate", func(_ context.Context, s State) (State, error) {
+		atomic.AddInt64(&gateCount, 1)
+		return s, nil
+	})
+	g.AddNode("n3", func(_ context.Context, s State) (State, error) {
+		atomic.AddInt64(&n3Count, 1)
+		return s, nil
+	})
+	g.SetEntryPoint("n1")
+	g.AddEdge("n1", "gate")
+	g.AddEdge("gate", "n3")
+	g.SetFinishPoint("n3")
+	compiled, _ := g.Compile()
+
+	store := newRunnerTestStorage()
+
+	// Seed a checkpoint whose node is the NORMAL n1 (the resume point), as a
+	// crash mid-run or a ReplayFrom would land on.
+	seed := &storage.Checkpoint{
+		ID: "cp_sess_0", SessionID: "sess", RunID: "r", NodeID: "n1",
+		State: map[string]any{}, SeqNum: 0, CreatedAt: time.Now(),
+	}
+	if err := store.SaveCheckpoint(ctx, seed); err != nil {
+		t.Fatalf("seed checkpoint: %v", err)
+	}
+
+	// Resume from the normal-node checkpoint (skipFirstInterrupt=true internally).
+	rs, err := NewRunner(compiled, store).ResumeFromCheckpoint(ctx, seed.ID)
+	if err != nil {
+		t.Fatalf("ResumeFromCheckpoint: %v", err)
+	}
+
+	if rs.Status != RunStatusPaused {
+		t.Fatalf("resumed status = %q, want paused (downstream gate must not be skipped)", rs.Status)
+	}
+	if got := atomic.LoadInt64(&n1Count); got != 1 {
+		t.Errorf("n1 executed %d times, want 1 (resumed node runs)", got)
+	}
+	if got := atomic.LoadInt64(&gateCount); got != 0 {
+		t.Errorf("gate node executed %d times, want 0 (must pause for approval)", got)
+	}
+	if got := atomic.LoadInt64(&n3Count); got != 0 {
+		t.Errorf("n3 executed %d times, want 0 (run must not proceed past the gate)", got)
+	}
+}
+
 // P0-005: the stream channel is closed on the pause exit path.
 func TestRunner_ChannelClosedOnPause(t *testing.T) {
 	var a, p, b int64
