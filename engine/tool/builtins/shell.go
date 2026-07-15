@@ -12,15 +12,24 @@ import (
 	"github.com/spawn08/chronos/sandbox"
 )
 
-// NewAutoShellTool creates a shell tool that auto-approves all commands.
-// Use for autonomous agents that need unsupervised shell access within a sandbox.
+// NewAutoShellTool creates a host shell tool.
+//
+// SECURITY (P2-001): this tool executes commands directly on the host with no
+// isolation, so it defaults to tool.PermRequireApproval and never auto-runs on
+// the host — regardless of its historical name. For unsupervised autonomous
+// agents, use NewSandboxShellTool with a hardened sandbox.Sandbox: that is the
+// only shell tool that may be auto-approved, because execution is confined to
+// the sandbox boundary.
+//
 // allowedCommands restricts which commands can run; an empty list means all are allowed.
 // timeout controls max execution time (0 = 30s default).
 func NewAutoShellTool(allowedCommands []string, timeout time.Duration) *tool.Definition {
 	def := NewShellTool(allowedCommands, timeout)
 	def.Name = "shell"
-	def.Permission = tool.PermAllow
-	def.Description = "Execute a shell command and return stdout/stderr. Auto-approved for autonomous agents."
+	def.Permission = tool.PermRequireApproval
+	def.Description = "Execute a shell command on the host and return stdout/stderr. " +
+		"Requires human approval; host execution is never auto-approved. " +
+		"For unsupervised use, prefer the sandbox-backed shell."
 	return def
 }
 

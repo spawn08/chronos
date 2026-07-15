@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -64,6 +65,12 @@ type ModelConfig struct {
 type StorageConfig struct {
 	Backend string `yaml:"backend,omitempty"` // sqlite, postgres (default: sqlite)
 	DSN     string `yaml:"dsn,omitempty"`     // connection string or file path
+
+	// Connection-pool tuning for the SQL backends (sqlite, postgres). A zero
+	// value leaves the adapter's built-in default in place.
+	MaxOpenConns       int `yaml:"max_open_conns,omitempty"`
+	MaxIdleConns       int `yaml:"max_idle_conns,omitempty"`
+	ConnMaxLifetimeSec int `yaml:"conn_max_lifetime_sec,omitempty"`
 }
 
 // ToolConfig describes a tool to register on the agent.
@@ -166,7 +173,8 @@ func (fc *FileConfig) agentNames() string {
 }
 
 // BuildAgent constructs a fully-wired *Agent from an AgentConfig.
-func BuildAgent(ctx context.Context, cfg *AgentConfig) (*Agent, error) {
+func BuildAgent(ctx context.Context, cfg *AgentConfig, opts ...BuildOption) (*Agent, error) {
+	bo := newBuildOptions(opts...)
 	b := New(cfg.ID, cfg.Name)
 	if cfg.Description != "" {
 		b.Description(cfg.Description)
@@ -197,11 +205,15 @@ func BuildAgent(ctx context.Context, cfg *AgentConfig) (*Agent, error) {
 		})
 	}
 
-	// Register YAML-defined tools (name-only tools act as markers; tools with
-	// handlers must be registered programmatically, but we register the
-	// built-in tool names so YAML can reference "shell", "file_read", etc.)
+	// Register YAML-defined tools. Built-in names ("shell", "file_read", ...)
+	// resolve to their concrete implementations. Custom tool names bind to a
+	// handler factory supplied via WithToolHandler; unregistered custom tools
+	// fall back to an explicit error placeholder (never a silent no-op).
 	for _, tc := range cfg.Tools {
-		toolDef := buildToolFromConfig(tc)
+		toolDef, err := buildToolFromConfig(tc, bo.toolHandlers)
+		if err != nil {
+			return nil, fmt.Errorf("agent %q tool %q: %w", cfg.ID, tc.Name, err)
+		}
 		if toolDef != nil {
 			b.AddTool(toolDef)
 		}
@@ -237,11 +249,12 @@ func BuildAgent(ctx context.Context, cfg *AgentConfig) (*Agent, error) {
 	return b.Build()
 }
 
-// BuildAll constructs all agents from a FileConfig.
-func BuildAll(ctx context.Context, fc *FileConfig) (map[string]*Agent, error) {
+// BuildAll constructs all agents from a FileConfig. BuildOptions (e.g.
+// WithToolHandler) apply to every agent built.
+func BuildAll(ctx context.Context, fc *FileConfig, opts ...BuildOption) (map[string]*Agent, error) {
 	agents := make(map[string]*Agent, len(fc.Agents))
 	for i := range fc.Agents {
-		a, err := BuildAgent(ctx, &fc.Agents[i])
+		a, err := BuildAgent(ctx, &fc.Agents[i], opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -365,13 +378,23 @@ func buildStorage(cfg StorageConfig) (storage.Storage, error) {
 		if dsn == "" {
 			dsn = "chronos.db"
 		}
-		return sqlite.New(dsn)
+		opts := sqlitePoolOptions(cfg)
+		store, err := sqlite.New(dsn, opts...)
+		if err != nil {
+			return nil, fmt.Errorf("sqlite storage: %w", err)
+		}
+		return store, nil
 	case "postgres", "postgresql":
-		// Postgres adapter uses the pgx driver (registered by the postgres package).
+		// The Postgres adapter uses the pgx driver (registered via its blank
+		// import) and opens lazily; Migrate is invoked by BuildAgent.
 		if cfg.DSN == "" {
 			return nil, fmt.Errorf("postgres storage requires dsn")
 		}
-		return postgres.New(cfg.DSN)
+		store, err := postgres.New(cfg.DSN, postgresPoolOptions(cfg)...)
+		if err != nil {
+			return nil, fmt.Errorf("postgres storage: %w", err)
+		}
+		return store, nil
 	case "none", "memory":
 		return nil, nil
 	default:
@@ -379,40 +402,98 @@ func buildStorage(cfg StorageConfig) (storage.Storage, error) {
 	}
 }
 
-// buildToolFromConfig resolves a YAML tool config to a built-in tool Definition.
-// Built-in names (shell, file_read, file_write, file_list, file_glob, file_grep,
-// file_tools) are resolved automatically. Custom tools with only a name/description
-// are registered as no-op placeholders so the model knows they exist.
-func buildToolFromConfig(tc ToolConfig) *tool.Definition {
+// sqlitePoolOptions translates StorageConfig pool tuning into sqlite adapter
+// options, omitting any left at their zero (adapter-default) value.
+func sqlitePoolOptions(cfg StorageConfig) []sqlite.Option {
+	var opts []sqlite.Option
+	if cfg.MaxOpenConns > 0 {
+		opts = append(opts, sqlite.WithMaxOpenConns(cfg.MaxOpenConns))
+	}
+	if cfg.MaxIdleConns > 0 {
+		opts = append(opts, sqlite.WithMaxIdleConns(cfg.MaxIdleConns))
+	}
+	if cfg.ConnMaxLifetimeSec > 0 {
+		opts = append(opts, sqlite.WithConnMaxLifetime(time.Duration(cfg.ConnMaxLifetimeSec)*time.Second))
+	}
+	return opts
+}
+
+// postgresPoolOptions translates StorageConfig pool tuning into postgres
+// adapter options, omitting any left at their zero (adapter-default) value.
+func postgresPoolOptions(cfg StorageConfig) []postgres.Option {
+	var opts []postgres.Option
+	if cfg.MaxOpenConns > 0 {
+		opts = append(opts, postgres.WithMaxOpenConns(cfg.MaxOpenConns))
+	}
+	if cfg.MaxIdleConns > 0 {
+		opts = append(opts, postgres.WithMaxIdleConns(cfg.MaxIdleConns))
+	}
+	if cfg.ConnMaxLifetimeSec > 0 {
+		opts = append(opts, postgres.WithConnMaxLifetime(time.Duration(cfg.ConnMaxLifetimeSec)*time.Second))
+	}
+	return opts
+}
+
+// buildToolFromConfig resolves a YAML tool config to a tool Definition.
+//
+// Built-in names (shell, shell_auto, file_read, file_write, file_list,
+// file_glob, file_grep) resolve to their concrete implementations. Any other
+// name is treated as a custom tool:
+//
+//   - If a handler factory is registered for the name (via WithToolHandler),
+//     the returned handler is bound and the tool is fully functional.
+//   - Otherwise, when a description is present, the tool is registered with an
+//     explicit placeholder handler that returns an error on invocation — never
+//     a silent no-op — so callers learn the tool needs a registered handler.
+//   - A custom tool with neither a registered handler nor a description is
+//     skipped (returns nil, nil).
+func buildToolFromConfig(tc ToolConfig, handlers *toolHandlerRegistry) (*tool.Definition, error) {
 	basePath := "."
 	switch tc.Name {
 	case "shell":
-		return builtins.NewShellTool(nil, 0)
+		return builtins.NewShellTool(nil, 0), nil
 	case "shell_auto":
-		return builtins.NewAutoShellTool(nil, 0)
+		return builtins.NewAutoShellTool(nil, 0), nil
 	case "file_read":
-		return builtins.NewFileReadTool(basePath)
+		return builtins.NewFileReadTool(basePath), nil
 	case "file_write":
-		return builtins.NewFileWriteTool(basePath)
+		return builtins.NewFileWriteTool(basePath), nil
 	case "file_list":
-		return builtins.NewFileListTool(basePath)
+		return builtins.NewFileListTool(basePath), nil
 	case "file_glob":
-		return builtins.NewFileGlobTool(basePath)
+		return builtins.NewFileGlobTool(basePath), nil
 	case "file_grep":
-		return builtins.NewFileGrepTool(basePath)
+		return builtins.NewFileGrepTool(basePath), nil
 	default:
-		if tc.Description == "" {
-			return nil
+		if factory, ok := handlers.lookup(tc.Name); ok {
+			handler, err := factory(tc)
+			if err != nil {
+				return nil, fmt.Errorf("build handler: %w", err)
+			}
+			if handler == nil {
+				return nil, fmt.Errorf("registered factory returned a nil handler")
+			}
+			return &tool.Definition{
+				Name:        tc.Name,
+				Description: tc.Description,
+				Parameters:  tc.Parameters,
+				Permission:  tool.PermAllow,
+				Handler:     handler,
+			}, nil
 		}
+		if tc.Description == "" {
+			return nil, nil
+		}
+		name := tc.Name
 		return &tool.Definition{
 			Name:        tc.Name,
 			Description: tc.Description,
 			Parameters:  tc.Parameters,
 			Permission:  tool.PermAllow,
-			Handler: func(_ context.Context, args map[string]any) (any, error) {
-				return map[string]any{"tool": tc.Name, "args": args, "note": "placeholder — wire a real handler programmatically"}, nil
+			Handler: func(_ context.Context, _ map[string]any) (any, error) {
+				return nil, fmt.Errorf("tool %q has no registered handler: pass agent.WithToolHandler(%q, ...) to BuildAgent/BuildAll", name, name)
 			},
-		}
+		}, nil
 	}
 }
 

@@ -11,6 +11,22 @@ import (
 	"time"
 )
 
+// Hardened container defaults (P2-001). These are applied unless overridden by
+// ContainerConfig so that the container backend is safe by default.
+const (
+	// defaultContainerUser runs the workload as the unprivileged "nobody" user.
+	defaultContainerUser = "65534:65534"
+	// defaultPidsLimit caps the number of processes to blunt fork bombs.
+	defaultPidsLimit = 128
+	// defaultNofileLimit caps open file descriptors.
+	defaultNofileLimit = 1024
+	// defaultNprocLimit caps the number of processes/threads via ulimit.
+	defaultNprocLimit = 128
+	// defaultTmpfsMount provides a small writable /tmp when the rootfs is read-only.
+	defaultTmpfsMount   = "/tmp"
+	defaultTmpfsOptions = "rw,noexec,nosuid,nodev,size=64m"
+)
+
 // ContainerSandbox implements Sandbox using Docker Engine API for production-grade isolation.
 type ContainerSandbox struct {
 	Image    string
@@ -20,6 +36,16 @@ type ContainerSandbox struct {
 	MemoryBytes int64
 	CPUQuota    int64
 	NetworkMode string
+	// Hardening (P2-001)
+	User           string            // non-root user/uid:gid the workload runs as
+	PidsLimit      int64             // max processes inside the container
+	NofileLimit    int64             // RLIMIT_NOFILE (open files)
+	NprocLimit     int64             // RLIMIT_NPROC (processes/threads)
+	ReadonlyRootfs bool              // mount the container root filesystem read-only
+	CapAdd         []string          // capabilities to re-add on top of CapDrop ALL
+	SeccompProfile string            // custom seccomp profile JSON; empty keeps Docker's default
+	Runtime        string            // OCI runtime (e.g. "runsc" for gVisor, "kata-runtime")
+	Tmpfs          map[string]string // writable tmpfs mounts (path -> mount options)
 }
 
 // ContainerConfig holds container sandbox configuration.
@@ -29,9 +55,26 @@ type ContainerConfig struct {
 	MemoryBytes int64
 	CPUQuota    int64
 	NetworkMode string
+	// Hardening (P2-001). Zero values fall back to hardened defaults.
+	User           string
+	PidsLimit      int64
+	NofileLimit    int64
+	NprocLimit     int64
+	CapAdd         []string
+	SeccompProfile string
+	// Runtime selects a hardened OCI runtime such as "runsc" (gVisor) or
+	// "kata-runtime". Empty uses the daemon default (runc). It is never required.
+	Runtime string
+	// Tmpfs overrides the default writable /tmp mount. Nil uses the default.
+	Tmpfs map[string]string
+	// WritableRootfs disables the read-only rootfs hardening when true.
+	WritableRootfs bool
 }
 
-// NewContainerSandbox creates a Docker-based sandbox.
+// NewContainerSandbox creates a Docker-based sandbox with a hardened default profile:
+// non-root user, all capabilities dropped, no-new-privileges, the default seccomp
+// profile, a pids limit, file/process ulimits, a read-only rootfs backed by a small
+// tmpfs /tmp, and memory/CPU limits.
 func NewContainerSandbox(cfg ContainerConfig) *ContainerSandbox {
 	if cfg.SocketPath == "" {
 		cfg.SocketPath = "/var/run/docker.sock"
@@ -48,6 +91,22 @@ func NewContainerSandbox(cfg ContainerConfig) *ContainerSandbox {
 	if cfg.NetworkMode == "" {
 		cfg.NetworkMode = "none"
 	}
+	if cfg.User == "" {
+		cfg.User = defaultContainerUser
+	}
+	if cfg.PidsLimit == 0 {
+		cfg.PidsLimit = defaultPidsLimit
+	}
+	if cfg.NofileLimit == 0 {
+		cfg.NofileLimit = defaultNofileLimit
+	}
+	if cfg.NprocLimit == 0 {
+		cfg.NprocLimit = defaultNprocLimit
+	}
+	tmpfs := cfg.Tmpfs
+	if tmpfs == nil {
+		tmpfs = map[string]string{defaultTmpfsMount: defaultTmpfsOptions}
+	}
 
 	transport := &http.Transport{
 		DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
@@ -56,15 +115,73 @@ func NewContainerSandbox(cfg ContainerConfig) *ContainerSandbox {
 	}
 
 	return &ContainerSandbox{
-		Image:       cfg.Image,
-		sockPath:    cfg.SocketPath,
-		MemoryBytes: cfg.MemoryBytes,
-		CPUQuota:    cfg.CPUQuota,
-		NetworkMode: cfg.NetworkMode,
+		Image:          cfg.Image,
+		sockPath:       cfg.SocketPath,
+		MemoryBytes:    cfg.MemoryBytes,
+		CPUQuota:       cfg.CPUQuota,
+		NetworkMode:    cfg.NetworkMode,
+		User:           cfg.User,
+		PidsLimit:      cfg.PidsLimit,
+		NofileLimit:    cfg.NofileLimit,
+		NprocLimit:     cfg.NprocLimit,
+		ReadonlyRootfs: !cfg.WritableRootfs,
+		CapAdd:         cfg.CapAdd,
+		SeccompProfile: cfg.SeccompProfile,
+		Runtime:        cfg.Runtime,
+		Tmpfs:          tmpfs,
 		client: &http.Client{
 			Transport: transport,
 			Timeout:   5 * time.Minute,
 		},
+	}
+}
+
+// buildCreateBody assembles the Docker /containers/create request body with the
+// hardened security profile. It is separated from Execute so the generated flags
+// can be unit-tested without a running Docker daemon.
+func (c *ContainerSandbox) buildCreateBody(cmd []string) map[string]any {
+	// Drop every capability; re-add only those explicitly requested.
+	securityOpt := []string{"no-new-privileges:true"}
+	if c.SeccompProfile != "" {
+		securityOpt = append(securityOpt, "seccomp="+c.SeccompProfile)
+	}
+	// When SeccompProfile is empty we intentionally omit a seccomp opt so the
+	// daemon applies its default (restrictive) seccomp profile.
+
+	hostConfig := map[string]any{
+		"Memory":         c.MemoryBytes,
+		"MemorySwap":     c.MemoryBytes, // disable swap: swap == memory
+		"CpuQuota":       c.CPUQuota,
+		"NetworkMode":    c.NetworkMode,
+		"AutoRemove":     false,
+		"ReadonlyRootfs": c.ReadonlyRootfs,
+		"CapDrop":        []string{"ALL"},
+		"SecurityOpt":    securityOpt,
+		"PidsLimit":      c.PidsLimit,
+		"Privileged":     false,
+		"Ulimits": []map[string]any{
+			{"Name": "nofile", "Soft": c.NofileLimit, "Hard": c.NofileLimit},
+			{"Name": "nproc", "Soft": c.NprocLimit, "Hard": c.NprocLimit},
+		},
+	}
+	if len(c.CapAdd) > 0 {
+		hostConfig["CapAdd"] = c.CapAdd
+	}
+	if len(c.Tmpfs) > 0 {
+		hostConfig["Tmpfs"] = c.Tmpfs
+	}
+	if c.Runtime != "" {
+		hostConfig["Runtime"] = c.Runtime
+	}
+
+	return map[string]any{
+		"Image":           c.Image,
+		"Cmd":             cmd,
+		"User":            c.User,
+		"AttachStdout":    true,
+		"AttachStderr":    true,
+		"NetworkDisabled": c.NetworkMode == "none",
+		"HostConfig":      hostConfig,
 	}
 }
 
@@ -87,20 +204,7 @@ func (c *ContainerSandbox) Execute(ctx context.Context, command string, args []s
 	defer cancel()
 
 	cmd := append([]string{command}, args...)
-	createBody := map[string]any{
-		"Image":           c.Image,
-		"Cmd":             cmd,
-		"AttachStdout":    true,
-		"AttachStderr":    true,
-		"NetworkDisabled": c.NetworkMode == "none",
-		"HostConfig": map[string]any{
-			"Memory":         c.MemoryBytes,
-			"CpuQuota":       c.CPUQuota,
-			"NetworkMode":    c.NetworkMode,
-			"AutoRemove":     false,
-			"ReadonlyRootfs": true,
-		},
-	}
+	createBody := c.buildCreateBody(cmd)
 
 	// 1. Create container
 	resp, err := c.dockerAPI(ctx, http.MethodPost, "/v1.41/containers/create", createBody)

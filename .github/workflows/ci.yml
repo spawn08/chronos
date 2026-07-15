@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 env:
-  GO_VERSION: "1.24"
+  GO_VERSION: "1.25.12"
 
 jobs:
   # ────────────────────────────────────────────────────────────
@@ -30,10 +30,11 @@ jobs:
           cache: true
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
-          args: --timeout=5m
+        # Install with the job's Go (1.25.x) so the linter is built with a Go
+        # >= the module's target version; the action's bundled binary can lag.
+        run: |
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
+          golangci-lint run --timeout=5m
 
   # ────────────────────────────────────────────────────────────
   # Build & Test
@@ -45,7 +46,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        go-version: ["1.24"]
+        go-version: ["1.25.12"]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -80,15 +81,19 @@ jobs:
       - name: Run tests
         run: go test -race -count=1 -timeout 120s -coverprofile=coverage.out ./...
 
-      - name: Check coverage threshold
+      - name: Check coverage threshold (enforced gate)
         if: matrix.os == 'ubuntu-latest'
+        env:
+          COVERAGE_THRESHOLD: "10"
         run: |
           total=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
           echo "Total coverage: ${total}%"
-          threshold=10
-          if (( $(echo "$total < $threshold" | bc -l) )); then
-            echo "::warning::Coverage ${total}% is below threshold ${threshold}%"
+          echo "Required threshold: ${COVERAGE_THRESHOLD}%"
+          if (( $(echo "$total < $COVERAGE_THRESHOLD" | bc -l) )); then
+            echo "::error::Coverage ${total}% is below the required threshold ${COVERAGE_THRESHOLD}%"
+            exit 1
           fi
+          echo "Coverage gate passed: ${total}% >= ${COVERAGE_THRESHOLD}%"
 
       - name: Upload coverage
         if: matrix.os == 'ubuntu-latest'

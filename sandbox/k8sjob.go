@@ -6,12 +6,11 @@ import (
 	"time"
 )
 
-// K8sJobSandbox implements Sandbox using Kubernetes Jobs for cluster-level isolation.
-// Each execution creates a Kubernetes Job, waits for completion, and collects output.
+// K8sJobSandbox is a placeholder for a future Kubernetes Job isolation backend.
+// It is not yet implemented: no Kubernetes client (client-go) is wired in.
 type K8sJobSandbox struct {
-	image          string
-	namespace      string
-	serviceAccount string
+	image     string
+	namespace string
 }
 
 // K8sJobConfig holds Kubernetes Job sandbox configuration.
@@ -21,22 +20,17 @@ type K8sJobConfig struct {
 	ServiceAccount string
 }
 
-// NewK8sJobSandbox creates a Kubernetes Job-based sandbox.
-func NewK8sJobSandbox(cfg K8sJobConfig) *K8sJobSandbox {
-	if cfg.Namespace == "" {
-		cfg.Namespace = "default"
-	}
-	return &K8sJobSandbox{
-		image:          cfg.Image,
-		namespace:      cfg.Namespace,
-		serviceAccount: cfg.ServiceAccount,
-	}
+// NewK8sJobSandbox reports that the Kubernetes Job backend is not implemented.
+//
+// Per P2-001 the stub backends fail at construction rather than deferring the
+// error to execution time, so callers discover the missing capability
+// immediately. It always returns a nil sandbox and a non-nil error.
+func NewK8sJobSandbox(cfg K8sJobConfig) (*K8sJobSandbox, error) {
+	return nil, fmt.Errorf("k8s sandbox: not implemented (no Kubernetes client integrated; image %q, namespace %q)", cfg.Image, cfg.Namespace)
 }
 
-func (s *K8sJobSandbox) Execute(ctx context.Context, command string, args []string, timeout time.Duration) (*Result, error) {
-	// K8s Job creation would use the Kubernetes client-go library.
-	// For now, return a descriptive error until K8s client is integrated.
-	return nil, fmt.Errorf("k8s sandbox: Kubernetes client not yet integrated (image: %s, namespace: %s)", s.image, s.namespace)
+func (s *K8sJobSandbox) Execute(_ context.Context, command string, _ []string, _ time.Duration) (*Result, error) {
+	return nil, fmt.Errorf("k8s sandbox: not implemented (image: %s, namespace: %s, command: %s)", s.image, s.namespace, command)
 }
 
 func (s *K8sJobSandbox) Close() error { return nil }
