@@ -41,6 +41,20 @@ type RunRecord struct {
 // RunFunc is called when a schedule fires. It receives the agent ID, input, and session ID.
 type RunFunc func(ctx context.Context, agentID, input, sessionID string) error
 
+// Runner is the scheduler control surface used by the control plane. Both the
+// in-process Scheduler (default; single-replica / tests) and the store-backed
+// StoreScheduler (production; exactly-once firing across replicas) implement it,
+// so the server can hold a Runner and swap implementations by configuration.
+type Runner interface {
+	Add(agentID, cronExpr, input string, newSession bool) (*Schedule, error)
+	Remove(id string) error
+	List() []*Schedule
+	Get(id string) (*Schedule, error)
+	History(scheduleID string) []RunRecord
+	Start(ctx context.Context)
+	Stop()
+}
+
 // Scheduler manages cron-scheduled agent runs.
 type Scheduler struct {
 	mu        sync.RWMutex
