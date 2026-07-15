@@ -160,13 +160,27 @@ func (m *Migrator) Migrate(ctx context.Context) error {
 	return nil
 }
 
-// Rollback reverts the last applied migration.
+// Rollback reverts the last applied migration. Like Migrate it pins a single
+// connection, holds the advisory lock for the duration (Postgres), and runs the
+// Down SQL together with the version-table delete inside one transaction, so a
+// partial failure never leaves the _migrations table inconsistent.
 func (m *Migrator) Rollback(ctx context.Context) error {
-	if err := m.ensureTable(ctx, m.db); err != nil {
+	conn, connErr := m.db.Conn(ctx)
+	if connErr != nil {
+		return fmt.Errorf("migrate: acquire conn: %w", connErr)
+	}
+	defer func() { _ = conn.Close() }()
+
+	if err := m.lock(ctx, conn); err != nil {
+		return err
+	}
+	defer m.unlock(ctx, conn)
+
+	if err := m.ensureTable(ctx, conn); err != nil {
 		return err
 	}
 
-	current, err := m.currentVersion(ctx, m.db)
+	current, err := m.currentVersion(ctx, conn)
 	if err != nil {
 		return err
 	}
@@ -180,16 +194,34 @@ func (m *Migrator) Rollback(ctx context.Context) error {
 			if mig.Down == "" {
 				return fmt.Errorf("migrate v%d: no rollback SQL defined", mig.Version)
 			}
-			if _, err := m.db.ExecContext(ctx, mig.Down); err != nil {
+			if err := m.rollbackOne(ctx, conn, mig); err != nil {
 				return fmt.Errorf("migrate rollback v%d: %w", mig.Version, err)
 			}
-			_, err := m.db.ExecContext(ctx,
-				m.rebind(`DELETE FROM _migrations WHERE version = ?`), mig.Version)
-			return err
+			return nil
 		}
 	}
 
 	return fmt.Errorf("migrate: migration v%d not found in registry", current)
+}
+
+// rollbackOne runs a migration's Down SQL and removes its version row inside a
+// single transaction, mirroring apply so the schema change and bookkeeping
+// commit or fail atomically.
+func (m *Migrator) rollbackOne(ctx context.Context, q querier, mig Migration) error {
+	tx, err := q.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx, mig.Down); err != nil {
+		return fmt.Errorf("exec down: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		m.rebind(`DELETE FROM _migrations WHERE version = ?`), mig.Version); err != nil {
+		return fmt.Errorf("delete version: %w", err)
+	}
+	return tx.Commit()
 }
 
 // MigrationStatus reports the current migration version plus applied and pending

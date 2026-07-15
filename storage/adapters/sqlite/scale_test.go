@@ -340,6 +340,122 @@ func TestInsertTracesBatch(t *testing.T) {
 	}
 }
 
+// TestAppendEventsLargeBatch inserts far more events than a single statement's
+// bind-parameter budget allows (2000 events * 6 params = 12000 binds, well over
+// the old unchunked ceiling), proving the chunked insert lands every row.
+func TestAppendEventsLargeBatch(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	const n = 2000
+	events := make([]*storage.Event, n)
+	for i := 0; i < n; i++ {
+		events[i] = &storage.Event{
+			ID:        fmt.Sprintf("big-%d", i),
+			SessionID: "big",
+			SeqNum:    int64(i + 1),
+			Type:      "x",
+			Payload:   map[string]any{"i": i},
+			CreatedAt: time.Now(),
+		}
+	}
+	if err := store.AppendEvents(ctx, events); err != nil {
+		t.Fatalf("AppendEvents(%d): %v", n, err)
+	}
+
+	page, err := store.ListEventsPaged(ctx, "big", 0, storage.MaxPageLimit, "")
+	if err != nil {
+		t.Fatalf("ListEventsPaged: %v", err)
+	}
+	total := len(page.Events)
+	for page.NextCursor != "" {
+		page, err = store.ListEventsPaged(ctx, "big", 0, storage.MaxPageLimit, page.NextCursor)
+		if err != nil {
+			t.Fatalf("ListEventsPaged page: %v", err)
+		}
+		total += len(page.Events)
+	}
+	if total != n {
+		t.Fatalf("after large batch got %d events, want %d", total, n)
+	}
+
+	// Idempotent re-append of the whole large batch is still a no-op.
+	if err := store.AppendEvents(ctx, events); err != nil {
+		t.Fatalf("AppendEvents re-append: %v", err)
+	}
+}
+
+// TestInsertTracesLargeBatch exercises the chunked trace insert (10 params/row,
+// so >90 rows forces multiple chunks).
+func TestInsertTracesLargeBatch(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	const n = 500
+	traces := make([]*storage.Trace, n)
+	for i := 0; i < n; i++ {
+		traces[i] = &storage.Trace{
+			ID: fmt.Sprintf("bigt-%d", i), SessionID: "bigt", Name: "n", Kind: "node",
+			StartedAt: time.Now(),
+		}
+	}
+	if err := store.InsertTraces(ctx, traces); err != nil {
+		t.Fatalf("InsertTraces(%d): %v", n, err)
+	}
+	got, _ := store.ListTraces(ctx, "bigt")
+	if len(got) != n {
+		t.Fatalf("after large trace batch got %d, want %d", len(got), n)
+	}
+}
+
+// TestTrimTracesMixedTimezone proves age-based retention compares true instants,
+// not raw timestamp text. Three traces share one instant but are written in
+// different timezones (UTC, +05:30, -08:00); a fourth is genuinely a day older.
+// A naive lexical `started_at < ?` would wrongly delete the -08:00 row; the
+// julianday() comparison must delete only the genuinely-old row.
+func TestTrimTracesMixedTimezone(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	ist := time.FixedZone("IST", 5*3600+1800)
+	pst := time.FixedZone("PST", -8*3600)
+	base := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+
+	mustTrace := func(id string, ts time.Time) {
+		if err := store.InsertTrace(ctx, &storage.Trace{ID: id, SessionID: "tz", Name: "n", Kind: "node", StartedAt: ts}); err != nil {
+			t.Fatalf("InsertTrace %s: %v", id, err)
+		}
+	}
+	mustTrace("utc", base)
+	mustTrace("ist", base.In(ist))
+	mustTrace("pst", base.In(pst))
+	mustTrace("old", base.Add(-24*time.Hour).In(ist))
+
+	// Cutoff sits one hour before the shared instant: only "old" is older.
+	cutoff := base.Add(-1 * time.Hour)
+	n, err := store.TrimTraces(ctx, cutoff)
+	if err != nil {
+		t.Fatalf("TrimTraces: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("TrimTraces removed %d, want 1 (only the genuinely-old row)", n)
+	}
+
+	left, _ := store.ListTraces(ctx, "tz")
+	got := map[string]bool{}
+	for _, tr := range left {
+		got[tr.ID] = true
+	}
+	if got["old"] {
+		t.Error("old trace should have been trimmed")
+	}
+	for _, id := range []string{"utc", "ist", "pst"} {
+		if !got[id] {
+			t.Errorf("same-instant trace %q was wrongly trimmed", id)
+		}
+	}
+}
+
 func TestNewWithPoolOptions(t *testing.T) {
 	store, err := New(":memory:",
 		WithMaxOpenConns(3),
