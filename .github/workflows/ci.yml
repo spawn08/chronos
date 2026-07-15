@@ -30,10 +30,11 @@ jobs:
           cache: true
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
-          args: --timeout=5m
+        # Install with the job's Go (1.25.x) so the linter is built with a Go
+        # >= the module's target version; the action's bundled binary can lag.
+        run: |
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
+          golangci-lint run --timeout=5m
 
   # ────────────────────────────────────────────────────────────
   # Build & Test
