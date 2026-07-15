@@ -1,32 +1,197 @@
+# Default values for the Chronos control-plane (chronos-os) chart.
+# All new keys are additive and backward-compatible with the previous chart.
+
+# Number of pod replicas. Ignored when autoscaling.enabled=true (the HPA owns
+# the replica count in that case).
 replicaCount: 2
 
 image:
   repository: ghcr.io/spawn08/chronos
   tag: "0.1.0"
+  # pullPolicy is values-driven; default keeps immutable tags cache-friendly.
+  pullPolicy: IfNotPresent
 
+# Secrets used to pull the image from a private registry (list of {name}).
+imagePullSecrets: []
+
+# Storage backend selector, exported as CHRONOS_STORAGE_BACKEND.
 storage:
   backend: postgres
 
+# -----------------------------------------------------------------------------
+# Secrets
+#
+# PRODUCTION: prefer externalSecret.enabled=true (External Secrets Operator) or
+# pre-provision the Secret named `secrets.name` out-of-band (SOPS-decrypted
+# Secret, Vault Agent injection, sealed-secrets, ...) and set secrets.create=false.
+#
+# DEV ONLY: secrets.create=true renders templates/secret.yaml from the plaintext
+# values below. This path is INSECURE — the DSN default is a non-functional
+# placeholder and MUST NOT be used in production. Never commit real credentials.
+# -----------------------------------------------------------------------------
 secrets:
+  # create=true renders a plaintext Secret from the values below (dev/test only).
+  # Set to false in production and supply the Secret via externalSecret or
+  # out-of-band provisioning.
+  create: true
+  # Name of the Secret the Deployment reads (keys: storage-dsn, api-key,
+  # embeddings-key). Shared by the dev Secret, the ExternalSecret, and any
+  # Secret you create yourself.
+  name: chronos-secrets
+  # DEV-ONLY placeholder DSN. Replace via a real secret store in production.
   storageDSN: "postgres://chronos:changeme@postgres:5432/chronos?sslmode=disable"
   apiKey: ""
   embeddingsKey: ""
+
+# -----------------------------------------------------------------------------
+# External Secrets Operator integration (https://external-secrets.io).
+# When enabled an ExternalSecret is rendered that materialises `secrets.name`
+# from an external provider (HashiCorp Vault, AWS/GCP/Azure secret managers, ...).
+# Set secrets.create=false alongside this to avoid a plaintext Secret.
+# -----------------------------------------------------------------------------
+externalSecret:
+  enabled: false
+  # Existing ClusterSecretStore / SecretStore that fronts the secret provider.
+  secretStoreRef:
+    name: vault-backend
+    kind: ClusterSecretStore
+  # How often ESO re-syncs the values from the provider.
+  refreshInterval: 1h
+  # Remote references mapped into the Secret. `secretKey` MUST match the keys the
+  # Deployment consumes: storage-dsn (required), api-key, embeddings-key.
+  data:
+    - secretKey: storage-dsn
+      remoteRef:
+        key: chronos/storage
+        property: dsn
+    # - secretKey: api-key
+    #   remoteRef:
+    #     key: chronos/api
+    #     property: key
+    # - secretKey: embeddings-key
+    #   remoteRef:
+    #     key: chronos/embeddings
+    #     property: key
 
 serviceAccount:
   create: true
   name: "chronos-os"
   annotations: {}
 
+service:
+  type: ClusterIP
+  port: 8420
+
+# -----------------------------------------------------------------------------
+# Resource requests/limits. Sized for a modest production control-plane; tune to
+# your workload. CPU limit intentionally headroomed above the request; memory
+# request==limit keeps the pod in the Guaranteed QoS class for memory.
+# -----------------------------------------------------------------------------
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+# Pod-level security context (applies to all containers in the pod).
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+# Container-level security context (hardened by default).
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65532
+  capabilities:
+    drop:
+      - ALL
+
+# Probes wired to the server health endpoints on the container port.
+livenessProbe:
+  enabled: true
+  path: /health/live
+  initialDelaySeconds: 10
+  periodSeconds: 15
+  timeoutSeconds: 3
+  failureThreshold: 3
+readinessProbe:
+  enabled: true
+  path: /health/ready
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+startupProbe:
+  enabled: true
+  path: /health/live
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 30
+
+# PodDisruptionBudget to keep capacity during voluntary disruptions (node
+# drains, rollouts). Set minAvailable OR maxUnavailable (not both).
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+  # maxUnavailable: ""
+
+# Spread pods across nodes/zones. Soft anti-affinity by default; enable
+# topologySpreadConstraints for stronger zone spreading. A non-empty `affinity`
+# fully overrides the generated podAntiAffinity block.
+affinity: {}
+podAntiAffinity:
+  enabled: true
+  # "soft" (preferred) or "hard" (required) anti-affinity across nodes.
+  type: soft
+  topologyKey: kubernetes.io/hostname
+topologySpreadConstraints:
+  enabled: false
+  constraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
+
+nodeSelector: {}
+tolerations: []
+
+# Extra environment variables appended to the container (e.g. to inject api-key
+# from a Secret populated by External Secrets). Standard core/v1 EnvVar list.
+extraEnv: []
+#  - name: CHRONOS_API_KEY
+#    valueFrom:
+#      secretKeyRef:
+#        name: chronos-secrets
+#        key: api-key
+
+# -----------------------------------------------------------------------------
+# Ingress + TLS. cert-manager is supported via annotations (e.g.
+# cert-manager.io/cluster-issuer). Populate ingress.tls to terminate TLS.
+# -----------------------------------------------------------------------------
 ingress:
   enabled: false
   className: ""
   annotations: {}
+  #   cert-manager.io/cluster-issuer: letsencrypt-prod
   hosts:
     - host: chronos.local
       paths:
         - path: /
           pathType: Prefix
+  # Each entry: {secretName, hosts: [...]}. With cert-manager, secretName is the
+  # Secret cert-manager will populate for the listed hosts.
   tls: []
+  #  - secretName: chronos-tls
+  #    hosts:
+  #      - chronos.example.com
 
 autoscaling:
   enabled: false
@@ -34,3 +199,20 @@ autoscaling:
   maxReplicas: 10
   targetCPUUtilization: 70
   targetMemoryUtilization: 80
+
+# -----------------------------------------------------------------------------
+# Prometheus metrics. serviceMonitor requires the Prometheus Operator CRDs.
+# -----------------------------------------------------------------------------
+metrics:
+  # Container path exposing Prometheus metrics.
+  path: /metrics
+  serviceMonitor:
+    enabled: false
+    # Interval and scrape timeout for the ServiceMonitor endpoint.
+    interval: 30s
+    scrapeTimeout: 10s
+    # Extra labels (e.g. to match a Prometheus `serviceMonitorSelector`).
+    labels: {}
+    # Relabeling applied to scraped metrics.
+    metricRelabelings: []
+    relabelings: []
