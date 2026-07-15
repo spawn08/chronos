@@ -28,29 +28,33 @@
 
 Fix broken behavior in shipped code. Target: a small number of weeks.
 
+> **Status: COMPLETE** <!-- done: 2026-07-15 --> — delivered in wave 1 (PR #17, branch `plan/p0-wave1`).
+> Every item ships with a regression test (`runner_p0_test.go`, `registry_safety_test.go`,
+> `server_security_test.go`, `agent_toolloop_p0007_test.go`, `isolation_p0008_test.go`).
+
 ## P0-A: Durable execution correctness (`engine/graph`)
 
-- [ ] **P0-001 — HITL resume infinite-pause.** Resuming a paused run restores `CurrentNode`
+- [x] **P0-001 — HITL resume infinite-pause.** Resuming a paused run restores `CurrentNode`
   to the interrupt node, which immediately re-pauses. There is no "approved once" flag.
   - **Location:** `engine/graph/runner.go:81-99,205-229`
   - **Action:** Add a resume token / `resumedFrom` marker (or per-node `approved` flag in `RunState`)
     so `Resume` advances *past* the interrupt node exactly once, then clears the marker.
   - **Done when:** A paused approval workflow resumes and completes; regression test covers pause → resume → completion.
 
-- [ ] **P0-002 — Resume double-executes the last node.** The checkpoint records the just-finished
+- [x] **P0-002 — Resume double-executes the last node.** The checkpoint records the just-finished
   node (before `findNext`), so `Resume` re-runs it, duplicating side effects.
   - **Location:** `engine/graph/runner.go:278-301,324-335`
   - **Action:** Checkpoint the *next* node to execute (post-`findNext`), or record a
     "node N completed" high-water mark and skip completed nodes on resume.
   - **Done when:** Resume continues from the next unexecuted node; a side-effect counter test proves no double-execution.
 
-- [ ] **P0-003 — `GetLatestCheckpoint` orders by wall-clock.** Same-tick timestamps make resume
+- [x] **P0-003 — `GetLatestCheckpoint` orders by wall-clock.** Same-tick timestamps make resume
   restore a non-deterministic (possibly earlier) checkpoint.
   - **Location:** `storage/adapters/sqlite/sqlite.go:341`, `storage/adapters/postgres/postgres.go:343`
   - **Action:** `ORDER BY seq_num DESC LIMIT 1`.
   - **Done when:** Latest checkpoint is deterministic; test with equal timestamps.
 
-- [ ] **P0-004 — Non-atomic, non-idempotent checkpoint + event write.** `SaveCheckpoint` and
+- [x] **P0-004 — Non-atomic, non-idempotent checkpoint + event write.** `SaveCheckpoint` and
   `AppendEvent` are separate calls, the event error is discarded, and `SaveCheckpoint` is a plain
   `INSERT`. Ledger can silently gap; replay errors on PK.
   - **Location:** `engine/graph/runner.go:279-291`; adapter `SaveCheckpoint`/`AppendEvent`
@@ -58,14 +62,14 @@ Fix broken behavior in shipped code. Target: a small number of weeks.
     add a unique `(session_id, seq_num)` constraint; stop discarding the append error.
   - **Done when:** Crash-between-writes cannot desync ledger and checkpoint; replay is idempotent.
 
-- [ ] **P0-005 — Runner channel leak / reuse panic.** `close(localCh)` only runs on the clean exit
+- [x] **P0-005 — Runner channel leak / reuse panic.** `close(localCh)` only runs on the clean exit
   path; error/interrupt paths leak it, and reusing a Runner sends/closes on a closed channel → panic.
   - **Location:** `engine/graph/runner.go:48-60,205-309`
   - **Action:** Close `localCh` on all exit paths (defer at top of `execute`); guard `emit` against a
     closed channel or make Runner explicitly single-use with a state check.
   - **Done when:** No goroutine leak on error/pause; misuse returns an error, never panics.
 
-- [ ] **P0-006 — No step limit / cycle guard.** `for rs.Status == RunStatusRunning` can loop forever,
+- [x] **P0-006 — No step limit / cycle guard.** `for rs.Status == RunStatusRunning` can loop forever,
   writing a checkpoint per iteration.
   - **Location:** `engine/graph/runner.go:205`
   - **Action:** Add a configurable max-step bound and per-node timeout; fail the run when exceeded.
@@ -73,7 +77,7 @@ Fix broken behavior in shipped code. Target: a small number of weeks.
 
 ## P0-B: Agent-loop & memory correctness (`sdk/`)
 
-- [ ] **P0-007 — Multi-round tool context is dropped.** `handleToolCalls` receives `messages` by
+- [x] **P0-007 — Multi-round tool context is dropped.** `handleToolCalls` receives `messages` by
   value and appends locally, so prior rounds' tool calls/results are discarded; the follow-up
   `Chat` also passes no `Tools`.
   - **Location:** `sdk/agent/agent.go:390-405,430-489`
@@ -82,13 +86,13 @@ Fix broken behavior in shipped code. Target: a small number of weeks.
     `MaxIterations` is hit with unsatisfied tool calls.
   - **Done when:** A 3-round sequential-tool task retains full context; test asserts message accumulation.
 
-- [ ] **P0-008 — Multi-tenant memory leak.** `Manager.userID` is ignored; long-term memory is keyed
+- [x] **P0-008 — Multi-tenant memory leak.** `Manager.userID` is ignored; long-term memory is keyed
   by `agentID` only, so `GetUserMemories` returns every user's memories.
   - **Location:** `sdk/memory/memory.go:37-64`, `sdk/memory/manager.go:119-133`
   - **Action:** Key long-term memory by `(agentID, userID)`; scope all reads by `userID`.
   - **Done when:** Two users on one agent never see each other's memories; test proves isolation.
 
-- [ ] **P0-009 — No panic recovery anywhere.** A panicking tool / node / MCP handler crashes the
+- [x] **P0-009 — No panic recovery anywhere.** A panicking tool / node / MCP handler crashes the
   whole process.
   - **Location:** `engine/tool/registry.go:136`, `engine/graph/runner.go:254`, `sdk/protocol/protocol.go:463-496`
   - **Action:** `recover()` around user-supplied handlers; convert panics to errors and emit an event/trace.
@@ -96,20 +100,20 @@ Fix broken behavior in shipped code. Target: a small number of weeks.
 
 ## P0-C: Control-plane baseline security (`os/`)
 
-- [ ] **P0-010 — All endpoints unauthenticated.** Auth/CORS/rate-limit middleware exists but is
+- [x] **P0-010 — All endpoints unauthenticated.** Auth/CORS/rate-limit middleware exists but is
   never attached, including state-mutating `POST /api/sessions/state`.
   - **Location:** `os/server.go:62-83,222-225`; `os/auth/*`, `os/middleware/*`
   - **Action:** Compose a middleware chain (auth → CORS → rate limit → recovery → logging) around the mux.
   - **Done when:** Protected routes reject unauthenticated requests; integration test covers 401/200 paths.
 
-- [ ] **P0-011 — No server hardening.** Missing `Read/Write/Idle/ReadHeader` timeouts, body size
+- [x] **P0-011 — No server hardening.** Missing `Read/Write/Idle/ReadHeader` timeouts, body size
   limits, and panic-recovery middleware; readiness runs `Migrate()` on every probe.
   - **Location:** `os/server.go:104,222-225`
   - **Action:** Set `http.Server` timeouts; wrap bodies with `http.MaxBytesReader`; add recovery
     middleware; move migration out of the readiness handler (run at startup / via CLI).
   - **Done when:** Slowloris and oversized-body requests are rejected; readiness is a cheap check.
 
-- [ ] **P0-012 — Postgres adapter is dead code.** No Postgres driver is imported anywhere, so the
+- [x] **P0-012 — Postgres adapter is dead code.** No Postgres driver is imported anywhere, so the
   "production" store fails on first query.
   - **Location:** `storage/adapters/postgres/postgres.go:21`, `go.mod`
   - **Action:** Add `jackc/pgx` (or `lib/pq`) and register it; wire it into `sdk/agent/config.go` `buildStorage`.
