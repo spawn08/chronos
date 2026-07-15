@@ -195,13 +195,17 @@ defs := mcp.ToolInfoToDefinitions(client, tools)
 
 ## Permissions & approval
 
-Imported MCP tools are ordinary `tool.Definition` entries, so they participate in the same [permission and approval](/guides/tools) flow as native tools. To require human approval before an MCP tool runs, look it up after `ConnectMCP` and adjust its policy:
+Imported MCP tools are ordinary `tool.Definition` entries, so they participate in the same [permission and approval](/guides/tools) flow as native tools.
+
+MCP tools are registered with `tool.PermRequireApproval` **by default** — because they come from an external server, they route through the human-approval path unless you explicitly opt out. To auto-allow a specific MCP tool you trust, look it up after `ConnectMCP` and relax its policy:
 
 ```go
-if def, ok := a.Tools.Get("write_file"); ok {
-    def.Permission = tool.PermRequireApproval
+if def, ok := a.Tools.Get("list_files"); ok {
+    def.Permission = tool.PermAllow // trust this read-only MCP tool
 }
 ```
+
+Conversely, the default already requires approval, so no action is needed to gate a destructive tool like `write_file`.
 
 ## Example
 

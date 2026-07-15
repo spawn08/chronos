@@ -31,6 +31,10 @@ go run ./examples/<name>/
 | [streaming_sse](#streaming_sse) | Event broker, SSE | No |
 | [fallback_provider](#fallback_provider) | Provider failover | No |
 | [sandbox_execution](#sandbox_execution) | Process sandbox | No |
+| [durable_queue](https://github.com/spawn08/chronos/tree/main/examples/durable_queue) | Durable queue: leased workers, sleep, park/signal HITL, orphan recovery | No |
+| [durable_hitl](https://github.com/spawn08/chronos/tree/main/examples/durable_hitl) | Human-in-the-loop approval with checkpoint + resume | No |
+| [cli_agent](https://github.com/spawn08/chronos/tree/main/examples/cli_agent) | Build, inspect, run an agent from YAML via the CLI | No |
+| [cli_ops](https://github.com/spawn08/chronos/tree/main/examples/cli_ops) | Operate Chronos from the CLI (serve, monitor, db, sessions, pipe, deploy) | No |
 | [multi_agent](#multi_agent) | 4 team strategies | Optional |
 | [graph_with_llm](#graph_with_llm) | StateGraph + live LLM | Yes |
 | [mcp_agent](#mcp_agent) | Model Context Protocol tools | Optional |

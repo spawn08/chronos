@@ -28,6 +28,31 @@ state, err := runner.Resume(ctx, sessionID)
 
 **Why:** durability lets you run stateless, horizontally-scaled workers behind a queue — any worker can pick up any session because the state lives in shared storage, not process memory.
 
+### The durable work queue (`engine/queue`)
+
+Chronos ships a durable, distributed execution plane that decouples run **intake** from **execution**, so a crash never strands in-flight work:
+
+- **Leased dequeue** — workers claim runs under a time-bounded lease. On PostgreSQL this uses `FOR UPDATE SKIP LOCKED` so many workers claim disjoint runs concurrently; SQLite uses an atomic `UPDATE … RETURNING` for dev/test.
+- **Heartbeat + orphan recovery** — a worker heartbeats to hold its lease; a `Reaper` re-enqueues runs whose worker died once the lease expires.
+- **Durable sleep & signals** — a run can durably "sleep N, then continue" or **park** until an external signal arrives (the webhook-as-signal pattern for human approval). Signals are retained if delivered before a run parks, so there is no lost-wakeup race. Sleeps and parks do **not** consume the run's error-retry budget.
+- **Idempotent outbox** — external side effects are recorded transactionally and delivered exactly once across retries and resumes, with dead-lettering for poison entries.
+- **Admission control** — bound queue depth and reject or park work under overload instead of growing unbounded.
+
+Wrap the graph runner with `graph.NewQueuedExecutor` to run full StateGraphs on the queue, or drive the queue directly:
+
+```go
+store := queue.NewSQLStore(db, queue.DialectPostgres) // FOR UPDATE SKIP LOCKED
+q := queue.New(store, queue.Config{MaxDepth: 1000, Policy: queue.PolicyPark})
+_ = q.Migrate(ctx)
+
+// Any number of workers, on any number of hosts, share the queue.
+w, _ := queue.NewWorker(q, executor, queue.WorkerConfig{ID: "worker-1", Lease: 30 * time.Second})
+go w.Run(ctx)
+go queue.NewReaper(q, 5*time.Second).Run(ctx) // recover orphaned runs
+```
+
+See the runnable [`durable_queue`](https://github.com/spawn08/chronos/tree/main/examples/durable_queue) example.
+
 ---
 
 ## 2. Choose storage for your scale
