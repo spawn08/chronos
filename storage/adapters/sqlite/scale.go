@@ -18,6 +18,14 @@ var (
 	_ storage.BatchIngester = (*Store)(nil)
 )
 
+// sqliteMaxBindParams is a conservative cap on the number of bind parameters in a
+// single statement. SQLite's historical limit (SQLITE_MAX_VARIABLE_NUMBER) is 999
+// on older builds and 32766 on newer ones; staying under 999 keeps multi-row
+// inserts safe on every build. Batches whose total parameter count would exceed
+// this are split into several statements within a single transaction, preserving
+// both atomicity and the ON CONFLICT/OR IGNORE idempotency semantics.
+const sqliteMaxBindParams = 900
+
 // --- Pagination (P1-012) ---
 
 // ListEventsPaged returns a cursor-paginated page of events after afterSeq,
@@ -47,7 +55,9 @@ func (s *Store) ListEventsPaged(ctx context.Context, sessionID string, afterSeq 
 		if err := rows.Scan(&e.ID, &e.SessionID, &e.SeqNum, &e.Type, &payload, &e.CreatedAt); err != nil {
 			return nil, err
 		}
-		_ = json.Unmarshal([]byte(payload), &e.Payload)
+		if err := json.Unmarshal([]byte(payload), &e.Payload); err != nil {
+			return nil, fmt.Errorf("unmarshal event payload: %w", err)
+		}
 		page.Events = append(page.Events, e)
 	}
 	if err := rows.Err(); err != nil {
@@ -83,7 +93,9 @@ func (s *Store) ListCheckpointsPaged(ctx context.Context, sessionID string, limi
 		if err := rows.Scan(&cp.ID, &cp.SessionID, &cp.RunID, &cp.NodeID, &state, &cp.SeqNum, &cp.CreatedAt); err != nil {
 			return nil, err
 		}
-		_ = json.Unmarshal([]byte(state), &cp.State)
+		if err := json.Unmarshal([]byte(state), &cp.State); err != nil {
+			return nil, fmt.Errorf("unmarshal checkpoint state: %w", err)
+		}
 		page.Checkpoints = append(page.Checkpoints, cp)
 	}
 	if err := rows.Err(); err != nil {
@@ -131,8 +143,12 @@ func (s *Store) ListTracesPaged(ctx context.Context, sessionID string, limit int
 		if err := r.Scan(&t.ID, &t.SessionID, &t.ParentID, &t.Name, &t.Kind, &inp, &outp, &t.Error, &t.StartedAt, &t.EndedAt); err != nil {
 			return nil, err
 		}
-		_ = json.Unmarshal([]byte(inp), &t.Input)
-		_ = json.Unmarshal([]byte(outp), &t.Output)
+		if err := json.Unmarshal([]byte(inp), &t.Input); err != nil {
+			return nil, fmt.Errorf("unmarshal trace input: %w", err)
+		}
+		if err := json.Unmarshal([]byte(outp), &t.Output); err != nil {
+			return nil, fmt.Errorf("unmarshal trace output: %w", err)
+		}
 		page.Traces = append(page.Traces, t)
 	}
 	if err := r.Err(); err != nil {
@@ -146,10 +162,20 @@ func (s *Store) ListTracesPaged(ctx context.Context, sessionID string, limit int
 }
 
 // --- Retention (P1-012) ---
+//
+// Age-based trimming compares instants, not raw text. The go-sqlite3 driver
+// stores time.Time as an RFC3339 string that carries the value's timezone offset
+// (e.g. "…Z", "…+05:30", "…-08:00"), so a plain lexical `created_at < ?` compares
+// the wall-clock text and mis-orders rows written in different timezones — the
+// same reason ListTracesPaged keysets on the stable id PK instead of started_at.
+// Wrapping both sides in julianday() makes SQLite parse the offset and compare
+// true UTC instants, which is correct regardless of the stored timezone. (The
+// Postgres adapter needs no such wrapper because its columns are TIMESTAMPTZ,
+// which already compares as instants.)
 
 // TrimEvents deletes events created strictly before olderThan.
 func (s *Store) TrimEvents(ctx context.Context, olderThan time.Time) (int64, error) {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM events WHERE created_at < ?`, olderThan)
+	res, err := s.db.ExecContext(ctx, `DELETE FROM events WHERE julianday(created_at) < julianday(?)`, olderThan)
 	if err != nil {
 		return 0, fmt.Errorf("trim events: %w", err)
 	}
@@ -158,7 +184,7 @@ func (s *Store) TrimEvents(ctx context.Context, olderThan time.Time) (int64, err
 
 // TrimTraces deletes traces started strictly before olderThan.
 func (s *Store) TrimTraces(ctx context.Context, olderThan time.Time) (int64, error) {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM traces WHERE started_at < ?`, olderThan)
+	res, err := s.db.ExecContext(ctx, `DELETE FROM traces WHERE julianday(started_at) < julianday(?)`, olderThan)
 	if err != nil {
 		return 0, fmt.Errorf("trim traces: %w", err)
 	}
@@ -167,7 +193,7 @@ func (s *Store) TrimTraces(ctx context.Context, olderThan time.Time) (int64, err
 
 // TrimAuditLogs deletes audit logs created strictly before olderThan.
 func (s *Store) TrimAuditLogs(ctx context.Context, olderThan time.Time) (int64, error) {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM audit_logs WHERE created_at < ?`, olderThan)
+	res, err := s.db.ExecContext(ctx, `DELETE FROM audit_logs WHERE julianday(created_at) < julianday(?)`, olderThan)
 	if err != nil {
 		return 0, fmt.Errorf("trim audit logs: %w", err)
 	}
@@ -194,31 +220,47 @@ func (s *Store) TrimCheckpoints(ctx context.Context, sessionID string, keep int)
 
 // --- Batch ingestion (P1-013) ---
 
-// AppendEvents appends many events in a single multi-row INSERT within one
-// transaction. It is idempotent on event id (INSERT OR IGNORE).
+// AppendEvents appends many events within one transaction. It is idempotent on
+// event id (INSERT OR IGNORE). The batch is split into chunks so the per-statement
+// bind-parameter count stays under sqliteMaxBindParams; all chunks run in the same
+// transaction, so the whole batch still commits (or rolls back) atomically.
 func (s *Store) AppendEvents(ctx context.Context, events []*storage.Event) error {
 	if len(events) == 0 {
 		return nil
 	}
+	const paramsPerRow = 6
+	rowsPerChunk := sqliteMaxBindParams / paramsPerRow
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	var b strings.Builder
-	b.WriteString(`INSERT OR IGNORE INTO events (id, session_id, seq_num, type, payload, created_at) VALUES `)
-	args := make([]any, 0, len(events)*6)
-	for i, e := range events {
-		if i > 0 {
-			b.WriteByte(',')
+	for start := 0; start < len(events); start += rowsPerChunk {
+		end := start + rowsPerChunk
+		if end > len(events) {
+			end = len(events)
 		}
-		b.WriteString(`(?,?,?,?,?,?)`)
-		payload, _ := json.Marshal(e.Payload)
-		args = append(args, e.ID, e.SessionID, e.SeqNum, e.Type, string(payload), e.CreatedAt)
-	}
-	if _, err := tx.ExecContext(ctx, b.String(), args...); err != nil {
-		return fmt.Errorf("batch append events: %w", err)
+		chunk := events[start:end]
+
+		var b strings.Builder
+		b.WriteString(`INSERT OR IGNORE INTO events (id, session_id, seq_num, type, payload, created_at) VALUES `)
+		args := make([]any, 0, len(chunk)*paramsPerRow)
+		for i, e := range chunk {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			b.WriteString(`(?,?,?,?,?,?)`)
+			payload, err := json.Marshal(e.Payload)
+			if err != nil {
+				return fmt.Errorf("marshal event payload: %w", err)
+			}
+			args = append(args, e.ID, e.SessionID, e.SeqNum, e.Type, string(payload), e.CreatedAt)
+		}
+		if _, err := tx.ExecContext(ctx, b.String(), args...); err != nil {
+			return fmt.Errorf("batch append events: %w", err)
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit batch events: %w", err)
@@ -226,32 +268,50 @@ func (s *Store) AppendEvents(ctx context.Context, events []*storage.Event) error
 	return nil
 }
 
-// InsertTraces inserts many trace spans in a single multi-row INSERT within one
-// transaction.
+// InsertTraces inserts many trace spans within one transaction. As with
+// AppendEvents the batch is chunked to respect sqliteMaxBindParams while keeping
+// the whole insert atomic.
 func (s *Store) InsertTraces(ctx context.Context, traces []*storage.Trace) error {
 	if len(traces) == 0 {
 		return nil
 	}
+	const paramsPerRow = 10
+	rowsPerChunk := sqliteMaxBindParams / paramsPerRow
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	var b strings.Builder
-	b.WriteString(`INSERT OR REPLACE INTO traces (id, session_id, parent_id, name, kind, input, output, error, started_at, ended_at) VALUES `)
-	args := make([]any, 0, len(traces)*10)
-	for i, t := range traces {
-		if i > 0 {
-			b.WriteByte(',')
+	for start := 0; start < len(traces); start += rowsPerChunk {
+		end := start + rowsPerChunk
+		if end > len(traces) {
+			end = len(traces)
 		}
-		b.WriteString(`(?,?,?,?,?,?,?,?,?,?)`)
-		inp, _ := json.Marshal(t.Input)
-		outp, _ := json.Marshal(t.Output)
-		args = append(args, t.ID, t.SessionID, t.ParentID, t.Name, t.Kind, string(inp), string(outp), t.Error, t.StartedAt, t.EndedAt)
-	}
-	if _, err := tx.ExecContext(ctx, b.String(), args...); err != nil {
-		return fmt.Errorf("batch insert traces: %w", err)
+		chunk := traces[start:end]
+
+		var b strings.Builder
+		b.WriteString(`INSERT OR REPLACE INTO traces (id, session_id, parent_id, name, kind, input, output, error, started_at, ended_at) VALUES `)
+		args := make([]any, 0, len(chunk)*paramsPerRow)
+		for i, t := range chunk {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			b.WriteString(`(?,?,?,?,?,?,?,?,?,?)`)
+			inp, err := json.Marshal(t.Input)
+			if err != nil {
+				return fmt.Errorf("marshal trace input: %w", err)
+			}
+			outp, err := json.Marshal(t.Output)
+			if err != nil {
+				return fmt.Errorf("marshal trace output: %w", err)
+			}
+			args = append(args, t.ID, t.SessionID, t.ParentID, t.Name, t.Kind, string(inp), string(outp), t.Error, t.StartedAt, t.EndedAt)
+		}
+		if _, err := tx.ExecContext(ctx, b.String(), args...); err != nil {
+			return fmt.Errorf("batch insert traces: %w", err)
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit batch traces: %w", err)

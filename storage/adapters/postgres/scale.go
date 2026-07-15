@@ -21,6 +21,15 @@ var (
 	_ storage.BatchIngester = (*Store)(nil)
 )
 
+// pgMaxBindParams is a conservative cap on the number of bind parameters in a
+// single statement. PostgreSQL's wire protocol limits a statement to 65535
+// parameters; staying at 60000 leaves headroom. Batches whose total parameter
+// count would exceed this are split into several statements within one
+// transaction, preserving both atomicity and ON CONFLICT DO NOTHING idempotency.
+// (InsertTraces uses the COPY protocol, which has no parameter limit, so it is
+// not chunked.)
+const pgMaxBindParams = 60000
+
 // --- Pagination (P1-012) ---
 
 // ListEventsPaged returns a cursor-paginated page of events after afterSeq,
@@ -50,7 +59,9 @@ func (s *Store) ListEventsPaged(ctx context.Context, sessionID string, afterSeq 
 		if err := rows.Scan(&e.ID, &e.SessionID, &e.SeqNum, &e.Type, &payload, &e.CreatedAt); err != nil {
 			return nil, err
 		}
-		_ = json.Unmarshal(payload, &e.Payload)
+		if err := json.Unmarshal(payload, &e.Payload); err != nil {
+			return nil, fmt.Errorf("unmarshal event payload: %w", err)
+		}
 		page.Events = append(page.Events, e)
 	}
 	if err := rows.Err(); err != nil {
@@ -86,7 +97,9 @@ func (s *Store) ListCheckpointsPaged(ctx context.Context, sessionID string, limi
 		if err := rows.Scan(&cp.ID, &cp.SessionID, &cp.RunID, &cp.NodeID, &state, &cp.SeqNum, &cp.CreatedAt); err != nil {
 			return nil, err
 		}
-		_ = json.Unmarshal(state, &cp.State)
+		if err := json.Unmarshal(state, &cp.State); err != nil {
+			return nil, fmt.Errorf("unmarshal checkpoint state: %w", err)
+		}
 		page.Checkpoints = append(page.Checkpoints, cp)
 	}
 	if err := rows.Err(); err != nil {
@@ -133,8 +146,12 @@ func (s *Store) ListTracesPaged(ctx context.Context, sessionID string, limit int
 		if err := r.Scan(&t.ID, &t.SessionID, &t.ParentID, &t.Name, &t.Kind, &inp, &outp, &t.Error, &t.StartedAt, &t.EndedAt); err != nil {
 			return nil, err
 		}
-		_ = json.Unmarshal(inp, &t.Input)
-		_ = json.Unmarshal(outp, &t.Output)
+		if err := json.Unmarshal(inp, &t.Input); err != nil {
+			return nil, fmt.Errorf("unmarshal trace input: %w", err)
+		}
+		if err := json.Unmarshal(outp, &t.Output); err != nil {
+			return nil, fmt.Errorf("unmarshal trace output: %w", err)
+		}
 		page.Traces = append(page.Traces, t)
 	}
 	if err := r.Err(); err != nil {
@@ -148,6 +165,12 @@ func (s *Store) ListTracesPaged(ctx context.Context, sessionID string, limit int
 }
 
 // --- Retention (P1-012) ---
+//
+// Age-based trimming compares instants. All timestamp columns are TIMESTAMPTZ,
+// which PostgreSQL stores and compares as absolute UTC instants regardless of the
+// client timezone, so a direct `created_at < $1` bound is reliable. (The SQLite
+// adapter must additionally wrap both sides in julianday() because go-sqlite3
+// stores timestamps as timezone-tagged text; see its scale.go for details.)
 
 // TrimEvents deletes events created strictly before olderThan.
 func (s *Store) TrimEvents(ctx context.Context, olderThan time.Time) (int64, error) {
@@ -196,34 +219,51 @@ func (s *Store) TrimCheckpoints(ctx context.Context, sessionID string, keep int)
 
 // --- Batch ingestion (P1-013) ---
 
-// AppendEvents appends many events in a single multi-row INSERT within one
-// transaction. It is idempotent on event id (ON CONFLICT DO NOTHING).
+// AppendEvents appends many events within one transaction. It is idempotent on
+// event id (ON CONFLICT DO NOTHING). The batch is split into chunks so the
+// per-statement bind-parameter count stays under pgMaxBindParams; all chunks run
+// in the same transaction, so the whole batch still commits (or rolls back)
+// atomically.
 func (s *Store) AppendEvents(ctx context.Context, events []*storage.Event) error {
 	if len(events) == 0 {
 		return nil
 	}
+	const paramsPerRow = 6
+	rowsPerChunk := pgMaxBindParams / paramsPerRow
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	var b strings.Builder
-	b.WriteString(`INSERT INTO events (id, session_id, seq_num, type, payload, created_at) VALUES `)
-	args := make([]any, 0, len(events)*6)
-	n := 0
-	for i, e := range events {
-		if i > 0 {
-			b.WriteByte(',')
+	for start := 0; start < len(events); start += rowsPerChunk {
+		end := start + rowsPerChunk
+		if end > len(events) {
+			end = len(events)
 		}
-		fmt.Fprintf(&b, "($%d,$%d,$%d,$%d,$%d,$%d)", n+1, n+2, n+3, n+4, n+5, n+6)
-		n += 6
-		payload, _ := json.Marshal(e.Payload)
-		args = append(args, e.ID, e.SessionID, e.SeqNum, e.Type, payload, e.CreatedAt)
-	}
-	b.WriteString(` ON CONFLICT (id) DO NOTHING`)
-	if _, err := tx.ExecContext(ctx, b.String(), args...); err != nil {
-		return fmt.Errorf("batch append events: %w", err)
+		chunk := events[start:end]
+
+		var b strings.Builder
+		b.WriteString(`INSERT INTO events (id, session_id, seq_num, type, payload, created_at) VALUES `)
+		args := make([]any, 0, len(chunk)*paramsPerRow)
+		n := 0
+		for i, e := range chunk {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			fmt.Fprintf(&b, "($%d,$%d,$%d,$%d,$%d,$%d)", n+1, n+2, n+3, n+4, n+5, n+6)
+			n += paramsPerRow
+			payload, err := json.Marshal(e.Payload)
+			if err != nil {
+				return fmt.Errorf("marshal event payload: %w", err)
+			}
+			args = append(args, e.ID, e.SessionID, e.SeqNum, e.Type, payload, e.CreatedAt)
+		}
+		b.WriteString(` ON CONFLICT (id) DO NOTHING`)
+		if _, err := tx.ExecContext(ctx, b.String(), args...); err != nil {
+			return fmt.Errorf("batch append events: %w", err)
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit batch events: %w", err)
