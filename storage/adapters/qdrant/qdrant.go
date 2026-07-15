@@ -11,17 +11,24 @@ import (
 	"github.com/spawn08/chronos/storage"
 )
 
+// defaultUpsertBatch is the maximum number of points sent in one Upsert request.
+// Large corpora are chunked into batches of this size so a single request never
+// grows unbounded (P1-013).
+const defaultUpsertBatch = 256
+
 // Store implements storage.VectorStore using Qdrant's REST API.
 type Store struct {
-	baseURL string
-	client  *http.Client
+	baseURL     string
+	client      *http.Client
+	upsertBatch int
 }
 
 // New creates a Qdrant vector store client.
 func New(baseURL string) *Store {
 	return &Store{
-		baseURL: baseURL,
-		client:  &http.Client{},
+		baseURL:     baseURL,
+		client:      &http.Client{},
+		upsertBatch: defaultUpsertBatch,
 	}
 }
 
@@ -36,21 +43,39 @@ func (s *Store) CreateCollection(ctx context.Context, name string, dimension int
 }
 
 func (s *Store) Upsert(ctx context.Context, collection string, embeddings []storage.Embedding) error {
-	points := make([]map[string]any, len(embeddings))
-	for i, e := range embeddings {
-		payload := e.Metadata
-		if payload == nil {
-			payload = map[string]any{}
+	if len(embeddings) == 0 {
+		return nil
+	}
+	batch := s.upsertBatch
+	if batch <= 0 {
+		batch = defaultUpsertBatch
+	}
+	path := fmt.Sprintf("/collections/%s/points", collection)
+	for start := 0; start < len(embeddings); start += batch {
+		end := start + batch
+		if end > len(embeddings) {
+			end = len(embeddings)
 		}
-		payload["_content"] = e.Content
-		points[i] = map[string]any{
-			"id":      e.ID,
-			"vector":  e.Vector,
-			"payload": payload,
+		chunk := embeddings[start:end]
+		points := make([]map[string]any, len(chunk))
+		for i, e := range chunk {
+			// Copy metadata so we never mutate the caller's map.
+			payload := make(map[string]any, len(e.Metadata)+1)
+			for k, v := range e.Metadata {
+				payload[k] = v
+			}
+			payload["_content"] = e.Content
+			points[i] = map[string]any{
+				"id":      e.ID,
+				"vector":  e.Vector,
+				"payload": payload,
+			}
+		}
+		if err := s.put(ctx, path, map[string]any{"points": points}); err != nil {
+			return err
 		}
 	}
-	body := map[string]any{"points": points}
-	return s.put(ctx, fmt.Sprintf("/collections/%s/points", collection), body)
+	return nil
 }
 
 func (s *Store) Search(ctx context.Context, collection string, query []float32, topK int) ([]storage.SearchResult, error) {

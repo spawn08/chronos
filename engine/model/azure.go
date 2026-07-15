@@ -51,7 +51,7 @@ func NewAzureOpenAIWithConfig(cfg AzureConfig) *AzureOpenAI {
 		config:     cfg.ProviderConfig,
 		deployment: cfg.Deployment,
 		apiVersion: cfg.APIVersion,
-		http:       newHTTPClient(cfg.BaseURL, cfg.TimeoutSec, headers),
+		http:       newHTTPClient(cfg.BaseURL, cfg.TimeoutSec, headers, withMaxRetries(cfg.MaxRetries)),
 	}
 }
 
@@ -102,7 +102,7 @@ func (a *AzureOpenAI) StreamChat(ctx context.Context, req *ChatRequest) (<-chan 
 	go func() {
 		defer resp.Body.Close()
 		defer close(ch)
-		readOpenAISSEStream(resp, ch)
+		readOpenAISSEStream(ctx, resp, ch)
 	}()
 	return ch, nil
 }

@@ -162,6 +162,9 @@ func (r *pgMockRows) Next(dest []driver.Value) error {
 		dest[4] = []byte(`{}`)
 		dest[5] = int64(1)
 		dest[6] = now
+	case containsAll(r.query, "MAX(version)"):
+		// migrate.currentVersion scans a single int.
+		dest[0] = int64(0)
 	default:
 		if len(dest) > 0 {
 			dest[0] = "mock-id"

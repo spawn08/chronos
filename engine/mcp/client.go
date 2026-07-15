@@ -1,18 +1,26 @@
 // Package mcp implements the Model Context Protocol (MCP) client.
-// It supports connecting to MCP servers via stdio or HTTP SSE transport,
-// listing tools and resources, and invoking tool calls.
+// It supports connecting to MCP servers via stdio transport, listing tools
+// and resources, and invoking tool calls. The SSE transport is not yet
+// implemented and fails cleanly at construction time (see NewClient).
 package mcp
 
 import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
 	"sync"
 	"sync/atomic"
+	"time"
 )
+
+// maxMessageBytes bounds the size of a single JSON-RPC message read from the
+// server. It guards against a misbehaving or malicious server streaming an
+// unbounded line and exhausting client memory.
+const maxMessageBytes = 16 << 20 // 16 MiB
 
 // Transport defines how the client communicates with an MCP server.
 type Transport string
@@ -21,6 +29,13 @@ const (
 	TransportStdio Transport = "stdio"
 	TransportSSE   Transport = "sse"
 )
+
+// deadlineReader is satisfied by readers whose underlying file descriptor
+// supports read deadlines (e.g. *os.File pipes). It lets the client honor a
+// per-call context by unblocking an in-flight read.
+type deadlineReader interface {
+	SetReadDeadline(t time.Time) error
+}
 
 // ServerConfig holds the connection configuration for an MCP server.
 type ServerConfig struct {
@@ -75,17 +90,25 @@ type jsonrpcError struct {
 }
 
 // Client communicates with an MCP server using JSON-RPC 2.0 over stdio.
+//
+// Concurrency model:
+//   - mu serializes in-flight requests. It is held while writing a request and
+//     reading its response. The read honors the per-call context via a read
+//     deadline, so it never blocks indefinitely while holding mu.
+//   - Close does NOT acquire mu. It force-kills the subprocess and clears any
+//     read deadline, which unblocks any in-flight read so a hung server can be
+//     torn down even while a call is stuck. The closed flag is atomic so it can
+//     be observed without the lock.
 type Client struct {
-	config    ServerConfig
-	cmd       *exec.Cmd
-	stdin     io.WriteCloser
-	stdout    *bufio.Reader
-	mu        sync.Mutex
-	nextID    atomic.Int64
-	closed    bool
-	info      ServerInfo
-	tools     []ToolInfo
-	resources []ResourceInfo
+	config     ServerConfig
+	cmd        *exec.Cmd
+	stdin      io.WriteCloser
+	stdout     *bufio.Reader
+	stdoutFile deadlineReader // underlying fd for read deadlines; nil if unsupported
+	mu         sync.Mutex
+	nextID     atomic.Int64
+	closed     atomic.Bool
+	info       ServerInfo
 }
 
 // ServerInfo holds the server's initialization response.
@@ -96,16 +119,24 @@ type ServerInfo struct {
 }
 
 // NewClient creates a new MCP client for the given server configuration.
-// For stdio transport, it launches the command as a subprocess.
+// For stdio transport, it launches the command as a subprocess on Connect.
+//
+// The SSE transport is not yet implemented; NewClient rejects it at
+// construction time with a clear error rather than deferring the failure to
+// call time.
 func NewClient(cfg ServerConfig) (*Client, error) {
 	if cfg.Transport == "" {
 		cfg.Transport = TransportStdio
 	}
-	if cfg.Transport != TransportStdio {
-		return nil, fmt.Errorf("mcp: transport %q not yet supported (only stdio)", cfg.Transport)
-	}
-	if cfg.Command == "" {
-		return nil, fmt.Errorf("mcp: command is required for stdio transport")
+	switch cfg.Transport {
+	case TransportStdio:
+		if cfg.Command == "" {
+			return nil, fmt.Errorf("mcp: command is required for stdio transport")
+		}
+	case TransportSSE:
+		return nil, fmt.Errorf("mcp: SSE transport is not implemented; use stdio transport (config %q)", cfg.Name)
+	default:
+		return nil, fmt.Errorf("mcp: unknown transport %q (supported: stdio)", cfg.Transport)
 	}
 
 	return &Client{config: cfg}, nil
@@ -116,7 +147,10 @@ func (c *Client) Connect(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	cmd := exec.CommandContext(ctx, c.config.Command, c.config.Args...)
+	// The subprocess lifecycle is managed explicitly through Close, so a
+	// per-call ctx must not kill the shared process: use exec.Command (not
+	// CommandContext) here.
+	cmd := exec.Command(c.config.Command, c.config.Args...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return fmt.Errorf("mcp: stdin pipe: %w", err)
@@ -128,12 +162,16 @@ func (c *Client) Connect(ctx context.Context) error {
 	}
 
 	if err = cmd.Start(); err != nil {
+		stdin.Close()
 		return fmt.Errorf("mcp: start %q: %w", c.config.Command, err)
 	}
 
 	c.cmd = cmd
 	c.stdin = stdin
 	c.stdout = bufio.NewReader(stdout)
+	if dr, ok := stdout.(deadlineReader); ok {
+		c.stdoutFile = dr
+	}
 
 	initParams := map[string]any{
 		"protocolVersion": "2024-11-05",
@@ -190,7 +228,6 @@ func (c *Client) ListTools(ctx context.Context) ([]ToolInfo, error) {
 	if err := json.Unmarshal(result, &resp); err != nil {
 		return nil, fmt.Errorf("mcp: parse tools: %w", err)
 	}
-	c.tools = resp.Tools
 	return resp.Tools, nil
 }
 
@@ -248,7 +285,6 @@ func (c *Client) ListResources(ctx context.Context) ([]ResourceInfo, error) {
 	if err := json.Unmarshal(result, &resp); err != nil {
 		return nil, fmt.Errorf("mcp: parse resources: %w", err)
 	}
-	c.resources = resp.Resources
 	return resp.Resources, nil
 }
 
@@ -275,23 +311,34 @@ func (c *Client) Info() ServerInfo {
 	return c.info
 }
 
-// Close shuts down the MCP server connection.
+// Close shuts down the MCP server connection. It force-kills the subprocess
+// and clears any read deadline so that an in-flight call blocked on a hung
+// server is unblocked promptly. Close does not acquire the request mutex, so
+// it can tear down a client even while a call is stuck in a read. Close is
+// idempotent and safe to call multiple times.
 func (c *Client) Close() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.closeProcess()
 	return nil
 }
 
+// closeProcess tears down the subprocess. It is idempotent: only the first
+// caller performs teardown. It intentionally avoids acquiring c.mu so it can
+// run concurrently with (and unblock) an in-flight callLocked read.
 func (c *Client) closeProcess() {
-	if c.closed {
+	if !c.closed.CompareAndSwap(false, true) {
 		return
 	}
-	c.closed = true
+	// Unblock any in-flight read immediately; the read goroutine holds c.mu,
+	// which we deliberately do not contend for.
+	if c.stdoutFile != nil {
+		_ = c.stdoutFile.SetReadDeadline(time.Now())
+	}
 	if c.stdin != nil {
-		c.stdin.Close()
+		_ = c.stdin.Close()
 	}
 	if c.cmd != nil && c.cmd.Process != nil {
+		// SIGKILL is uncatchable, so even a hung server is reaped and Wait
+		// returns promptly once the OS tears the process down.
 		_ = c.cmd.Process.Kill()
 		_ = c.cmd.Wait()
 	}
@@ -304,9 +351,19 @@ func (c *Client) call(ctx context.Context, method string, params any) (json.RawM
 	return c.callLocked(ctx, method, params)
 }
 
-// callLocked sends a JSON-RPC request and waits for the response.
-// The caller must hold c.mu.
-func (c *Client) callLocked(_ context.Context, method string, params any) (json.RawMessage, error) {
+// callLocked sends a JSON-RPC request and waits for the response, honoring the
+// per-call context. The caller must hold c.mu.
+//
+// The context is honored via a read deadline on the underlying stdout file
+// descriptor (when supported): a context deadline is applied directly, and a
+// watcher goroutine unblocks the read if the context is canceled without a
+// deadline. This guarantees the read never blocks indefinitely while holding
+// c.mu.
+func (c *Client) callLocked(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("mcp: %s: %w", method, err)
+	}
+
 	id := c.nextID.Add(1)
 	req := jsonrpcRequest{
 		JSONRPC: "2.0",
@@ -321,7 +378,7 @@ func (c *Client) callLocked(_ context.Context, method string, params any) (json.
 	}
 	data = append(data, '\n')
 
-	if c.closed {
+	if c.closed.Load() {
 		return nil, fmt.Errorf("client is closed")
 	}
 
@@ -329,9 +386,57 @@ func (c *Client) callLocked(_ context.Context, method string, params any) (json.
 		return nil, fmt.Errorf("write: %w", err)
 	}
 
+	// Honor the per-call context through read deadlines when the underlying
+	// reader supports them. Manually constructed clients (e.g. in tests) may
+	// not set stdoutFile; in that case reads fall back to plain blocking.
+	if c.stdoutFile != nil {
+		if dl, ok := ctx.Deadline(); ok {
+			_ = c.stdoutFile.SetReadDeadline(dl)
+		}
+		stop := make(chan struct{})
+		watcherDone := make(chan struct{})
+		go func() {
+			defer close(watcherDone)
+			select {
+			case <-ctx.Done():
+				// Interrupt the blocked read; ctx.Err() is checked below.
+				_ = c.stdoutFile.SetReadDeadline(time.Now())
+			case <-stop:
+			}
+		}()
+		defer func() {
+			close(stop)
+			<-watcherDone
+			// Clear the deadline so a subsequent call on this client is not
+			// pre-expired.
+			_ = c.stdoutFile.SetReadDeadline(time.Time{})
+		}()
+	}
+
 	for {
-		line, err := c.stdout.ReadBytes('\n')
+		line, err := readMessage(c.stdout, maxMessageBytes)
 		if err != nil {
+			if cerr := ctx.Err(); cerr != nil {
+				return nil, fmt.Errorf("mcp: %s: %w", method, cerr)
+			}
+			// Close sets c.closed (a release) before tripping the read
+			// deadline, so a closed client is observed here first — check it
+			// before treating a timeout as ctx-driven, or we'd block on a
+			// ctx that Close never cancels.
+			if c.closed.Load() {
+				return nil, fmt.Errorf("read: client is closed")
+			}
+			// A read-deadline timeout that is not from Close is only ever set
+			// from the per-call ctx (its deadline, or the watcher on
+			// cancellation). The fd deadline and the ctx timer are independent,
+			// so the read can time out a hair before ctx.Err() is set; wait for
+			// the definitive ctx error rather than surfacing the raw i/o
+			// timeout.
+			var timeoutErr interface{ Timeout() bool }
+			if c.stdoutFile != nil && errors.As(err, &timeoutErr) && timeoutErr.Timeout() {
+				<-ctx.Done()
+				return nil, fmt.Errorf("mcp: %s: %w", method, ctx.Err())
+			}
 			return nil, fmt.Errorf("read: %w", err)
 		}
 
@@ -353,6 +458,32 @@ func (c *Client) callLocked(_ context.Context, method string, params any) (json.
 		}
 
 		return resp.Result, nil
+	}
+}
+
+// readMessage reads a single newline-delimited message from r, bounding the
+// message size to limit bytes. The trailing newline is not included. It
+// returns an error if the message exceeds the limit, preventing unbounded
+// memory growth from a misbehaving server.
+func readMessage(r *bufio.Reader, limit int) ([]byte, error) {
+	buf := make([]byte, 0, 512)
+	for {
+		b, err := r.ReadByte()
+		if err != nil {
+			if len(buf) > 0 && err == io.EOF {
+				// Return the partial line so a trailing message without a
+				// newline is still parseable.
+				return buf, nil
+			}
+			return nil, err
+		}
+		if b == '\n' {
+			return buf, nil
+		}
+		buf = append(buf, b)
+		if len(buf) > limit {
+			return nil, fmt.Errorf("message exceeds %d byte limit", limit)
+		}
 	}
 }
 

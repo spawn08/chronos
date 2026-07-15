@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"strings"
@@ -14,7 +15,7 @@ func TestAnthropic_readSSEStream_TextDeltaAndStop(t *testing.T) {
 	ch := make(chan *ChatResponse, 8)
 	a := NewAnthropic("sk-test")
 	go func() {
-		a.readSSEStream(resp, ch)
+		a.readSSEStream(context.Background(), resp, ch)
 		close(ch)
 	}()
 	var got string

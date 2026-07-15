@@ -41,7 +41,9 @@ func (f *FallbackProvider) Model() string {
 	return ""
 }
 
-// Chat tries each provider in order until one succeeds.
+// Chat tries each provider in order until one succeeds. It does not fall
+// through on terminal (4xx client) errors, which will not succeed on a
+// different provider — those are returned immediately.
 func (f *FallbackProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
 	var lastErr error
 	for i, p := range f.providers {
@@ -56,11 +58,15 @@ func (f *FallbackProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatRes
 		if ctx.Err() != nil {
 			return nil, fmt.Errorf("fallback provider: context canceled after %d attempts: %w", i+1, ctx.Err())
 		}
+		if IsTerminal(err) {
+			return nil, fmt.Errorf("fallback provider: terminal error from %s (not retryable across providers): %w", p.Name(), err)
+		}
 	}
 	return nil, fmt.Errorf("fallback provider: all %d providers failed, last error: %w", len(f.providers), lastErr)
 }
 
-// StreamChat tries each provider in order until one succeeds.
+// StreamChat tries each provider in order until one succeeds. Like Chat, it
+// aborts immediately on terminal (4xx) errors rather than trying every provider.
 func (f *FallbackProvider) StreamChat(ctx context.Context, req *ChatRequest) (<-chan *ChatResponse, error) {
 	var lastErr error
 	for i, p := range f.providers {
@@ -74,6 +80,9 @@ func (f *FallbackProvider) StreamChat(ctx context.Context, req *ChatRequest) (<-
 		}
 		if ctx.Err() != nil {
 			return nil, fmt.Errorf("fallback provider: context canceled after %d attempts: %w", i+1, ctx.Err())
+		}
+		if IsTerminal(err) {
+			return nil, fmt.Errorf("fallback provider: terminal error from %s (not retryable across providers): %w", p.Name(), err)
 		}
 	}
 	return nil, fmt.Errorf("fallback provider: all %d providers failed, last error: %w", len(f.providers), lastErr)

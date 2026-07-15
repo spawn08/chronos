@@ -90,6 +90,37 @@ func TestMigrate_Rollback(t *testing.T) {
 	}
 }
 
+// TestMigrate_Rollback_AtomicOnFailure proves the Down SQL and the version-table
+// delete run in one transaction: when Down fails, the delete is rolled back too,
+// so the version table still reports the migration as applied (no inconsistency).
+func TestMigrate_Rollback_AtomicOnFailure(t *testing.T) {
+	db := testDB(t)
+	m := New(db)
+	// Down references a table that does not exist, so it fails at exec time.
+	m.Add(1, "create", "CREATE TABLE t (id INTEGER)", "DROP TABLE does_not_exist")
+
+	if err := m.Migrate(context.Background()); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+
+	if err := m.Rollback(context.Background()); err == nil {
+		t.Fatal("expected rollback to fail on bad Down SQL")
+	}
+
+	// Version bookkeeping must be unchanged: v1 is still recorded.
+	status, err := m.Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if status.CurrentVersion != 1 {
+		t.Fatalf("after failed rollback CurrentVersion = %d, want 1", status.CurrentVersion)
+	}
+	// And the original table still exists (its DROP never ran).
+	if _, err := db.Exec("INSERT INTO t (id) VALUES (1)"); err != nil {
+		t.Fatalf("table t should still exist after failed rollback: %v", err)
+	}
+}
+
 func TestMigrate_RollbackEmpty(t *testing.T) {
 	db := testDB(t)
 	m := New(db)

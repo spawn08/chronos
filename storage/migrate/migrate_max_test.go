@@ -67,7 +67,7 @@ func TestMigrator_Status_ScanErrorUsesClosedDB(t *testing.T) {
 	db := openSQLiteMax(t)
 	ctx := context.Background()
 	m := New(db).Add(1, "a", `SELECT 1`, `SELECT 1`)
-	_ = m.ensureTable(ctx)
+	_ = m.ensureTable(ctx, db)
 	_ = db.Close()
 	if _, err := m.Status(context.Background()); err == nil {
 		t.Fatal("expected status error on closed db")

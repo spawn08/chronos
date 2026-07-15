@@ -25,13 +25,19 @@ type CostReport struct {
 // optional budget limits. It intercepts model call events to accumulate token
 // usage and compute costs using a configurable price table.
 type CostTracker struct {
-	mu         sync.Mutex
-	sessions   map[string]*CostReport
-	global     CostReport
-	priceTable map[string]ModelPrice
+	mu            sync.Mutex
+	sessions      map[string]*CostReport
+	global        CostReport
+	priceTable    map[string]ModelPrice
+	unknownModels map[string]int // model name -> number of calls with no price
 	// Budget is the maximum total spend (in currency units) before calls are
 	// blocked. 0 means unlimited.
 	Budget float64
+	// RejectUnknownModels controls handling of models absent from the price
+	// table. When true, After returns an error for such models instead of
+	// silently costing $0; when false (default) their token usage is still
+	// tracked and the event is flagged, but cost is not accrued.
+	RejectUnknownModels bool
 }
 
 // NewCostTracker creates a cost tracker with the given price table.
@@ -41,9 +47,10 @@ func NewCostTracker(priceTable map[string]ModelPrice) *CostTracker {
 		priceTable = defaultPriceTable()
 	}
 	return &CostTracker{
-		sessions:   make(map[string]*CostReport),
-		priceTable: priceTable,
-		global:     CostReport{Currency: "USD"},
+		sessions:      make(map[string]*CostReport),
+		priceTable:    priceTable,
+		unknownModels: make(map[string]int),
+		global:        CostReport{Currency: "USD"},
 	}
 }
 
@@ -76,12 +83,27 @@ func (ct *CostTracker) After(_ context.Context, evt *Event) error {
 		return nil
 	}
 
-	price := ct.priceTable[modelName]
+	price, known := ct.priceTable[modelName]
+	if !known {
+		// Unknown model: never silently bill $0. Either reject or flag while
+		// still tracking token usage.
+		if ct.RejectUnknownModels {
+			return fmt.Errorf("cost tracker: no price configured for model %q", modelName)
+		}
+		if evt.Metadata == nil {
+			evt.Metadata = make(map[string]any)
+		}
+		evt.Metadata["cost_unknown_model"] = modelName
+	}
 	cost := float64(promptTokens)*price.PromptPricePerToken +
 		float64(completionTokens)*price.CompletionPricePerToken
 
 	ct.mu.Lock()
 	defer ct.mu.Unlock()
+
+	if !known {
+		ct.unknownModels[modelName]++
+	}
 
 	ct.global.PromptTokens += promptTokens
 	ct.global.CompletionTokens += completionTokens
@@ -121,6 +143,18 @@ func (ct *CostTracker) GetSessionCost(sessionID string) CostReport {
 		return *sr
 	}
 	return CostReport{Currency: "USD"}
+}
+
+// UnknownModels returns a snapshot of models seen with no configured price and
+// the number of calls recorded for each. It is safe for concurrent use.
+func (ct *CostTracker) UnknownModels() map[string]int {
+	ct.mu.Lock()
+	defer ct.mu.Unlock()
+	out := make(map[string]int, len(ct.unknownModels))
+	for k, v := range ct.unknownModels {
+		out[k] = v
+	}
+	return out
 }
 
 // extractUsage pulls token counts from a model call after event. It looks at

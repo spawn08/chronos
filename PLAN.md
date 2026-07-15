@@ -28,29 +28,33 @@
 
 Fix broken behavior in shipped code. Target: a small number of weeks.
 
+> **Status: COMPLETE** <!-- done: 2026-07-15 --> — delivered in wave 1 (PR #17, branch `plan/p0-wave1`).
+> Every item ships with a regression test (`runner_p0_test.go`, `registry_safety_test.go`,
+> `server_security_test.go`, `agent_toolloop_p0007_test.go`, `isolation_p0008_test.go`).
+
 ## P0-A: Durable execution correctness (`engine/graph`)
 
-- [ ] **P0-001 — HITL resume infinite-pause.** Resuming a paused run restores `CurrentNode`
+- [x] **P0-001 — HITL resume infinite-pause.** Resuming a paused run restores `CurrentNode`
   to the interrupt node, which immediately re-pauses. There is no "approved once" flag.
   - **Location:** `engine/graph/runner.go:81-99,205-229`
   - **Action:** Add a resume token / `resumedFrom` marker (or per-node `approved` flag in `RunState`)
     so `Resume` advances *past* the interrupt node exactly once, then clears the marker.
   - **Done when:** A paused approval workflow resumes and completes; regression test covers pause → resume → completion.
 
-- [ ] **P0-002 — Resume double-executes the last node.** The checkpoint records the just-finished
+- [x] **P0-002 — Resume double-executes the last node.** The checkpoint records the just-finished
   node (before `findNext`), so `Resume` re-runs it, duplicating side effects.
   - **Location:** `engine/graph/runner.go:278-301,324-335`
   - **Action:** Checkpoint the *next* node to execute (post-`findNext`), or record a
     "node N completed" high-water mark and skip completed nodes on resume.
   - **Done when:** Resume continues from the next unexecuted node; a side-effect counter test proves no double-execution.
 
-- [ ] **P0-003 — `GetLatestCheckpoint` orders by wall-clock.** Same-tick timestamps make resume
+- [x] **P0-003 — `GetLatestCheckpoint` orders by wall-clock.** Same-tick timestamps make resume
   restore a non-deterministic (possibly earlier) checkpoint.
   - **Location:** `storage/adapters/sqlite/sqlite.go:341`, `storage/adapters/postgres/postgres.go:343`
   - **Action:** `ORDER BY seq_num DESC LIMIT 1`.
   - **Done when:** Latest checkpoint is deterministic; test with equal timestamps.
 
-- [ ] **P0-004 — Non-atomic, non-idempotent checkpoint + event write.** `SaveCheckpoint` and
+- [x] **P0-004 — Non-atomic, non-idempotent checkpoint + event write.** `SaveCheckpoint` and
   `AppendEvent` are separate calls, the event error is discarded, and `SaveCheckpoint` is a plain
   `INSERT`. Ledger can silently gap; replay errors on PK.
   - **Location:** `engine/graph/runner.go:279-291`; adapter `SaveCheckpoint`/`AppendEvent`
@@ -58,14 +62,14 @@ Fix broken behavior in shipped code. Target: a small number of weeks.
     add a unique `(session_id, seq_num)` constraint; stop discarding the append error.
   - **Done when:** Crash-between-writes cannot desync ledger and checkpoint; replay is idempotent.
 
-- [ ] **P0-005 — Runner channel leak / reuse panic.** `close(localCh)` only runs on the clean exit
+- [x] **P0-005 — Runner channel leak / reuse panic.** `close(localCh)` only runs on the clean exit
   path; error/interrupt paths leak it, and reusing a Runner sends/closes on a closed channel → panic.
   - **Location:** `engine/graph/runner.go:48-60,205-309`
   - **Action:** Close `localCh` on all exit paths (defer at top of `execute`); guard `emit` against a
     closed channel or make Runner explicitly single-use with a state check.
   - **Done when:** No goroutine leak on error/pause; misuse returns an error, never panics.
 
-- [ ] **P0-006 — No step limit / cycle guard.** `for rs.Status == RunStatusRunning` can loop forever,
+- [x] **P0-006 — No step limit / cycle guard.** `for rs.Status == RunStatusRunning` can loop forever,
   writing a checkpoint per iteration.
   - **Location:** `engine/graph/runner.go:205`
   - **Action:** Add a configurable max-step bound and per-node timeout; fail the run when exceeded.
@@ -73,7 +77,7 @@ Fix broken behavior in shipped code. Target: a small number of weeks.
 
 ## P0-B: Agent-loop & memory correctness (`sdk/`)
 
-- [ ] **P0-007 — Multi-round tool context is dropped.** `handleToolCalls` receives `messages` by
+- [x] **P0-007 — Multi-round tool context is dropped.** `handleToolCalls` receives `messages` by
   value and appends locally, so prior rounds' tool calls/results are discarded; the follow-up
   `Chat` also passes no `Tools`.
   - **Location:** `sdk/agent/agent.go:390-405,430-489`
@@ -82,13 +86,13 @@ Fix broken behavior in shipped code. Target: a small number of weeks.
     `MaxIterations` is hit with unsatisfied tool calls.
   - **Done when:** A 3-round sequential-tool task retains full context; test asserts message accumulation.
 
-- [ ] **P0-008 — Multi-tenant memory leak.** `Manager.userID` is ignored; long-term memory is keyed
+- [x] **P0-008 — Multi-tenant memory leak.** `Manager.userID` is ignored; long-term memory is keyed
   by `agentID` only, so `GetUserMemories` returns every user's memories.
   - **Location:** `sdk/memory/memory.go:37-64`, `sdk/memory/manager.go:119-133`
   - **Action:** Key long-term memory by `(agentID, userID)`; scope all reads by `userID`.
   - **Done when:** Two users on one agent never see each other's memories; test proves isolation.
 
-- [ ] **P0-009 — No panic recovery anywhere.** A panicking tool / node / MCP handler crashes the
+- [x] **P0-009 — No panic recovery anywhere.** A panicking tool / node / MCP handler crashes the
   whole process.
   - **Location:** `engine/tool/registry.go:136`, `engine/graph/runner.go:254`, `sdk/protocol/protocol.go:463-496`
   - **Action:** `recover()` around user-supplied handlers; convert panics to errors and emit an event/trace.
@@ -96,20 +100,20 @@ Fix broken behavior in shipped code. Target: a small number of weeks.
 
 ## P0-C: Control-plane baseline security (`os/`)
 
-- [ ] **P0-010 — All endpoints unauthenticated.** Auth/CORS/rate-limit middleware exists but is
+- [x] **P0-010 — All endpoints unauthenticated.** Auth/CORS/rate-limit middleware exists but is
   never attached, including state-mutating `POST /api/sessions/state`.
   - **Location:** `os/server.go:62-83,222-225`; `os/auth/*`, `os/middleware/*`
   - **Action:** Compose a middleware chain (auth → CORS → rate limit → recovery → logging) around the mux.
   - **Done when:** Protected routes reject unauthenticated requests; integration test covers 401/200 paths.
 
-- [ ] **P0-011 — No server hardening.** Missing `Read/Write/Idle/ReadHeader` timeouts, body size
+- [x] **P0-011 — No server hardening.** Missing `Read/Write/Idle/ReadHeader` timeouts, body size
   limits, and panic-recovery middleware; readiness runs `Migrate()` on every probe.
   - **Location:** `os/server.go:104,222-225`
   - **Action:** Set `http.Server` timeouts; wrap bodies with `http.MaxBytesReader`; add recovery
     middleware; move migration out of the readiness handler (run at startup / via CLI).
   - **Done when:** Slowloris and oversized-body requests are rejected; readiness is a cheap check.
 
-- [ ] **P0-012 — Postgres adapter is dead code.** No Postgres driver is imported anywhere, so the
+- [x] **P0-012 — Postgres adapter is dead code.** No Postgres driver is imported anywhere, so the
   "production" store fails on first query.
   - **Location:** `storage/adapters/postgres/postgres.go:21`, `go.mod`
   - **Action:** Add `jackc/pgx` (or `lib/pq`) and register it; wire it into `sdk/agent/config.go` `buildStorage`.
@@ -121,46 +125,55 @@ Fix broken behavior in shipped code. Target: a small number of weeks.
 
 Make the platform horizontally scalable and resilient. Target: 1–2 quarters.
 
+> **Wave 2 status** <!-- done: 2026-07-15 --> — P1-A, P1-B, P1-C, P1-E delivered on
+> branch `plan/p1-wave2` (new `engine/queue/` durable execution plane, model/LLMOps
+> hardening, storage scale plane, MCP reliability). Two adversarial review agents
+> (design + code-quality) gated the work; their findings were fixed in-branch
+> (queue retry-budget/park-race/outbox dead-letter, ctx-aware retry, enforced
+> token rate limit, batch param-limit chunking, instant-correct retention, atomic
+> rollback). Full `-race` suite green; full-repo golangci-lint clean.
+> **P1-D (below) is deferred to Wave 3** — it depends on the durable queue landing first.
+
 ## P1-A: Durable & distributed execution (highest-leverage)
 
-- [ ] **P1-001 — Durable work queue with leased dequeue.** Today the graph runner executes
+- [x] **P1-001 — Durable work queue with leased dequeue.** Today the graph runner executes
   synchronously in the caller's goroutine; a crash strands in-flight runs.
   - **Action:** Introduce a `runs` queue backed by Postgres (`FOR UPDATE SKIP LOCKED`) or NATS/Redis
     Streams; workers claim runs with a lease and execute the graph; decouple intake from execution.
   - **Done when:** A run submitted on node A can be executed by worker B; killing a worker mid-run
     lets another worker resume it.
 
-- [ ] **P1-002 — Heartbeat, lease expiry & orphan recovery.** Detect dead workers and re-enqueue
+- [x] **P1-002 — Heartbeat, lease expiry & orphan recovery.** Detect dead workers and re-enqueue
   their in-flight runs.
   - **Done when:** A `SIGKILL`ed worker's run is picked up and completed by another within the lease TTL.
 
-- [ ] **P1-003 — Idempotency keys + outbox.** Combine with P0-004 so checkpoint + event + external
+- [x] **P1-003 — Idempotency keys + outbox.** Combine with P0-004 so checkpoint + event + external
   effect converge without duplicates on retry/resume.
   - **Done when:** Replaying a resumed run does not double-emit external effects; outbox drains reliably.
 
-- [ ] **P1-004 — Durable timers/sleeps and external signals.** Enable "wait N, then continue",
+- [x] **P1-004 — Durable timers/sleeps and external signals.** Enable "wait N, then continue",
   scheduled continuations, and webhook-as-signal for HITL.
   - **Done when:** A graph can durably sleep across a process restart and resume on a signal.
 
-- [ ] **P1-005 — Global admission control / back-pressure.** Bound queue depth and reject/park
+- [x] **P1-005 — Global admission control / back-pressure.** Bound queue depth and reject/park
   work under overload instead of unbounded synchronous execution.
   - **Done when:** Load test shows graceful shedding, not OOM, past capacity.
 
 ## P1-B: Model serving & LLMOps (`engine/model`, `engine/hooks`)
 
-- [ ] **P1-006 — Tuned HTTP transport.** Default transport keeps only 2 idle conns/host → churn.
+- [x] **P1-006 — Tuned HTTP transport.** Default transport keeps only 2 idle conns/host → churn.
   - **Location:** `engine/model/httpclient.go:20-31`
   - **Action:** Custom `http.Transport` with tuned `MaxIdleConns`, `MaxIdleConnsPerHost`,
     `MaxConnsPerHost`, keep-alive; separate connect vs. total/streaming timeouts.
 
-- [ ] **P1-007 — Real retry/backoff with 429 handling + circuit breakers.** `MaxRetries` is defined
+- [x] **P1-007 — Real retry/backoff with 429 handling + circuit breakers.** `MaxRetries` is defined
   but never used; fallback fires on non-retryable errors.
   - **Location:** `engine/model/*.go`, `engine/model/fallback.go`, `engine/hooks/retry.go`
   - **Action:** Classify errors (retryable vs. terminal); exponential backoff honoring `Retry-After`;
     per-provider circuit breaker; make fallback skip terminal (4xx) errors. Fix RetryHook data race
     (shared `Retries` counter) with a mutex.
 
-- [ ] **P1-008 — Streaming hardening.** Abandoned streams leak goroutines/connections; 64KB line cap
+- [x] **P1-008 — Streaming hardening.** Abandoned streams leak goroutines/connections; 64KB line cap
   silently truncates; `scanner.Err()` unchecked; Anthropic `tool_use` deltas dropped; no streamed usage.
   - **Location:** `engine/model/openai.go`, `anthropic.go`
   - **Action:** `ctx`-aware channel sends; `scanner.Buffer()` override; check `scanner.Err()`; handle
@@ -168,11 +181,11 @@ Make the platform horizontally scalable and resilient. Target: 1–2 quarters.
   - **Done when:** Disconnecting a client frees the goroutine/connection; streamed tool calls and token
     usage are captured.
 
-- [ ] **P1-009 — Real tokenizer + token streaming to callers.** Replace the `len/4` heuristic with a
+- [x] **P1-009 — Real tokenizer + token streaming to callers.** Replace the `len/4` heuristic with a
   BPE tokenizer; invoke `StreamChat` from the SDK so callers get token deltas.
   - **Location:** `engine/model/tokenizer.go`, `sdk/agent/agent.go`
 
-- [ ] **P1-010 — Fix rate-limit / cache / cost hooks for scale.** RateLimitHook holds a global mutex
+- [x] **P1-010 — Fix rate-limit / cache / cost hooks for scale.** RateLimitHook holds a global mutex
   while waiting (serializes all calls); CacheHook is unbounded with O(n) eviction; CostHook is TOCTOU
   and counts unknown models as $0.
   - **Location:** `engine/hooks/{ratelimit,cache,cost}.go`
@@ -181,17 +194,20 @@ Make the platform horizontally scalable and resilient. Target: 1–2 quarters.
 
 ## P1-C: Storage & data plane
 
-- [ ] **P1-011 — Indexes + configurable pooling.** Add indexes on `sessions.agent_id`,
+- [x] **P1-011 — Indexes + configurable pooling.** Add indexes on `sessions.agent_id`,
   `audit_logs.session_id`, `traces.session_id`; make pool sizes configurable.
-- [ ] **P1-012 — Pagination + retention.** `ListTraces/ListEvents/ListCheckpoints` are unbounded and
+- [x] **P1-012 — Pagination + retention.** `ListTraces/ListEvents/ListCheckpoints` are unbounded and
   never trimmed. Add `limit`/cursor to the interface; add TTL/partitioning/retention jobs.
   - **Location:** `storage/storage.go:98-108`, adapters.
-- [ ] **P1-013 — Batch ingestion.** Replace per-row loops (vector upserts, events) with batch/`COPY`.
-- [ ] **P1-014 — Wire the migration framework.** It exists but is orphaned and hardcodes `?` placeholders
+- [x] **P1-013 — Batch ingestion.** Replace per-row loops (vector upserts, events) with batch/`COPY`.
+- [x] **P1-014 — Wire the migration framework.** It exists but is orphaned and hardcodes `?` placeholders
   (breaks Postgres). Make adapters use it; support `$N`; add an advisory lock for concurrent migrators.
   - **Location:** `storage/migrate/migrate.go`
 
 ## P1-D: Control plane, SSE & observability
+
+> **Deferred to Wave 3.** P1-016 (externalize scheduler/rate-limiter/approval) builds on
+> the `engine/queue` durable queue + leader election delivered in Wave 2; sequence it after.
 
 - [ ] **P1-015 — SSE topic/session routing.** The Broker broadcasts every event to every subscriber
   (cross-session/tenant leakage) and `SSEHandler` uses a static id so clients clobber each other.
@@ -219,7 +235,7 @@ Make the platform horizontally scalable and resilient. Target: 1–2 quarters.
 
 ## P1-E: MCP reliability
 
-- [ ] **P1-019 — MCP per-call timeout & deadlock.** `callLocked` ignores the per-call ctx and blocks on
+- [x] **P1-019 — MCP per-call timeout & deadlock.** `callLocked` ignores the per-call ctx and blocks on
   an unbounded read while holding the mutex; `Close` can't recover a hung client; SSE transport is a stub;
   MCP tools register with no `Permission` (auto-allow).
   - **Location:** `engine/mcp/client.go`, `engine/mcp/adapter.go`
