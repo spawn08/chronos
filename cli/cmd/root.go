@@ -198,6 +198,7 @@ func runServe() error {
 	if err != nil {
 		return err
 	}
+	defer store.Close()
 	srv := chronosos.New(addr, store)
 	log.Printf("Starting ChronosOS on %s", addr)
 	return srv.Start(context.Background())
@@ -210,7 +211,10 @@ func runAgent() error {
 	var msgParts []string
 
 	for i := 0; i < len(args); i++ {
-		if (args[i] == "--agent" || args[i] == "-a") && i+1 < len(args) {
+		if args[i] == "--agent" || args[i] == "-a" {
+			if i+1 >= len(args) {
+				return fmt.Errorf("flag %s requires an agent id\nusage: chronos run [--agent <id>] <message>", args[i])
+			}
 			agentID = args[i+1]
 			i++
 		} else {
@@ -784,10 +788,21 @@ func runMemory() error {
 		if err != nil {
 			return err
 		}
+		deleted := 0
+		var firstErr error
 		for _, m := range mems {
-			_ = store.DeleteMemory(ctx, m.ID)
+			if delErr := store.DeleteMemory(ctx, m.ID); delErr != nil {
+				if firstErr == nil {
+					firstErr = delErr
+				}
+				continue
+			}
+			deleted++
 		}
-		fmt.Printf("Cleared %d memories.\n", len(mems))
+		fmt.Printf("Cleared %d of %d memories.\n", deleted, len(mems))
+		if firstErr != nil {
+			return fmt.Errorf("some memories could not be deleted: %w", firstErr)
+		}
 		return nil
 	default:
 		return fmt.Errorf("unknown memory subcommand: %s\nUsage: chronos memory [list|forget|clear]", sub)

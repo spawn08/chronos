@@ -30,8 +30,11 @@ type monitorStats struct {
 	TokensUsedTotal float64 `json:"tokens_used_total"`
 	ModelCallsTotal float64 `json:"model_calls_total"`
 	ErrorsTotal     float64 `json:"errors_total"`
-	ModelLatencyP50 float64 `json:"model_latency_p50"`
-	ActiveSessionsG float64 `json:"active_sessions_gauge"`
+	// ModelLatencySum/Count come from the chronos_model_latency_seconds
+	// histogram; average latency is Sum/Count.
+	ModelLatencySum   float64 `json:"model_latency_sum"`
+	ModelLatencyCount float64 `json:"model_latency_count"`
+	ActiveSessionsG   float64 `json:"active_sessions_gauge"`
 
 	FetchedAt time.Time `json:"fetched_at"`
 	FetchErr  string    `json:"fetch_err,omitempty"`
@@ -62,18 +65,22 @@ func runMonitor() error {
 
 	// Parse flags: --endpoint <url> --interval <seconds>
 	args := os.Args[2:]
+	endpointSet := false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--endpoint", "-e":
 			if i+1 < len(args) {
 				endpoint = args[i+1]
+				endpointSet = true
 				i++
 			}
 		case "--interval", "-i":
 			if i+1 < len(args) {
-				if secs, err := strconv.Atoi(args[i+1]); err == nil && secs > 0 {
-					interval = time.Duration(secs) * time.Second
+				secs, err := strconv.Atoi(args[i+1])
+				if err != nil || secs <= 0 {
+					return fmt.Errorf("invalid --interval %q: must be a positive integer number of seconds", args[i+1])
 				}
+				interval = time.Duration(secs) * time.Second
 				i++
 			}
 		case "--help", "-h":
@@ -86,12 +93,17 @@ Options:
 Displays a live terminal dashboard polling the ChronosOS control plane.
 Press Ctrl+C to exit.`)
 			return nil
+		default:
+			return fmt.Errorf("unknown monitor flag %q\nRun 'chronos monitor --help' for usage.", args[i])
 		}
 	}
 
-	// Override endpoint from env if set.
-	if v := os.Getenv("CHRONOS_ENDPOINT"); v != "" {
-		endpoint = v
+	// Fall back to the env endpoint only when no explicit --endpoint was given,
+	// so a flag the user typed always wins over the environment.
+	if !endpointSet {
+		if v := os.Getenv("CHRONOS_ENDPOINT"); v != "" {
+			endpoint = v
+		}
 	}
 	endpoint = strings.TrimRight(endpoint, "/")
 
@@ -226,8 +238,9 @@ func parsePrometheusText(text string, stats *monitorStats) {
 		case name == "chronos_active_sessions":
 			stats.ActiveSessionsG = val
 		case strings.HasPrefix(name, "chronos_model_latency_seconds_sum"):
-			// Store sum for computing average latency below.
-			stats.ModelLatencyP50 += val
+			stats.ModelLatencySum += val
+		case strings.HasPrefix(name, "chronos_model_latency_seconds_count"):
+			stats.ModelLatencyCount += val
 		}
 	}
 }
@@ -349,9 +362,9 @@ func renderDashboard(stats monitorStats, endpoint string, interval time.Duration
 		fmt.Printf("  Error Rate   : \033[2mn/a\033[0m\n")
 	}
 
-	// Avg latency from sum metric (approx).
-	if stats.ModelCallsTotal > 0 && stats.ModelLatencyP50 > 0 {
-		avgMs := (stats.ModelLatencyP50 / stats.ModelCallsTotal) * 1000
+	// Avg latency = histogram sum / histogram count (its own denominator).
+	if stats.ModelLatencyCount > 0 && stats.ModelLatencySum > 0 {
+		avgMs := (stats.ModelLatencySum / stats.ModelLatencyCount) * 1000
 		fmt.Printf("  Avg Latency  : \033[1m%.0f ms\033[0m\n", avgMs)
 	} else {
 		fmt.Printf("  Avg Latency  : \033[2mn/a\033[0m\n")

@@ -57,8 +57,8 @@ not_a_number abc
 	if st.ErrorsTotal != 1 || st.ActiveSessionsG != 3 {
 		t.Fatalf("errors/gauge: %+v", st)
 	}
-	if st.ModelLatencyP50 != 0.5 {
-		t.Fatalf("latency sum: %v", st.ModelLatencyP50)
+	if st.ModelLatencySum != 0.5 {
+		t.Fatalf("latency sum: %v", st.ModelLatencySum)
 	}
 }
 
@@ -117,7 +117,7 @@ func TestRenderDashboard_Squeeze(t *testing.T) {
 		ModelCallsTotal: 10,
 		TokensUsedTotal: 100,
 		ErrorsTotal:     5,
-		ModelLatencyP50: 2.5,
+		ModelLatencySum: 2.5,
 		ActiveSessionsG: 7,
 	}
 	out := captureStdout(t, func() {
@@ -132,7 +132,7 @@ func TestRenderDashboard_Squeeze(t *testing.T) {
 		TotalSessions:   7,
 		ModelCallsTotal: 100,
 		ErrorsTotal:     15,
-		ModelLatencyP50: 50,
+		ModelLatencySum: 50,
 	}
 	st2.RecentSessions = append(st2.RecentSessions,
 		sessionSummary{ID: longID, AgentID: strings.Repeat("y", 20), Status: "failed", CreatedAt: "12:00:00"},
