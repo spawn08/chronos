@@ -255,7 +255,7 @@ Make the platform horizontally scalable and resilient. Target: 1–2 quarters.
 
 Sustained-scale operability and security. Ongoing.
 
-- [ ] **P2-001 — Sandbox hardening.** Default sandbox is bare `exec` (no isolation) and
+- [x] **P2-001 — Sandbox hardening.** Default sandbox is bare `exec` (no isolation) and
   `NewAutoShellTool` runs `sh -c` on the host auto-approved; the container backend runs as root with no
   seccomp/pids limit; `wasm`/`k8s` backends are stubs that fail at execution time.
   - **Location:** `sandbox/sandbox.go`, `sandbox/container.go`, `engine/tool/builtins/shell.go`, `sandbox/{wasm,k8sjob}.go`
@@ -268,19 +268,19 @@ Sustained-scale operability and security. Ongoing.
   (session/trace/checkpoint access is keyed only by client-supplied IDs today → IDOR).
   - **Location:** `storage/storage.go`, `os/server.go:118-217`
 
-- [ ] **P2-003 — AuthN/Z depth.** Current JWT is HS256-only with unused `Issuer`/`AllowExpired`; API keys
+- [x] **P2-003 — AuthN/Z depth.** Current JWT is HS256-only with unused `Issuer`/`AllowExpired`; API keys
   are plaintext in memory. Add OIDC/JWKS + RS256 + rotation; hashed, persisted API keys; per-key/per-tenant
   quotas and token/cost budgets.
   - **Location:** `os/auth/{jwt,apikey}.go`
 
-- [ ] **P2-004 — Production Helm chart.** Missing liveness/readiness probes (endpoints exist!), PDB,
+- [x] **P2-004 — Production Helm chart.** Missing liveness/readiness probes (endpoints exist!), PDB,
   `securityContext`, anti-affinity/topology spread, ServiceMonitor; toy resource limits; autoscaling & TLS
   off by default; secrets as `b64enc` with a hardcoded `changeme` DSN.
   - **Location:** `deploy/helm/chronos/`
   - **Action:** Add probes/PDB/securityContext/anti-affinity/ServiceMonitor; realistic resources; enable
     HPA; External-Secrets/SOPS/Vault integration; TLS via Ingress.
 
-- [ ] **P2-005 — CI supply-chain security.** No `govulncheck`, image scanning (Trivy/Grype), SAST
+- [x] **P2-005 — CI supply-chain security.** No `govulncheck`, image scanning (Trivy/Grype), SAST
   (CodeQL/gosec), SBOM, or image signing (cosign). Add all; enforce (not warn) a meaningful coverage gate.
   - **Location:** `.github/workflows/ci.yml`, `release.yml`
 
@@ -294,11 +294,11 @@ Sustained-scale operability and security. Ongoing.
   or clearly label experimental and exclude from the "production" set.
   - **Location:** `storage/adapters/{dynamo,mongo,redis,redisvector}/`
 
-- [ ] **P2-008 — Config-driven completeness.** YAML custom tools are placeholders and config-driven
+- [x] **P2-008 — Config-driven completeness.** YAML custom tools are placeholders and config-driven
   Postgres is a stub. Make config-built agents fully functional (custom tool handlers, Postgres).
   - **Location:** `sdk/agent/config.go:368-418`
 
-- [ ] **P2-009 — RAG/knowledge scaling.** `Load` embeds all docs in one call (fails on large corpora),
+- [x] **P2-009 — RAG/knowledge scaling.** `Load` embeds all docs in one call (fails on large corpora),
   there's no chunking in the indexing path, no query-embedding cache, and no top-k/score threshold on
   retrieval. Add batching, chunking, caching, and relevance thresholds; guard concurrent indexing.
   - **Location:** `sdk/knowledge/vectordb.go`
