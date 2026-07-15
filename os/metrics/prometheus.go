@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -36,6 +37,8 @@ func NewRegistry() *Registry {
 	r.Gauge("chronos_active_sessions", "Number of currently active sessions")
 	r.Histogram("chronos_model_latency_seconds", "Model call latency in seconds",
 		[]float64{0.1, 0.25, 0.5, 1, 2.5, 5, 10})
+	r.Histogram("chronos_tool_latency_seconds", "Tool call latency in seconds",
+		[]float64{0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10})
 
 	return r
 }
@@ -129,6 +132,53 @@ func (r *Registry) SetActiveSessions(n float64) {
 	r.gauges["chronos_active_sessions"].Set(n)
 }
 
+// normalizeTenant maps an empty tenant to a stable label value so that
+// per-tenant series always carry the dimension (avoids ""-keyed drift).
+func normalizeTenant(tenant string) string {
+	if tenant == "" {
+		return "default"
+	}
+	return tenant
+}
+
+// RecordToolCall records a single tool invocation with per-tenant attribution:
+// it increments the tool-call counter, observes latency, and increments the
+// error counter when the call failed.
+func (r *Registry) RecordToolCall(tenant, tool string, d time.Duration, isErr bool) {
+	tenant = normalizeTenant(tenant)
+	labels := map[string]string{"tenant": tenant, "tool": tool}
+	r.counters["chronos_tool_calls_total"].Inc(labels)
+	r.histos["chronos_tool_latency_seconds"].ObserveWithLabels(d.Seconds(), labels)
+	if isErr {
+		r.counters["chronos_errors_total"].Inc(map[string]string{"tenant": tenant, "kind": "tool"})
+	}
+}
+
+// RecordModelCall records a single model invocation with per-tenant attribution:
+// model-call counter, token usage (prompt + completion), latency, and errors.
+func (r *Registry) RecordModelCall(tenant, provider string, d time.Duration, promptTokens, completionTokens int64, isErr bool) {
+	tenant = normalizeTenant(tenant)
+	base := map[string]string{"tenant": tenant, "provider": provider}
+	r.counters["chronos_model_calls_total"].Inc(base)
+	r.histos["chronos_model_latency_seconds"].ObserveWithLabels(d.Seconds(), base)
+	if promptTokens > 0 {
+		r.counters["chronos_tokens_used_total"].Add(promptTokens,
+			map[string]string{"tenant": tenant, "provider": provider, "type": "prompt"})
+	}
+	if completionTokens > 0 {
+		r.counters["chronos_tokens_used_total"].Add(completionTokens,
+			map[string]string{"tenant": tenant, "provider": provider, "type": "completion"})
+	}
+	if isErr {
+		r.counters["chronos_errors_total"].Inc(map[string]string{"tenant": tenant, "kind": "model"})
+	}
+}
+
+// IncErrors increments the error counter for a tenant and error kind.
+func (r *Registry) IncErrors(tenant, kind string) {
+	r.counters["chronos_errors_total"].Inc(map[string]string{"tenant": normalizeTenant(tenant), "kind": kind})
+}
+
 // Counter is a monotonically increasing metric.
 type Counter struct {
 	name   string
@@ -202,30 +252,63 @@ func (g *Gauge) writeTo(b *strings.Builder) {
 	}
 }
 
-// Histogram tracks value distributions in configurable buckets.
+// Histogram tracks value distributions in configurable buckets. It keeps an
+// unlabeled default series plus any number of labeled series (used for
+// per-tenant / per-provider attribution).
 type Histogram struct {
 	name    string
 	help    string
 	buckets []float64
 	mu      sync.Mutex
-	counts  []int64 // per-bucket counts
-	sum     float64
-	count   int64
+	def     histoSeries            // unlabeled series
+	series  map[string]histoSeries // serialized labels -> series
 }
 
+// histoSeries holds the per-bucket counts, sum, and total count for one
+// label set. counts[i] is the cumulative number of observations <= buckets[i]
+// (Prometheus "le" semantics), so it can be written out directly.
+type histoSeries struct {
+	counts []int64
+	sum    float64
+	count  int64
+}
+
+func (s *histoSeries) observe(v float64, buckets []float64) {
+	if s.counts == nil {
+		s.counts = make([]int64, len(buckets))
+	}
+	s.sum += v
+	s.count++
+	for i, b := range buckets {
+		if v <= b {
+			s.counts[i]++
+		}
+	}
+}
+
+// Observe records a value in the unlabeled series.
 func (h *Histogram) Observe(v float64) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.counts == nil {
-		h.counts = make([]int64, len(h.buckets))
+	h.def.observe(v, h.buckets)
+}
+
+// ObserveWithLabels records a value in the series identified by labels. An
+// empty label set falls back to the unlabeled series.
+func (h *Histogram) ObserveWithLabels(v float64, labels map[string]string) {
+	key := serializeLabels(labels)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if key == "" {
+		h.def.observe(v, h.buckets)
+		return
 	}
-	h.sum += v
-	h.count++
-	for i, b := range h.buckets {
-		if v <= b {
-			h.counts[i]++
-		}
+	if h.series == nil {
+		h.series = make(map[string]histoSeries)
 	}
+	s := h.series[key]
+	s.observe(v, h.buckets)
+	h.series[key] = s
 }
 
 func (h *Histogram) writeTo(b *strings.Builder) {
@@ -233,17 +316,52 @@ func (h *Histogram) writeTo(b *strings.Builder) {
 	defer h.mu.Unlock()
 	fmt.Fprintf(b, "# HELP %s %s\n", h.name, h.help)
 	fmt.Fprintf(b, "# TYPE %s histogram\n", h.name)
-	if h.counts == nil {
-		h.counts = make([]int64, len(h.buckets))
+	// Unlabeled series is always emitted (count may be 0).
+	h.writeSeries(b, "", h.def)
+	// Labeled series, sorted for deterministic output.
+	keys := make([]string, 0, len(h.series))
+	for k := range h.series {
+		keys = append(keys, k)
 	}
-	var cumulative int64
+	sort.Strings(keys)
+	for _, k := range keys {
+		h.writeSeries(b, k, h.series[k])
+	}
+}
+
+// writeSeries emits the bucket, _sum, and _count lines for a single series.
+// baseLabels is the pre-serialized label set ("" for the unlabeled series).
+func (h *Histogram) writeSeries(b *strings.Builder, baseLabels string, s histoSeries) {
+	counts := s.counts
+	if counts == nil {
+		counts = make([]int64, len(h.buckets))
+	}
 	for i, bucket := range h.buckets {
-		cumulative += h.counts[i]
-		fmt.Fprintf(b, "%s_bucket{le=\"%g\"} %d\n", h.name, bucket, cumulative)
+		fmt.Fprintf(b, "%s_bucket{%s} %d\n", h.name, mergeLabels(baseLabels, fmt.Sprintf("le=%q", formatFloat(bucket))), counts[i])
 	}
-	fmt.Fprintf(b, "%s_bucket{le=\"+Inf\"} %d\n", h.name, h.count)
-	fmt.Fprintf(b, "%s_sum %g\n", h.name, h.sum)
-	fmt.Fprintf(b, "%s_count %d\n", h.name, h.count)
+	fmt.Fprintf(b, "%s_bucket{%s} %d\n", h.name, mergeLabels(baseLabels, `le="+Inf"`), s.count)
+	if baseLabels == "" {
+		fmt.Fprintf(b, "%s_sum %g\n", h.name, s.sum)
+		fmt.Fprintf(b, "%s_count %d\n", h.name, s.count)
+	} else {
+		fmt.Fprintf(b, "%s_sum{%s} %g\n", h.name, baseLabels, s.sum)
+		fmt.Fprintf(b, "%s_count{%s} %d\n", h.name, baseLabels, s.count)
+	}
+}
+
+// mergeLabels joins a base label string with an extra label, handling the
+// empty-base case.
+func mergeLabels(base, extra string) string {
+	if base == "" {
+		return extra
+	}
+	return base + "," + extra
+}
+
+// formatFloat renders a bucket boundary the same way %g does, used inside the
+// le="..." label.
+func formatFloat(v float64) string {
+	return fmt.Sprintf("%g", v)
 }
 
 func serializeLabels(labels map[string]string) string {
@@ -260,4 +378,48 @@ func serializeLabels(labels map[string]string) string {
 		parts[i] = fmt.Sprintf("%s=%q", k, labels[k])
 	}
 	return strings.Join(parts, ",")
+}
+
+// deserializeLabels parses a serialized label key (as produced by
+// serializeLabels) back into a map. It tolerates values containing commas
+// because it splits on the delimiter between quoted values.
+func deserializeLabels(key string) map[string]string {
+	if key == "" {
+		return nil
+	}
+	out := make(map[string]string)
+	rest := key
+	for rest != "" {
+		eq := strings.IndexByte(rest, '=')
+		if eq < 0 {
+			break
+		}
+		name := rest[:eq]
+		rest = rest[eq+1:]
+		if rest == "" || rest[0] != '"' {
+			break
+		}
+		// Find the closing quote, skipping escaped quotes.
+		i := 1
+		for i < len(rest) {
+			if rest[i] == '\\' {
+				i += 2
+				continue
+			}
+			if rest[i] == '"' {
+				break
+			}
+			i++
+		}
+		if i >= len(rest) {
+			break
+		}
+		val, err := strconv.Unquote(rest[:i+1])
+		if err != nil {
+			val = rest[1:i]
+		}
+		out[name] = val
+		rest = strings.TrimPrefix(rest[i+1:], ",")
+	}
+	return out
 }

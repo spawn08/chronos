@@ -37,15 +37,54 @@ type OTelCollector struct {
 	endpoint string
 	enabled  bool
 	counter  int64
+	exporter SpanExporter
 }
 
 // NewOTelCollector creates a new OTel-compatible span collector.
-// endpoint is the OTLP endpoint to export spans to (empty = collect only, no export).
+// endpoint is the OTLP endpoint to export spans to (empty = no-op export,
+// spans are still collected in-memory and available via Spans/Flush). A
+// non-empty endpoint wires a real OTLP/HTTP exporter.
 func NewOTelCollector(endpoint string) *OTelCollector {
-	return &OTelCollector{
+	c := &OTelCollector{
 		endpoint: endpoint,
 		enabled:  true,
 	}
+	if endpoint == "" {
+		c.exporter = NoopSpanExporter{}
+	} else {
+		c.exporter = NewOTLPSpanExporter(endpoint)
+	}
+	return c
+}
+
+// NewOTelCollectorWithExporter creates a collector with a caller-supplied
+// exporter (e.g. a stdout exporter for local debugging, or a fake in tests).
+func NewOTelCollectorWithExporter(exporter SpanExporter) *OTelCollector {
+	if exporter == nil {
+		exporter = NoopSpanExporter{}
+	}
+	return &OTelCollector{
+		enabled:  true,
+		exporter: exporter,
+	}
+}
+
+// Export sends all currently collected spans to the configured exporter and
+// clears the in-memory buffer. With the default (no-op) exporter this only
+// drains the buffer and never touches the network.
+func (c *OTelCollector) Export(ctx context.Context) error {
+	spans := c.Flush()
+	if len(spans) == 0 {
+		return nil
+	}
+	exp := c.exporter
+	if exp == nil {
+		return nil
+	}
+	if err := exp.ExportSpans(ctx, spans); err != nil {
+		return fmt.Errorf("export spans: %w", err)
+	}
+	return nil
 }
 
 // SetEnabled enables or disables span collection.
