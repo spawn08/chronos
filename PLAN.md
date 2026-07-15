@@ -206,28 +206,35 @@ Make the platform horizontally scalable and resilient. Target: 1–2 quarters.
 
 ## P1-D: Control plane, SSE & observability
 
-> **Deferred to Wave 3.** P1-016 (externalize scheduler/rate-limiter/approval) builds on
-> the `engine/queue` durable queue + leader election delivered in Wave 2; sequence it after.
+> **COMPLETE** <!-- done: 2026-07-15 --> — delivered in Wave 3 (branch `plan/p1-wave3`):
+> per-session SSE routing with a firehose subscriber; queue/SKIP-LOCKED scheduler with
+> exactly-once claim; pluggable store-backed rate limiter; ctx-aware persisted approval
+> wired to the tool path; metrics fed from the execution path (hook bridge) + OTLP export
+> + structured logging with correlation ids + per-tenant attribution; protocol bus
+> correlation-map reply routing + bounded handler pool. Two adversarial review agents gated
+> it; findings fixed in-branch (approval decision divergence, SSE custom-event leak, rate-limit
+> read-error corruption, metrics key collision, engine→os tracer layer breach). Full `-race`
+> green; golangci-lint clean.
 
-- [ ] **P1-015 — SSE topic/session routing.** The Broker broadcasts every event to every subscriber
+- [x] **P1-015 — SSE topic/session routing.** The Broker broadcasts every event to every subscriber
   (cross-session/tenant leakage) and `SSEHandler` uses a static id so clients clobber each other.
   - **Location:** `engine/stream/stream.go:44-88`
   - **Action:** Key subscriptions per session/tenant with unique ids; add heartbeat/keepalive; cap
     subscribers; externalize fan-out (Redis/NATS) for multi-replica.
 
-- [ ] **P1-016 — Externalize control-plane state.** Scheduler, rate limiter, and approval live in
+- [x] **P1-016 — Externalize control-plane state.** Scheduler, rate limiter, and approval live in
   in-process maps (never started / duplicate-fire across replicas / block forever).
   - **Location:** `os/scheduler/*`, `os/middleware/ratelimit.go`, `os/approval/approval.go`, `os/server.go:47-54`
   - **Action:** Back scheduler with the durable queue + leader election (or `SKIP LOCKED`); distributed
     rate limiter; ctx-aware, persisted, authorized approval service wired to the tool path (fix the
     `ApprovalFunc` signature mismatch and ID-collision bug).
 
-- [ ] **P1-017 — Real observability.** Feed the (currently never-incremented, histogram-buggy) metrics
+- [x] **P1-017 — Real observability.** Feed the (currently never-incremented, histogram-buggy) metrics
   from the execution path; emit OpenTelemetry metrics + real OTLP trace export; structured JSON logging
   with correlation IDs; per-tenant cost/latency/token attribution.
   - **Location:** `os/metrics/prometheus.go`, `os/trace/otel.go`
 
-- [ ] **P1-018 — Protocol bus correctness.** Fix the reply-routing race (concurrent `SendAndWait` on a
+- [x] **P1-018 — Protocol bus correctness.** Fix the reply-routing race (concurrent `SendAndWait` on a
   shared sender inbox mis-delivers replies) with a correlation map keyed by message id; bound
   handler-goroutine spawning (real back-pressure); propagate caller `ctx` into handlers; correct the
   "lock-free / object-pooling" claims or make them true.

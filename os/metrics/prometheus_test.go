@@ -71,14 +71,14 @@ func TestHistogram_Observe(t *testing.T) {
 	h.Observe(0.8)
 	h.Observe(2.0)
 
-	if h.count != 4 {
-		t.Errorf("count = %d, want 4", h.count)
+	if h.def.count != 4 {
+		t.Errorf("count = %d, want 4", h.def.count)
 	}
-	if h.counts[0] != 1 { // <= 0.1
-		t.Errorf("bucket[0.1] = %d, want 1", h.counts[0])
+	if h.def.counts[0] != 1 { // <= 0.1
+		t.Errorf("bucket[0.1] = %d, want 1", h.def.counts[0])
 	}
-	if h.counts[1] != 2 { // <= 0.5
-		t.Errorf("bucket[0.5] = %d, want 2", h.counts[1])
+	if h.def.counts[1] != 2 { // <= 0.5
+		t.Errorf("bucket[0.5] = %d, want 2", h.def.counts[1])
 	}
 }
 

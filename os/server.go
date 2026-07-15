@@ -19,6 +19,7 @@ import (
 	"github.com/spawn08/chronos/engine/stream"
 	"github.com/spawn08/chronos/os/approval"
 	"github.com/spawn08/chronos/os/auth"
+	"github.com/spawn08/chronos/os/logging"
 	"github.com/spawn08/chronos/os/metrics"
 	"github.com/spawn08/chronos/os/middleware"
 	"github.com/spawn08/chronos/os/scheduler"
@@ -38,6 +39,11 @@ const (
 )
 
 // Server is the ChronosOS control plane.
+//
+// To feed the Metrics registry from execution, add
+// hooks.NewPrometheusHook(s.Metrics) to the hook chain of the agents you run
+// (agents live outside the control plane, so this is wired at agent
+// construction). The registry is exposed at /metrics regardless.
 type Server struct {
 	Addr            string
 	Store           storage.Storage
@@ -46,7 +52,7 @@ type Server struct {
 	Trace           *trace.Collector
 	Approval        *approval.Service
 	Metrics         *metrics.Registry
-	Scheduler       *scheduler.Scheduler
+	Scheduler       scheduler.Runner
 	ShutdownTimeout time.Duration
 	mux             *http.ServeMux
 	ready           atomic.Bool
@@ -59,7 +65,8 @@ type Server struct {
 	disableCORS      bool
 	disableRateLimit bool
 	enableRecovery   bool
-	logger           *log.Logger // nil => request logging disabled
+	logger           *log.Logger     // nil => request logging disabled
+	structuredLogger *logging.Logger // nil => structured JSON logging disabled
 
 	readTimeout       time.Duration
 	readHeaderTimeout time.Duration
@@ -120,6 +127,42 @@ func WithoutRateLimit() Option {
 // WithLogger sets the request logger. A nil logger disables request logging.
 func WithLogger(l *log.Logger) Option {
 	return func(s *Server) { s.logger = l }
+}
+
+// WithStructuredLogging installs structured JSON request logging (with a
+// per-request correlation id) as the outermost middleware. A nil logger leaves
+// structured logging disabled.
+func WithStructuredLogging(l *logging.Logger) Option {
+	return func(s *Server) { s.structuredLogger = l }
+}
+
+// WithScheduler injects a scheduler implementation. The default is the
+// in-process scheduler; pass a store-backed scheduler.StoreScheduler for
+// exactly-once firing across replicas.
+func WithScheduler(r scheduler.Runner) Option {
+	return func(s *Server) {
+		if r != nil {
+			s.Scheduler = r
+		}
+	}
+}
+
+// WithApproval injects a preconfigured approval service (e.g. store-backed and
+// authorized via approval.WithStore/WithAuthorizer). The default is an
+// in-memory service.
+func WithApproval(svc *approval.Service) Option {
+	return func(s *Server) {
+		if svc != nil {
+			s.Approval = svc
+		}
+	}
+}
+
+// WithRateLimiter selects the rate-limit backend. Passing a store-backed
+// middleware.Limiter shares limits across replicas; nil keeps the per-process
+// default.
+func WithRateLimiter(l middleware.Limiter) Option {
+	return func(s *Server) { s.rateLimitCfg.Limiter = l }
 }
 
 // WithTimeouts overrides the http.Server timeouts. A zero value for any
@@ -214,6 +257,11 @@ func (s *Server) Handler() http.Handler {
 	if s.enableRecovery {
 		h = middleware.Recovery(s.logger)(h)
 	}
+	// Structured JSON logging with a correlation id runs outermost so the id is
+	// established (and echoed) before any other middleware or handler.
+	if s.structuredLogger != nil {
+		h = logging.Middleware(s.structuredLogger)(h)
+	}
 	return h
 }
 
@@ -243,7 +291,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/sessions", s.handleListSessions)
 	s.mux.HandleFunc("/api/sessions/state", s.handleSessionState)
 	s.mux.HandleFunc("/api/traces", s.handleListTraces)
-	s.mux.HandleFunc("/api/events/stream", streaming(s.Broker.SSEHandler("dashboard")))
+	// Empty default topic = firehose: a client with no ?session/?topic sees all
+	// sessions' events (dashboard/monitor); ?session=<id> scopes to one session.
+	s.mux.HandleFunc("/api/events/stream", streaming(s.Broker.SSEHandler("")))
 	s.mux.HandleFunc("/api/approval/pending", s.Approval.HandlePending)
 	s.mux.HandleFunc("/api/approval/respond", s.Approval.HandleRespond)
 	s.mux.Handle("/metrics", s.Metrics.Handler())
@@ -422,6 +472,20 @@ func (s *Server) Start(ctx context.Context) error {
 	if err := s.Store.Migrate(ctx); err != nil {
 		return fmt.Errorf("migrate storage: %w", err)
 	}
+
+	// Migrate the approval store (no-op for the in-memory default) so a
+	// store-backed, restart-durable approval service is ready.
+	if err := s.Approval.Migrate(ctx); err != nil {
+		return fmt.Errorf("migrate approval: %w", err)
+	}
+
+	// Start the scheduler (previously constructed but never started). Both the
+	// in-process and store-backed schedulers block in Start, so run it in a
+	// goroutine and stop it on shutdown.
+	schedCtx, stopSched := context.WithCancel(ctx)
+	defer stopSched()
+	go s.Scheduler.Start(schedCtx)
+	defer s.Scheduler.Stop()
 
 	srv := s.httpServer()
 
