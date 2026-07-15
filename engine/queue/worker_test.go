@@ -96,9 +96,9 @@ func TestWorker_SleepAndParkDoNotBurnBudget(t *testing.T) {
 
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		got, err := q.Get(ctx, id)
-		if err != nil {
-			t.Fatalf("get: %v", err)
+		got, gErr := q.Get(ctx, id)
+		if gErr != nil {
+			t.Fatalf("get: %v", gErr)
 		}
 		if got.Status == StatusCompleted {
 			break
@@ -107,12 +107,12 @@ func TestWorker_SleepAndParkDoNotBurnBudget(t *testing.T) {
 			t.Fatalf("run failed terminally after healthy yields: %q", got.LastError)
 		}
 		if got.Status == StatusParked {
-			if _, err := q.Signal(ctx, &Signal{SessionID: "s1", Name: "approve"}); err != nil {
-				t.Fatalf("signal: %v", err)
+			if _, sErr := q.Signal(ctx, &Signal{SessionID: "s1", Name: "approve"}); sErr != nil {
+				t.Fatalf("signal: %v", sErr)
 			}
 		}
-		if _, err := w.RunOnce(ctx); err != nil {
-			t.Fatalf("run once: %v", err)
+		if _, rErr := w.RunOnce(ctx); rErr != nil {
+			t.Fatalf("run once: %v", rErr)
 		}
 		time.Sleep(time.Millisecond)
 	}

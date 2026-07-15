@@ -361,8 +361,8 @@ func TestSQLStore_OutboxDeadLetter(t *testing.T) {
 		t.Fatalf("enqueue outbox: %v", err)
 	}
 
-	const cap = 3
-	for i := 0; i < cap; i++ {
+	const capAttempts = 3
+	for i := 0; i < capAttempts; i++ {
 		entries, err := s.ClaimOutbox(ctx, 10)
 		if err != nil {
 			t.Fatalf("claim %d: %v", i, err)
@@ -370,7 +370,7 @@ func TestSQLStore_OutboxDeadLetter(t *testing.T) {
 		if len(entries) != 1 {
 			t.Fatalf("attempt %d: want 1 claimable entry, got %d", i, len(entries))
 		}
-		if err := s.MarkOutboxFailed(ctx, entries[0].ID, "boom", cap, now); err != nil {
+		if err := s.MarkOutboxFailed(ctx, entries[0].ID, "boom", capAttempts, now); err != nil {
 			t.Fatalf("mark failed %d: %v", i, err)
 		}
 	}
@@ -390,8 +390,8 @@ func TestSQLStore_OutboxDeadLetter(t *testing.T) {
 		`SELECT status, attempts FROM queue_outbox WHERE idempotency_key='poison'`).Scan(&status, &attempts); err != nil {
 		t.Fatalf("inspect: %v", err)
 	}
-	if status != OutboxFailed || attempts != cap {
-		t.Fatalf("want status=%s attempts=%d, got status=%s attempts=%d", OutboxFailed, cap, status, attempts)
+	if status != OutboxFailed || attempts != capAttempts {
+		t.Fatalf("want status=%s attempts=%d, got status=%s attempts=%d", OutboxFailed, capAttempts, status, attempts)
 	}
 }
 

@@ -433,8 +433,8 @@ func (s *SQLStore) DeliverSignal(ctx context.Context, sig *Signal, now time.Time
 	// cannot slip in between our wake attempt and retain insert (lost wakeup).
 	// SQLite serializes writers already, so the lock clause is empty there.
 	if s.dialect == DialectPostgres {
-		if err := lockSessionRuns(ctx, tx, s.rebind, sig.SessionID); err != nil {
-			return 0, err
+		if lockErr := lockSessionRuns(ctx, tx, s.rebind, sig.SessionID); lockErr != nil {
+			return 0, lockErr
 		}
 	}
 
