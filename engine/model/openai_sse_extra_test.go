@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"strings"
@@ -16,7 +17,7 @@ func TestReadOpenAISSEStream_ContentDelta(t *testing.T) {
 	resp := &http.Response{Body: io.NopCloser(body)}
 	ch := make(chan *ChatResponse, 16)
 	go func() {
-		readOpenAISSEStream(resp, ch)
+		readOpenAISSEStream(context.Background(), resp, ch)
 		close(ch)
 	}()
 	parts := make([]string, 0, 2)
@@ -39,7 +40,7 @@ func TestReadOpenAISSEStream_SkipsNonDataLinesAndBadJSON(t *testing.T) {
 	resp := &http.Response{Body: io.NopCloser(body)}
 	ch := make(chan *ChatResponse, 8)
 	go func() {
-		readOpenAISSEStream(resp, ch)
+		readOpenAISSEStream(context.Background(), resp, ch)
 		close(ch)
 	}()
 	var last *ChatResponse

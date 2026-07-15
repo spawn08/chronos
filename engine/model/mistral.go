@@ -36,7 +36,7 @@ func NewMistralWithConfig(cfg ProviderConfig) *Mistral {
 	}
 	return &Mistral{
 		config: cfg,
-		http:   newHTTPClient(cfg.BaseURL, cfg.TimeoutSec, headers),
+		http:   newHTTPClient(cfg.BaseURL, cfg.TimeoutSec, headers, withMaxRetries(cfg.MaxRetries)),
 	}
 }
 
@@ -81,7 +81,7 @@ func (m *Mistral) StreamChat(ctx context.Context, req *ChatRequest) (<-chan *Cha
 	go func() {
 		defer resp.Body.Close()
 		defer close(ch)
-		readOpenAISSEStream(resp, ch)
+		readOpenAISSEStream(ctx, resp, ch)
 	}()
 	return ch, nil
 }

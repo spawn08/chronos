@@ -34,7 +34,7 @@ func NewGeminiWithConfig(cfg ProviderConfig) *Gemini {
 	}
 	return &Gemini{
 		config: cfg,
-		http:   newHTTPClient(cfg.BaseURL, cfg.TimeoutSec, nil),
+		http:   newHTTPClient(cfg.BaseURL, cfg.TimeoutSec, nil, withMaxRetries(cfg.MaxRetries)),
 	}
 }
 

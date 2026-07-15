@@ -40,7 +40,7 @@ func NewCohereWithConfig(cfg ProviderConfig) *Cohere {
 	}
 	return &Cohere{
 		config: cfg,
-		http:   newHTTPClient(cfg.BaseURL, cfg.TimeoutSec, headers),
+		http:   newHTTPClient(cfg.BaseURL, cfg.TimeoutSec, headers, withMaxRetries(cfg.MaxRetries)),
 	}
 }
 

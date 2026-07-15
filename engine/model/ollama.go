@@ -34,7 +34,7 @@ func NewOllamaWithConfig(cfg ProviderConfig) *Ollama {
 	}
 	return &Ollama{
 		config: cfg,
-		http:   newHTTPClient(cfg.BaseURL, cfg.TimeoutSec, nil),
+		http:   newHTTPClient(cfg.BaseURL, cfg.TimeoutSec, nil, withMaxRetries(cfg.MaxRetries)),
 	}
 }
 
@@ -79,7 +79,7 @@ func (o *Ollama) StreamChat(ctx context.Context, req *ChatRequest) (<-chan *Chat
 	go func() {
 		defer resp.Body.Close()
 		defer close(ch)
-		readOpenAISSEStream(resp, ch)
+		readOpenAISSEStream(ctx, resp, ch)
 	}()
 	return ch, nil
 }

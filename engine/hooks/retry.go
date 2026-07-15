@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"sync"
 	"time"
 
 	"github.com/spawn08/chronos/engine/model"
@@ -31,11 +32,33 @@ type RetryHook struct {
 	OnRetry func(attempt int, delay time.Duration)
 
 	// Retries tracks the total number of retries performed (for observability).
+	// Access it concurrently via RetriesCount / addRetries, which guard it with
+	// mu; the exported field remains for backward-compatible reads after a hook
+	// has finished executing.
 	Retries int
 
 	// SleepFn is the function used to sleep between retries.
 	// Defaults to time.Sleep. Override in tests for instant execution.
 	SleepFn func(time.Duration)
+
+	// mu guards concurrent updates to Retries. A single RetryHook may be shared
+	// across concurrent model calls, so the counter must not race.
+	mu sync.Mutex
+}
+
+// addRetries atomically increments the retry counter.
+func (h *RetryHook) addRetries(n int) {
+	h.mu.Lock()
+	h.Retries += n
+	h.mu.Unlock()
+}
+
+// RetriesCount returns the total number of retries performed so far. It is safe
+// for concurrent use.
+func (h *RetryHook) RetriesCount() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.Retries
 }
 
 // NewRetryHook creates a retry hook with sensible defaults.
@@ -92,7 +115,7 @@ func (h *RetryHook) After(ctx context.Context, evt *Event) error {
 		if h.OnRetry != nil {
 			h.OnRetry(attempt, delay)
 		}
-		h.Retries++
+		h.addRetries(1)
 
 		sleepFn(delay)
 
@@ -142,7 +165,7 @@ func (h *RetryHook) signalRetry(evt *Event) {
 	if h.OnRetry != nil {
 		h.OnRetry(attempt, delay)
 	}
-	h.Retries++
+	h.addRetries(1)
 
 	if evt.Metadata == nil {
 		evt.Metadata = make(map[string]any)

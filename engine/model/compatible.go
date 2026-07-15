@@ -39,7 +39,7 @@ func NewOpenAICompatibleWithConfig(name string, cfg ProviderConfig) *OpenAICompa
 	return &OpenAICompatible{
 		config:       cfg,
 		providerName: name,
-		http:         newHTTPClient(cfg.BaseURL, cfg.TimeoutSec, headers),
+		http:         newHTTPClient(cfg.BaseURL, cfg.TimeoutSec, headers, withMaxRetries(cfg.MaxRetries)),
 	}
 }
 
@@ -84,7 +84,7 @@ func (c *OpenAICompatible) StreamChat(ctx context.Context, req *ChatRequest) (<-
 	go func() {
 		defer resp.Body.Close()
 		defer close(ch)
-		readOpenAISSEStream(resp, ch)
+		readOpenAISSEStream(ctx, resp, ch)
 	}()
 	return ch, nil
 }

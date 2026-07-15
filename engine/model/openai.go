@@ -41,7 +41,7 @@ func NewOpenAIWithConfig(cfg ProviderConfig) *OpenAI {
 	}
 	return &OpenAI{
 		config: cfg,
-		http:   newHTTPClient(cfg.BaseURL, cfg.TimeoutSec, headers),
+		http:   newHTTPClient(cfg.BaseURL, cfg.TimeoutSec, headers, withMaxRetries(cfg.MaxRetries)),
 	}
 }
 
@@ -58,7 +58,7 @@ func (o *OpenAI) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, err
 	defer drainAndClose(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("openai chat: %s", readErrorBody(resp))
+		return nil, fmt.Errorf("openai chat: %w", newAPIError(resp))
 	}
 
 	var oaiResp openAIChatResponse
@@ -71,23 +71,26 @@ func (o *OpenAI) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, err
 
 func (o *OpenAI) StreamChat(ctx context.Context, req *ChatRequest) (<-chan *ChatResponse, error) {
 	body := buildOpenAIRequestBody(req, o.config.Model, true)
+	// Request token usage on the terminal stream chunk so streamed calls report
+	// usage the same way unary calls do.
+	body["stream_options"] = map[string]any{"include_usage": true}
 
-	resp, err := o.http.post(ctx, "/chat/completions", body)
+	resp, err := o.http.postStream(ctx, "/chat/completions", body)
 	if err != nil {
 		return nil, fmt.Errorf("openai stream: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		errMsg := readErrorBody(resp)
+		apiErr := newAPIError(resp)
 		resp.Body.Close()
-		return nil, fmt.Errorf("openai stream: %s", errMsg)
+		return nil, fmt.Errorf("openai stream: %w", apiErr)
 	}
 
 	ch := make(chan *ChatResponse, 64)
 	go func() {
 		defer resp.Body.Close()
 		defer close(ch)
-		readOpenAISSEStream(resp, ch)
+		readOpenAISSEStream(ctx, resp, ch)
 	}()
 	return ch, nil
 }
@@ -199,15 +202,20 @@ func mapOpenAIFinishReason(reason string) StopReason {
 	}
 }
 
-// readOpenAISSEStream reads SSE events from an OpenAI-compatible streaming response.
-func readOpenAISSEStream(resp *http.Response, ch chan<- *ChatResponse) {
+// readOpenAISSEStream reads SSE events from an OpenAI-compatible streaming
+// response. Sends are context-aware so an abandoned stream does not leak the
+// goroutine/connection; the line buffer is enlarged so long tool-call argument
+// lines are not truncated; and scanner errors and streamed token usage are
+// surfaced to the caller.
+func readOpenAISSEStream(ctx context.Context, resp *http.Response, ch chan<- *ChatResponse) {
 	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxSSELineBytes)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if !strings.HasPrefix(line, "data: ") {
+		if !strings.HasPrefix(line, "data:") {
 			continue
 		}
-		data := strings.TrimPrefix(line, "data: ")
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 		if data == "[DONE]" {
 			return
 		}
@@ -215,7 +223,17 @@ func readOpenAISSEStream(resp *http.Response, ch chan<- *ChatResponse) {
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			continue
 		}
+		usage := Usage{
+			PromptTokens:     chunk.Usage.PromptTokens,
+			CompletionTokens: chunk.Usage.CompletionTokens,
+		}
 		if len(chunk.Choices) == 0 {
+			// Usage-only chunk (from stream_options.include_usage).
+			if usage.PromptTokens > 0 || usage.CompletionTokens > 0 {
+				if !sendCtx(ctx, ch, &ChatResponse{ID: chunk.ID, Role: RoleAssistant, Delta: true, Usage: usage}) {
+					return
+				}
+			}
 			continue
 		}
 		delta := chunk.Choices[0].Delta
@@ -224,6 +242,10 @@ func readOpenAISSEStream(resp *http.Response, ch chan<- *ChatResponse) {
 			Content: delta.Content,
 			Role:    RoleAssistant,
 			Delta:   true,
+			Usage:   usage,
+		}
+		if fr := chunk.Choices[0].FinishReason; fr != "" {
+			cr.StopReason = mapOpenAIFinishReason(fr)
 		}
 		if len(delta.ToolCalls) > 0 {
 			for _, tc := range delta.ToolCalls {
@@ -234,7 +256,12 @@ func readOpenAISSEStream(resp *http.Response, ch chan<- *ChatResponse) {
 				})
 			}
 		}
-		ch <- cr
+		if !sendCtx(ctx, ch, cr) {
+			return
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		sendCtx(ctx, ch, &ChatResponse{Role: RoleAssistant, Delta: true, Err: fmt.Errorf("openai stream read: %w", err)})
 	}
 }
 
