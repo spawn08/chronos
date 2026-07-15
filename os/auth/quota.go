@@ -8,12 +8,24 @@ import (
 
 // Quota defines rate and budget limits for a subject (an API key or a tenant).
 // A zero value in any field means that dimension is unlimited.
+//
+// Enforcement note: RequestsPerMinute is enforced out of the box by
+// APIKeyMiddleware at request admission. TokensPerDay and MaxCostUSD are checked
+// by Allow against recorded usage, but that usage is only populated when the
+// integrator calls QuotaStore.AddUsage after a model call — the HTTP admission
+// point has no visibility into token/cost, so these budgets do nothing until
+// AddUsage is wired. For in-process token/cost budgeting that intercepts model
+// usage directly, see engine/hooks/cost.go (CostTracker), which operates at the
+// engine layer where usage actually exists.
 type Quota struct {
 	// RequestsPerMinute caps requests within a rolling one-minute window.
+	// Enforced by APIKeyMiddleware.
 	RequestsPerMinute int `json:"requests_per_minute,omitempty"`
-	// TokensPerDay caps model tokens consumed within a rolling 24h window.
+	// TokensPerDay caps model tokens within a rolling 24h window. Enforced only
+	// once AddUsage is wired by the integrator (see the type doc).
 	TokensPerDay int64 `json:"tokens_per_day,omitempty"`
 	// MaxCostUSD caps cumulative spend (USD) within a rolling 24h window.
+	// Enforced only once AddUsage is wired by the integrator (see the type doc).
 	MaxCostUSD float64 `json:"max_cost_usd,omitempty"`
 }
 
@@ -31,8 +43,12 @@ type Usage struct {
 
 // QuotaStore enforces and records per-subject usage. It is the extension point
 // the control plane wires to attach token/cost budgets to requests:
-//   - Allow is called at request admission time.
-//   - AddUsage is the hook invoked after model calls to record token/cost spend.
+//   - Allow is called at request admission time (enforces RequestsPerMinute, and
+//     TokensPerDay/MaxCostUSD against whatever usage has been recorded).
+//   - AddUsage records token/cost spend and MUST be called by the integrator
+//     after model calls for the token/cost budgets to have any effect; it is not
+//     auto-wired because model usage is not available at HTTP admission. See the
+//     Quota doc and engine/hooks/cost.go for the in-engine alternative.
 type QuotaStore interface {
 	// Allow records one request against subject and reports whether it is within
 	// the given quota (rate + budget). A subject over any limit returns false.

@@ -173,7 +173,8 @@ func (fc *FileConfig) agentNames() string {
 }
 
 // BuildAgent constructs a fully-wired *Agent from an AgentConfig.
-func BuildAgent(ctx context.Context, cfg *AgentConfig) (*Agent, error) {
+func BuildAgent(ctx context.Context, cfg *AgentConfig, opts ...BuildOption) (*Agent, error) {
+	bo := newBuildOptions(opts...)
 	b := New(cfg.ID, cfg.Name)
 	if cfg.Description != "" {
 		b.Description(cfg.Description)
@@ -206,10 +207,10 @@ func BuildAgent(ctx context.Context, cfg *AgentConfig) (*Agent, error) {
 
 	// Register YAML-defined tools. Built-in names ("shell", "file_read", ...)
 	// resolve to their concrete implementations. Custom tool names bind to a
-	// handler factory registered via RegisterToolHandler; unregistered custom
-	// tools fall back to an explicit error placeholder (never a silent no-op).
+	// handler factory supplied via WithToolHandler; unregistered custom tools
+	// fall back to an explicit error placeholder (never a silent no-op).
 	for _, tc := range cfg.Tools {
-		toolDef, err := buildToolFromConfig(tc)
+		toolDef, err := buildToolFromConfig(tc, bo.toolHandlers)
 		if err != nil {
 			return nil, fmt.Errorf("agent %q tool %q: %w", cfg.ID, tc.Name, err)
 		}
@@ -248,11 +249,12 @@ func BuildAgent(ctx context.Context, cfg *AgentConfig) (*Agent, error) {
 	return b.Build()
 }
 
-// BuildAll constructs all agents from a FileConfig.
-func BuildAll(ctx context.Context, fc *FileConfig) (map[string]*Agent, error) {
+// BuildAll constructs all agents from a FileConfig. BuildOptions (e.g.
+// WithToolHandler) apply to every agent built.
+func BuildAll(ctx context.Context, fc *FileConfig, opts ...BuildOption) (map[string]*Agent, error) {
 	agents := make(map[string]*Agent, len(fc.Agents))
 	for i := range fc.Agents {
-		a, err := BuildAgent(ctx, &fc.Agents[i])
+		a, err := BuildAgent(ctx, &fc.Agents[i], opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -438,14 +440,14 @@ func postgresPoolOptions(cfg StorageConfig) []postgres.Option {
 // file_glob, file_grep) resolve to their concrete implementations. Any other
 // name is treated as a custom tool:
 //
-//   - If a handler factory is registered for the name (via RegisterToolHandler),
+//   - If a handler factory is registered for the name (via WithToolHandler),
 //     the returned handler is bound and the tool is fully functional.
 //   - Otherwise, when a description is present, the tool is registered with an
 //     explicit placeholder handler that returns an error on invocation — never
 //     a silent no-op — so callers learn the tool needs a registered handler.
 //   - A custom tool with neither a registered handler nor a description is
 //     skipped (returns nil, nil).
-func buildToolFromConfig(tc ToolConfig) (*tool.Definition, error) {
+func buildToolFromConfig(tc ToolConfig, handlers *toolHandlerRegistry) (*tool.Definition, error) {
 	basePath := "."
 	switch tc.Name {
 	case "shell":
@@ -463,7 +465,7 @@ func buildToolFromConfig(tc ToolConfig) (*tool.Definition, error) {
 	case "file_grep":
 		return builtins.NewFileGrepTool(basePath), nil
 	default:
-		if factory, ok := lookupToolHandler(tc.Name); ok {
+		if factory, ok := handlers.lookup(tc.Name); ok {
 			handler, err := factory(tc)
 			if err != nil {
 				return nil, fmt.Errorf("build handler: %w", err)
@@ -489,7 +491,7 @@ func buildToolFromConfig(tc ToolConfig) (*tool.Definition, error) {
 			Parameters:  tc.Parameters,
 			Permission:  tool.PermAllow,
 			Handler: func(_ context.Context, _ map[string]any) (any, error) {
-				return nil, fmt.Errorf("tool %q has no registered handler: call agent.RegisterToolHandler(%q, ...) before building the agent", name, name)
+				return nil, fmt.Errorf("tool %q has no registered handler: pass agent.WithToolHandler(%q, ...) to BuildAgent/BuildAll", name, name)
 			},
 		}, nil
 	}

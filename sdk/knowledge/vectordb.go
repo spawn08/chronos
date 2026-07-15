@@ -215,7 +215,9 @@ func (v *VectorKnowledge) Search(ctx context.Context, query string, topK int) ([
 // embedQuery returns the embedding for a query, consulting and populating the
 // bounded LRU+TTL cache when it is enabled.
 func (v *VectorKnowledge) embedQuery(ctx context.Context, query string) ([]float32, error) {
-	key := v.EmbedModel + ":" + query
+	// NUL separates the model from the query so the two components can never
+	// collide (a colon can appear in a model name; NUL cannot appear in either).
+	key := v.EmbedModel + "\x00" + query
 	if v.queryCache != nil {
 		if vec, ok := v.queryCache.get(key); ok {
 			return vec, nil

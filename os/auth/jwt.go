@@ -109,6 +109,12 @@ type JWTConfig struct {
 	// timeout when nil.
 	HTTPClient *http.Client
 
+	// AllowNoExpiry permits tokens that omit the "exp" claim. It defaults to
+	// false: a token with no expiry is rejected, so a signed token can never
+	// become a permanent, unrevocable credential. Set true only for trusted
+	// issuers that deliberately mint non-expiring service tokens.
+	AllowNoExpiry bool
+
 	// now is injectable for tests; defaults to time.Now.
 	now func() time.Time
 }
@@ -196,6 +202,12 @@ func JWTMiddleware(cfg JWTConfig) func(http.Handler) http.Handler {
 				return
 			}
 
+			// A token with no expiry never expires — reject it unless explicitly
+			// allowed, so a signed token can't become a permanent credential.
+			if claims.Exp == 0 && !cfg.AllowNoExpiry {
+				http.Error(w, `{"error":"token missing exp"}`, http.StatusUnauthorized)
+				return
+			}
 			// Expiry: rejected unless this is a refresh path within the grace window.
 			if claims.Exp > 0 {
 				now := verifier.nowFn().Unix()

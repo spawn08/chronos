@@ -189,6 +189,12 @@ func (k jwkKey) rsaPublicKey() (*rsa.PublicKey, error) {
 	if len(nBytes) == 0 || len(eBytes) == 0 {
 		return nil, fmt.Errorf("empty modulus or exponent")
 	}
+	// Bound the exponent length before the fixed-width copy below: an exponent
+	// longer than 8 bytes would make 8-len(eBytes) negative and panic. A hostile
+	// or misconfigured JWKS endpoint must not be able to crash the verifier.
+	if len(eBytes) > 8 {
+		return nil, fmt.Errorf("exponent too large")
+	}
 
 	n := new(big.Int).SetBytes(nBytes)
 

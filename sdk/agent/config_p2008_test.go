@@ -19,12 +19,11 @@ func baseModelConfig() ModelConfig {
 	return ModelConfig{Provider: "openai", Model: "gpt-4o", APIKey: "test-key"}
 }
 
-func TestRegisterToolHandler_InvokedByBuiltAgent(t *testing.T) {
+func TestWithToolHandler_InvokedByBuiltAgent(t *testing.T) {
 	const toolName = "p2008_echo"
-	t.Cleanup(func() { UnregisterToolHandler(toolName) })
 
 	var factoryCalls int
-	RegisterToolHandler(toolName, func(tc ToolConfig) (tool.Handler, error) {
+	handler := WithToolHandler(toolName, func(tc ToolConfig) (tool.Handler, error) {
 		factoryCalls++
 		// The factory sees the declared config.
 		if tc.Name != toolName {
@@ -46,7 +45,7 @@ func TestRegisterToolHandler_InvokedByBuiltAgent(t *testing.T) {
 		}},
 	}
 
-	ag, err := BuildAgent(context.Background(), cfg)
+	ag, err := BuildAgent(context.Background(), cfg, handler)
 	if err != nil {
 		t.Fatalf("BuildAgent: %v", err)
 	}
@@ -74,8 +73,7 @@ func TestRegisterToolHandler_InvokedByBuiltAgent(t *testing.T) {
 
 func TestBuildAgent_UnregisteredCustomTool_ErrorsOnInvoke(t *testing.T) {
 	const toolName = "p2008_unregistered"
-	// Ensure nothing is registered for this name.
-	UnregisterToolHandler(toolName)
+	// No WithToolHandler is passed, so nothing is registered for this name.
 
 	cfg := &AgentConfig{
 		ID:    "a2",
@@ -105,17 +103,16 @@ func TestBuildAgent_UnregisteredCustomTool_ErrorsOnInvoke(t *testing.T) {
 	if !strings.Contains(err.Error(), "no registered handler") {
 		t.Fatalf("error = %q, want mention of missing handler", err.Error())
 	}
-	if !strings.Contains(err.Error(), "RegisterToolHandler") {
-		t.Fatalf("error should point to RegisterToolHandler: %q", err.Error())
+	if !strings.Contains(err.Error(), "WithToolHandler") {
+		t.Fatalf("error should point to WithToolHandler: %q", err.Error())
 	}
 }
 
 func TestBuildAgent_FactoryError_Propagates(t *testing.T) {
 	const toolName = "p2008_bad"
-	t.Cleanup(func() { UnregisterToolHandler(toolName) })
 
 	sentinel := errors.New("boom")
-	RegisterToolHandler(toolName, func(ToolConfig) (tool.Handler, error) {
+	handler := WithToolHandler(toolName, func(ToolConfig) (tool.Handler, error) {
 		return nil, sentinel
 	})
 
@@ -126,7 +123,7 @@ func TestBuildAgent_FactoryError_Propagates(t *testing.T) {
 		Tools: []ToolConfig{{Name: toolName, Description: "fails to build"}},
 	}
 
-	_, err := BuildAgent(context.Background(), cfg)
+	_, err := BuildAgent(context.Background(), cfg, handler)
 	if err == nil {
 		t.Fatal("expected BuildAgent to fail when factory errors")
 	}
@@ -138,14 +135,12 @@ func TestBuildAgent_FactoryError_Propagates(t *testing.T) {
 func TestBuildToolFromConfig_Cases(t *testing.T) {
 	const withHandler = "p2008_withhandler"
 	const nilHandler = "p2008_nilhandler"
-	t.Cleanup(func() {
-		UnregisterToolHandler(withHandler)
-		UnregisterToolHandler(nilHandler)
-	})
-	RegisterToolHandler(withHandler, func(ToolConfig) (tool.Handler, error) {
-		return func(context.Context, map[string]any) (any, error) { return "ok", nil }, nil
-	})
-	RegisterToolHandler(nilHandler, func(ToolConfig) (tool.Handler, error) { return nil, nil })
+	reg := newBuildOptions(
+		WithToolHandler(withHandler, func(ToolConfig) (tool.Handler, error) {
+			return func(context.Context, map[string]any) (any, error) { return "ok", nil }, nil
+		}),
+		WithToolHandler(nilHandler, func(ToolConfig) (tool.Handler, error) { return nil, nil }),
+	).toolHandlers
 
 	tests := []struct {
 		name       string
@@ -164,7 +159,7 @@ func TestBuildToolFromConfig_Cases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			def, err := buildToolFromConfig(tt.tc)
+			def, err := buildToolFromConfig(tt.tc, reg)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("expected error, got def=%#v", def)
@@ -198,15 +193,17 @@ func TestBuildToolFromConfig_Cases(t *testing.T) {
 	}
 }
 
-func TestRegisterToolHandler_Guards(t *testing.T) {
+func TestWithToolHandler_Guards(t *testing.T) {
+	const n = "p2008_guard"
 	// Empty name and nil factory are no-ops (never registered).
-	RegisterToolHandler("", func(ToolConfig) (tool.Handler, error) { return nil, nil })
-	if _, ok := lookupToolHandler(""); ok {
+	reg := newBuildOptions(
+		WithToolHandler("", func(ToolConfig) (tool.Handler, error) { return nil, nil }),
+		WithToolHandler(n, nil),
+	).toolHandlers
+	if _, ok := reg.lookup(""); ok {
 		t.Fatal("empty name should not register")
 	}
-	const n = "p2008_guard"
-	RegisterToolHandler(n, nil)
-	if _, ok := lookupToolHandler(n); ok {
+	if _, ok := reg.lookup(n); ok {
 		t.Fatal("nil factory should not register")
 	}
 }
@@ -292,7 +289,7 @@ func TestBuildStorage_PostgresConstructs(t *testing.T) {
 
 // Ensure the placeholder error message is stable enough to guide users.
 func TestPlaceholderErrorMessage(t *testing.T) {
-	def, err := buildToolFromConfig(ToolConfig{Name: "some_custom_tool", Description: "d"})
+	def, err := buildToolFromConfig(ToolConfig{Name: "some_custom_tool", Description: "d"}, newToolHandlerRegistry())
 	if err != nil || def == nil {
 		t.Fatalf("build: def=%v err=%v", def, err)
 	}
