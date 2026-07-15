@@ -6,22 +6,23 @@ import (
 	"time"
 )
 
-// WASMSandbox implements Sandbox using WebAssembly (WASI) for lightweight isolation.
-// This provides near-native performance with memory safety guarantees.
+// WASMSandbox is a placeholder for a future WebAssembly (WASI) isolation backend.
+// It is not yet implemented: no WASM runtime (e.g. Wazero or Wasmtime) is wired in.
 type WASMSandbox struct {
 	wasmPath string
 }
 
-// NewWASMSandbox creates a WASM-based sandbox.
-// wasmPath is the path to the WASM module to execute.
-func NewWASMSandbox(wasmPath string) *WASMSandbox {
-	return &WASMSandbox{wasmPath: wasmPath}
+// NewWASMSandbox reports that the WASM backend is not implemented.
+//
+// Per P2-001 the stub backends fail at construction rather than deferring the
+// error to execution time, so callers discover the missing capability
+// immediately. It always returns a nil sandbox and a non-nil error.
+func NewWASMSandbox(wasmPath string) (*WASMSandbox, error) {
+	return nil, fmt.Errorf("wasm sandbox: not implemented (no WASM runtime integrated; module %q)", wasmPath)
 }
 
-func (s *WASMSandbox) Execute(ctx context.Context, command string, args []string, timeout time.Duration) (*Result, error) {
-	// WASM execution would use a runtime like Wazero or Wasmtime.
-	// For now, return a descriptive error until a WASM runtime is integrated.
-	return nil, fmt.Errorf("wasm sandbox: WASM runtime not yet integrated (module: %s, command: %s)", s.wasmPath, command)
+func (s *WASMSandbox) Execute(_ context.Context, command string, _ []string, _ time.Duration) (*Result, error) {
+	return nil, fmt.Errorf("wasm sandbox: not implemented (module: %s, command: %s)", s.wasmPath, command)
 }
 
 func (s *WASMSandbox) Close() error { return nil }
