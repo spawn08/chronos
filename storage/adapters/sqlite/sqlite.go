@@ -11,6 +11,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/spawn08/chronos/storage"
+	"github.com/spawn08/chronos/storage/migrate"
 )
 
 // Store implements storage.Storage using SQLite.
@@ -18,84 +19,129 @@ type Store struct {
 	db *sql.DB
 }
 
+// poolConfig holds configurable database/sql connection-pool settings.
+type poolConfig struct {
+	maxOpenConns    int
+	maxIdleConns    int
+	connMaxLifetime time.Duration
+}
+
+// Option configures a Store's connection pool. SQLite defaults to a single open
+// connection because it is single-writer; overrides are honored but rarely
+// advisable for on-disk databases.
+type Option func(*poolConfig)
+
+// WithMaxOpenConns sets the maximum number of open connections.
+func WithMaxOpenConns(n int) Option {
+	return func(c *poolConfig) { c.maxOpenConns = n }
+}
+
+// WithMaxIdleConns sets the maximum number of idle connections.
+func WithMaxIdleConns(n int) Option {
+	return func(c *poolConfig) { c.maxIdleConns = n }
+}
+
+// WithConnMaxLifetime sets the maximum lifetime of a connection.
+func WithConnMaxLifetime(d time.Duration) Option {
+	return func(c *poolConfig) { c.connMaxLifetime = d }
+}
+
 // New opens a SQLite database at the given DSN (file path or ":memory:").
-func New(dsn string) (*Store, error) {
+func New(dsn string, opts ...Option) (*Store, error) {
 	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite open: %w", err)
 	}
-	db.SetMaxOpenConns(1) // SQLite is single-writer
+	cfg := poolConfig{maxOpenConns: 1} // SQLite is single-writer by default
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	if cfg.maxOpenConns > 0 {
+		db.SetMaxOpenConns(cfg.maxOpenConns)
+	}
+	if cfg.maxIdleConns > 0 {
+		db.SetMaxIdleConns(cfg.maxIdleConns)
+	}
+	if cfg.connMaxLifetime > 0 {
+		db.SetConnMaxLifetime(cfg.connMaxLifetime)
+	}
 	return &Store{db: db}, nil
 }
 
-// Migrate creates all required tables.
+// schema is the v1 migration: all tables and indexes for the SQLite backend,
+// including the P1-011 lookup indexes on sessions.agent_id, audit_logs.session_id
+// and traces.session_id.
+const schema = `
+CREATE TABLE IF NOT EXISTS sessions (
+	id TEXT PRIMARY KEY,
+	agent_id TEXT NOT NULL,
+	status TEXT NOT NULL DEFAULT 'running',
+	metadata TEXT,
+	created_at DATETIME NOT NULL,
+	updated_at DATETIME NOT NULL
+);
+CREATE TABLE IF NOT EXISTS memory (
+	id TEXT PRIMARY KEY,
+	session_id TEXT,
+	agent_id TEXT NOT NULL,
+	kind TEXT NOT NULL,
+	key TEXT NOT NULL,
+	value TEXT,
+	created_at DATETIME NOT NULL
+);
+CREATE TABLE IF NOT EXISTS audit_logs (
+	id TEXT PRIMARY KEY,
+	session_id TEXT NOT NULL,
+	actor TEXT NOT NULL,
+	action TEXT NOT NULL,
+	resource TEXT NOT NULL,
+	detail TEXT,
+	created_at DATETIME NOT NULL
+);
+CREATE TABLE IF NOT EXISTS traces (
+	id TEXT PRIMARY KEY,
+	session_id TEXT NOT NULL,
+	parent_id TEXT,
+	name TEXT NOT NULL,
+	kind TEXT NOT NULL,
+	input TEXT,
+	output TEXT,
+	error TEXT,
+	started_at DATETIME NOT NULL,
+	ended_at DATETIME
+);
+CREATE TABLE IF NOT EXISTS events (
+	id TEXT PRIMARY KEY,
+	session_id TEXT NOT NULL,
+	seq_num INTEGER NOT NULL,
+	type TEXT NOT NULL,
+	payload TEXT,
+	created_at DATETIME NOT NULL
+);
+CREATE TABLE IF NOT EXISTS checkpoints (
+	id TEXT PRIMARY KEY,
+	session_id TEXT NOT NULL,
+	run_id TEXT NOT NULL,
+	node_id TEXT NOT NULL,
+	state TEXT,
+	seq_num INTEGER NOT NULL,
+	created_at DATETIME NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_events_session_seq ON events(session_id, seq_num);
+CREATE INDEX IF NOT EXISTS idx_checkpoints_session ON checkpoints(session_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_checkpoints_session_seq ON checkpoints(session_id, seq_num);
+CREATE INDEX IF NOT EXISTS idx_sessions_agent ON sessions(agent_id);
+CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_logs(session_id);
+CREATE INDEX IF NOT EXISTS idx_traces_session ON traces(session_id, started_at);
+`
+
+// Migrate creates all required tables and indexes via the versioned migration
+// framework (P1-014).
 func (s *Store) Migrate(ctx context.Context) error {
-	stmts := []string{
-		`CREATE TABLE IF NOT EXISTS sessions (
-			id TEXT PRIMARY KEY,
-			agent_id TEXT NOT NULL,
-			status TEXT NOT NULL DEFAULT 'running',
-			metadata TEXT,
-			created_at DATETIME NOT NULL,
-			updated_at DATETIME NOT NULL
-		)`,
-		`CREATE TABLE IF NOT EXISTS memory (
-			id TEXT PRIMARY KEY,
-			session_id TEXT,
-			agent_id TEXT NOT NULL,
-			kind TEXT NOT NULL,
-			key TEXT NOT NULL,
-			value TEXT,
-			created_at DATETIME NOT NULL
-		)`,
-		`CREATE TABLE IF NOT EXISTS audit_logs (
-			id TEXT PRIMARY KEY,
-			session_id TEXT NOT NULL,
-			actor TEXT NOT NULL,
-			action TEXT NOT NULL,
-			resource TEXT NOT NULL,
-			detail TEXT,
-			created_at DATETIME NOT NULL
-		)`,
-		`CREATE TABLE IF NOT EXISTS traces (
-			id TEXT PRIMARY KEY,
-			session_id TEXT NOT NULL,
-			parent_id TEXT,
-			name TEXT NOT NULL,
-			kind TEXT NOT NULL,
-			input TEXT,
-			output TEXT,
-			error TEXT,
-			started_at DATETIME NOT NULL,
-			ended_at DATETIME
-		)`,
-		`CREATE TABLE IF NOT EXISTS events (
-			id TEXT PRIMARY KEY,
-			session_id TEXT NOT NULL,
-			seq_num INTEGER NOT NULL,
-			type TEXT NOT NULL,
-			payload TEXT,
-			created_at DATETIME NOT NULL
-		)`,
-		`CREATE TABLE IF NOT EXISTS checkpoints (
-			id TEXT PRIMARY KEY,
-			session_id TEXT NOT NULL,
-			run_id TEXT NOT NULL,
-			node_id TEXT NOT NULL,
-			state TEXT,
-			seq_num INTEGER NOT NULL,
-			created_at DATETIME NOT NULL
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_events_session_seq ON events(session_id, seq_num)`,
-		`CREATE INDEX IF NOT EXISTS idx_checkpoints_session ON checkpoints(session_id, created_at DESC)`,
-		// One checkpoint per (session, seq_num): enforces a gap-free ledger and
-		// backs deterministic ORDER BY seq_num resume (P0-003, P0-004).
-		`CREATE UNIQUE INDEX IF NOT EXISTS uq_checkpoints_session_seq ON checkpoints(session_id, seq_num)`,
-	}
-	for _, stmt := range stmts {
-		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("migrate: %w", err)
-		}
+	m := migrate.New(s.db, migrate.WithDialect(migrate.DialectSQLite))
+	m.Add(1, "initial schema", schema, "")
+	if err := m.Migrate(ctx); err != nil {
+		return fmt.Errorf("migrate: %w", err)
 	}
 	return nil
 }

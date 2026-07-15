@@ -11,6 +11,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver (P0-012)
 
 	"github.com/spawn08/chronos/storage"
+	"github.com/spawn08/chronos/storage/migrate"
 )
 
 // Store implements storage.Storage using PostgreSQL.
@@ -18,88 +19,131 @@ type Store struct {
 	db *sql.DB
 }
 
+// poolConfig holds configurable database/sql connection-pool settings, with
+// production-sensible defaults.
+type poolConfig struct {
+	maxOpenConns    int
+	maxIdleConns    int
+	connMaxLifetime time.Duration
+}
+
+// Option configures a Store's connection pool.
+type Option func(*poolConfig)
+
+// WithMaxOpenConns sets the maximum number of open connections (default 25).
+func WithMaxOpenConns(n int) Option {
+	return func(c *poolConfig) { c.maxOpenConns = n }
+}
+
+// WithMaxIdleConns sets the maximum number of idle connections (default 5).
+func WithMaxIdleConns(n int) Option {
+	return func(c *poolConfig) { c.maxIdleConns = n }
+}
+
+// WithConnMaxLifetime sets the maximum lifetime of a connection (default 5m).
+func WithConnMaxLifetime(d time.Duration) Option {
+	return func(c *poolConfig) { c.connMaxLifetime = d }
+}
+
 // New opens a PostgreSQL connection with the given DSN using the pgx driver
 // (registered via the blank import above).
-func New(dsn string) (*Store, error) {
+func New(dsn string, opts ...Option) (*Store, error) {
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("postgres open: %w", err)
 	}
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(5)
-	db.SetConnMaxLifetime(5 * time.Minute)
+	cfg := poolConfig{maxOpenConns: 25, maxIdleConns: 5, connMaxLifetime: 5 * time.Minute}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	if cfg.maxOpenConns > 0 {
+		db.SetMaxOpenConns(cfg.maxOpenConns)
+	}
+	if cfg.maxIdleConns > 0 {
+		db.SetMaxIdleConns(cfg.maxIdleConns)
+	}
+	if cfg.connMaxLifetime > 0 {
+		db.SetConnMaxLifetime(cfg.connMaxLifetime)
+	}
 	return &Store{db: db}, nil
 }
 
-// Migrate creates all required tables.
+// schema is the v1 migration: all tables and indexes for the Postgres backend,
+// including the P1-011 lookup indexes on sessions.agent_id, audit_logs.session_id
+// and traces.session_id.
+const schema = `
+CREATE TABLE IF NOT EXISTS sessions (
+	id TEXT PRIMARY KEY,
+	agent_id TEXT NOT NULL,
+	status TEXT NOT NULL DEFAULT 'running',
+	metadata JSONB,
+	created_at TIMESTAMPTZ NOT NULL,
+	updated_at TIMESTAMPTZ NOT NULL
+);
+CREATE TABLE IF NOT EXISTS memory (
+	id TEXT PRIMARY KEY,
+	session_id TEXT,
+	agent_id TEXT NOT NULL,
+	kind TEXT NOT NULL,
+	key TEXT NOT NULL,
+	value JSONB,
+	created_at TIMESTAMPTZ NOT NULL
+);
+CREATE TABLE IF NOT EXISTS audit_logs (
+	id TEXT PRIMARY KEY,
+	session_id TEXT NOT NULL,
+	actor TEXT NOT NULL,
+	action TEXT NOT NULL,
+	resource TEXT NOT NULL,
+	detail JSONB,
+	created_at TIMESTAMPTZ NOT NULL
+);
+CREATE TABLE IF NOT EXISTS traces (
+	id TEXT PRIMARY KEY,
+	session_id TEXT NOT NULL,
+	parent_id TEXT,
+	name TEXT NOT NULL,
+	kind TEXT NOT NULL,
+	input JSONB,
+	output JSONB,
+	error TEXT,
+	started_at TIMESTAMPTZ NOT NULL,
+	ended_at TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS events (
+	id TEXT PRIMARY KEY,
+	session_id TEXT NOT NULL,
+	seq_num BIGINT NOT NULL,
+	type TEXT NOT NULL,
+	payload JSONB,
+	created_at TIMESTAMPTZ NOT NULL
+);
+CREATE TABLE IF NOT EXISTS checkpoints (
+	id TEXT PRIMARY KEY,
+	session_id TEXT NOT NULL,
+	run_id TEXT NOT NULL,
+	node_id TEXT NOT NULL,
+	state JSONB,
+	seq_num BIGINT NOT NULL,
+	created_at TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_events_session_seq ON events(session_id, seq_num);
+CREATE INDEX IF NOT EXISTS idx_checkpoints_session ON checkpoints(session_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_memory_agent_key ON memory(agent_id, key);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_checkpoints_session_seq ON checkpoints(session_id, seq_num);
+CREATE INDEX IF NOT EXISTS idx_sessions_agent ON sessions(agent_id);
+CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_logs(session_id);
+CREATE INDEX IF NOT EXISTS idx_traces_session ON traces(session_id, started_at);
+`
+
+// Migrate creates all required tables and indexes via the versioned migration
+// framework, holding a pg_advisory_lock so concurrent migrators serialize
+// (P1-014).
 func (s *Store) Migrate(ctx context.Context) error {
-	stmts := []string{
-		`CREATE TABLE IF NOT EXISTS sessions (
-			id TEXT PRIMARY KEY,
-			agent_id TEXT NOT NULL,
-			status TEXT NOT NULL DEFAULT 'running',
-			metadata JSONB,
-			created_at TIMESTAMPTZ NOT NULL,
-			updated_at TIMESTAMPTZ NOT NULL
-		)`,
-		`CREATE TABLE IF NOT EXISTS memory (
-			id TEXT PRIMARY KEY,
-			session_id TEXT,
-			agent_id TEXT NOT NULL,
-			kind TEXT NOT NULL,
-			key TEXT NOT NULL,
-			value JSONB,
-			created_at TIMESTAMPTZ NOT NULL
-		)`,
-		`CREATE TABLE IF NOT EXISTS audit_logs (
-			id TEXT PRIMARY KEY,
-			session_id TEXT NOT NULL,
-			actor TEXT NOT NULL,
-			action TEXT NOT NULL,
-			resource TEXT NOT NULL,
-			detail JSONB,
-			created_at TIMESTAMPTZ NOT NULL
-		)`,
-		`CREATE TABLE IF NOT EXISTS traces (
-			id TEXT PRIMARY KEY,
-			session_id TEXT NOT NULL,
-			parent_id TEXT,
-			name TEXT NOT NULL,
-			kind TEXT NOT NULL,
-			input JSONB,
-			output JSONB,
-			error TEXT,
-			started_at TIMESTAMPTZ NOT NULL,
-			ended_at TIMESTAMPTZ
-		)`,
-		`CREATE TABLE IF NOT EXISTS events (
-			id TEXT PRIMARY KEY,
-			session_id TEXT NOT NULL,
-			seq_num BIGINT NOT NULL,
-			type TEXT NOT NULL,
-			payload JSONB,
-			created_at TIMESTAMPTZ NOT NULL
-		)`,
-		`CREATE TABLE IF NOT EXISTS checkpoints (
-			id TEXT PRIMARY KEY,
-			session_id TEXT NOT NULL,
-			run_id TEXT NOT NULL,
-			node_id TEXT NOT NULL,
-			state JSONB,
-			seq_num BIGINT NOT NULL,
-			created_at TIMESTAMPTZ NOT NULL
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_events_session_seq ON events(session_id, seq_num)`,
-		`CREATE INDEX IF NOT EXISTS idx_checkpoints_session ON checkpoints(session_id, created_at DESC)`,
-		`CREATE INDEX IF NOT EXISTS idx_memory_agent_key ON memory(agent_id, key)`,
-		// One checkpoint per (session, seq_num): enforces a gap-free ledger and
-		// backs deterministic ORDER BY seq_num resume (P0-003, P0-004).
-		`CREATE UNIQUE INDEX IF NOT EXISTS uq_checkpoints_session_seq ON checkpoints(session_id, seq_num)`,
-	}
-	for _, stmt := range stmts {
-		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("migrate: %w", err)
-		}
+	m := migrate.New(s.db, migrate.WithDialect(migrate.DialectPostgres))
+	m.Add(1, "initial schema", schema, "")
+	if err := m.Migrate(ctx); err != nil {
+		return fmt.Errorf("migrate: %w", err)
 	}
 	return nil
 }
