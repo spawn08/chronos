@@ -227,7 +227,7 @@ func TestBuildStorage_SQLiteRealStore(t *testing.T) {
 	defer func() { _ = store.Close() }()
 
 	ctx := context.Background()
-	if err := store.Migrate(ctx); err != nil {
+	if err = store.Migrate(ctx); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
@@ -239,7 +239,7 @@ func TestBuildStorage_SQLiteRealStore(t *testing.T) {
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
-	if err := store.CreateSession(ctx, s); err != nil {
+	if err = store.CreateSession(ctx, s); err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
 	got, err := store.GetSession(ctx, "sess-1")
@@ -270,7 +270,7 @@ func TestBuildStorage_PostgresConstructs(t *testing.T) {
 	defer func() { _ = store.Close() }()
 
 	// Missing DSN is a clear error.
-	if _, err := buildStorage(StorageConfig{Backend: "postgresql"}); err == nil {
+	if _, derr := buildStorage(StorageConfig{Backend: "postgresql"}); derr == nil {
 		t.Fatal("expected error for postgres without dsn")
 	}
 

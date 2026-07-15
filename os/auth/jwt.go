@@ -346,7 +346,7 @@ func verifyRSA(token string, pub *rsa.PublicKey, alg string) (*UserClaims, error
 	}
 
 	digest := hashDigest(hashFn, parts[0]+"."+parts[1])
-	if err := rsa.VerifyPKCS1v15(pub, hashFn, digest, sig); err != nil {
+	if verifyErr := rsa.VerifyPKCS1v15(pub, hashFn, digest, sig); verifyErr != nil {
 		return nil, fmt.Errorf("invalid signature")
 	}
 

@@ -9,9 +9,8 @@ import (
 // K8sJobSandbox is a placeholder for a future Kubernetes Job isolation backend.
 // It is not yet implemented: no Kubernetes client (client-go) is wired in.
 type K8sJobSandbox struct {
-	image          string
-	namespace      string
-	serviceAccount string
+	image     string
+	namespace string
 }
 
 // K8sJobConfig holds Kubernetes Job sandbox configuration.

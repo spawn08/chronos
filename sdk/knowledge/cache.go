@@ -48,7 +48,7 @@ func (c *queryCache) get(key string) ([]float32, bool) {
 	if !ok {
 		return nil, false
 	}
-	entry := el.Value.(*queryCacheEntry)
+	entry, _ := el.Value.(*queryCacheEntry)
 	if c.now().After(entry.expires) {
 		c.removeElement(el)
 		return nil, false
@@ -64,7 +64,7 @@ func (c *queryCache) put(key string, vector []float32) {
 	defer c.mu.Unlock()
 
 	if el, ok := c.items[key]; ok {
-		entry := el.Value.(*queryCacheEntry)
+		entry, _ := el.Value.(*queryCacheEntry)
 		entry.vector = vector
 		entry.expires = c.now().Add(c.ttl)
 		c.ll.MoveToFront(el)
@@ -85,7 +85,9 @@ func (c *queryCache) put(key string, vector []float32) {
 // Callers must hold c.mu.
 func (c *queryCache) removeElement(el *list.Element) {
 	c.ll.Remove(el)
-	delete(c.items, el.Value.(*queryCacheEntry).key)
+	if entry, ok := el.Value.(*queryCacheEntry); ok {
+		delete(c.items, entry.key)
+	}
 }
 
 // len reports the number of live entries (including not-yet-evicted expired
