@@ -25,6 +25,10 @@ func RegisterTools(ctx context.Context, client *Client, registry *tool.Registry)
 			Name:        mcpTool.Name,
 			Description: mcpTool.Description,
 			Parameters:  mcpTool.InputSchema,
+			// MCP tools come from an external server and are not vetted by
+			// Chronos, so they default to requiring human approval before
+			// execution. Callers can override the Permission after registration.
+			Permission: tool.PermRequireApproval,
 			Handler: func(ctx context.Context, args map[string]any) (any, error) {
 				return mcpClient.CallTool(ctx, mcpTool.Name, args)
 			},
@@ -46,6 +50,8 @@ func ToolInfoToDefinitions(client *Client, tools []ToolInfo) []*tool.Definition 
 			Name:        mcpTool.Name,
 			Description: mcpTool.Description,
 			Parameters:  mcpTool.InputSchema,
+			// MCP tools are externally provided; default to requiring approval.
+			Permission: tool.PermRequireApproval,
 			Handler: func(ctx context.Context, args map[string]any) (any, error) {
 				return mcpClient.CallTool(ctx, mcpTool.Name, args)
 			},

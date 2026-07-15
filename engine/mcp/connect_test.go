@@ -496,8 +496,8 @@ func TestCallLocked_ClientClosed(t *testing.T) {
 	client := &Client{
 		stdin:  w,
 		stdout: bufio.NewReader(r),
-		closed: true,
 	}
+	client.closed.Store(true)
 
 	_, err = client.callLocked(context.Background(), "test/method", nil)
 	if err == nil {
