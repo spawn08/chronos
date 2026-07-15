@@ -232,8 +232,12 @@ func (l *SQLLimiter) Allow(ctx context.Context, key string, limit int, window ti
 		Scan(&count, &resetAt)
 
 	switch {
+	case err != nil && !errors.Is(err, sql.ErrNoRows):
+		// A genuine read error: do not touch the shared counter (fail open at
+		// the caller) rather than resetting it on corrupt/zero state.
+		return Result{}, fmt.Errorf("ratelimit allow: read: %w", err)
 	case errors.Is(err, sql.ErrNoRows) || now.After(resetAt):
-		// Fresh window: (re)start the counter at 1.
+		// Fresh or expired window: (re)start the counter at 1.
 		count = 1
 		resetAt = now.Add(window)
 		if _, uErr := tx.ExecContext(ctx, l.rebind(
@@ -242,8 +246,6 @@ func (l *SQLLimiter) Allow(ctx context.Context, key string, limit int, window ti
 			key, count, resetAt, count, resetAt); uErr != nil {
 			return Result{}, fmt.Errorf("ratelimit allow: reset: %w", uErr)
 		}
-	case err != nil:
-		return Result{}, fmt.Errorf("ratelimit allow: read: %w", err)
 	default:
 		count++
 		if _, uErr := tx.ExecContext(ctx, l.rebind(

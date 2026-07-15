@@ -375,9 +375,16 @@ func (r *Runner) execute(ctx context.Context, rs *RunState, skipFirstInterrupt b
 		if r.broker != nil {
 			emitCh = make(chan stream.Event, 64)
 			nodeCtx = stream.WithEmitter(nodeCtx, emitCh)
+			// Route node-emitted custom events to this session's topic (same as
+			// emit) so they don't leak to other sessions' SSE subscribers.
+			topic := rs.SessionID
 			go func() {
 				for evt := range emitCh {
-					r.broker.Publish(evt)
+					if topic != "" {
+						r.broker.PublishTopic(topic, evt)
+					} else {
+						r.broker.Publish(evt)
+					}
 				}
 			}()
 		}
