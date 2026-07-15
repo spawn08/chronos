@@ -161,3 +161,49 @@ func TestOutbox_FailedStaysPending(t *testing.T) {
 		t.Fatalf("want 1 pending w/ 1 attempt, got %+v", entries)
 	}
 }
+
+// TestOutbox_DeadLetterAfterCap is the FINDING Q05 regression: a
+// permanently-failing entry is dead-lettered once the drainer's max-attempts cap
+// is reached and is no longer claimed, so it cannot starve newer effects.
+func TestOutbox_DeadLetterAfterCap(t *testing.T) {
+	s := newStore(t)
+	ob := NewOutbox(s).WithMaxAttempts(3)
+	ctx := context.Background()
+	if err := ob.Record(ctx, "sess", "poison", "webhook", nil); err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	failing := DispatcherFunc(func(ctx context.Context, e *OutboxEntry) error {
+		return errors.New("boom")
+	})
+
+	// Drain repeatedly; each drain fails delivery and increments attempts.
+	for i := 0; i < 5; i++ {
+		if _, err := ob.DrainOnce(ctx, failing, 10); err != nil {
+			t.Fatalf("drain %d: %v", i, err)
+		}
+	}
+
+	// After the cap the poison entry is dead-lettered and no longer claimable.
+	entries, err := s.ClaimOutbox(ctx, 10)
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("want 0 claimable after dead-letter, got %d", len(entries))
+	}
+	var status string
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT status FROM queue_outbox WHERE idempotency_key='poison'`).Scan(&status); err != nil {
+		t.Fatalf("inspect: %v", err)
+	}
+	if status != OutboxFailed {
+		t.Fatalf("want status %s, got %s", OutboxFailed, status)
+	}
+}
+
+// TestOutbox_DefaultMaxAttempts documents the chosen default dead-letter cap.
+func TestOutbox_DefaultMaxAttempts(t *testing.T) {
+	if DefaultOutboxMaxAttempts != 10 {
+		t.Fatalf("default outbox max attempts changed: %d", DefaultOutboxMaxAttempts)
+	}
+}

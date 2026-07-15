@@ -21,17 +21,34 @@ type DispatcherFunc func(ctx context.Context, e *OutboxEntry) error
 // Dispatch calls f.
 func (f DispatcherFunc) Dispatch(ctx context.Context, e *OutboxEntry) error { return f(ctx, e) }
 
+// DefaultOutboxMaxAttempts is the number of delivery attempts after which a
+// permanently-failing outbox entry is dead-lettered (marked OutboxFailed) so it
+// stops being claimed and can no longer starve newer effects.
+const DefaultOutboxMaxAttempts = 10
+
 // Outbox records external effects transactionally with run progress and drains
 // them reliably. Recording an effect twice with the same idempotency key is a
 // no-op, so retries and resumes never double-emit (P1-003).
 type Outbox struct {
-	store Store
-	now   func() time.Time
+	store       Store
+	now         func() time.Time
+	maxAttempts int
 }
 
-// NewOutbox constructs an Outbox over a Store.
+// NewOutbox constructs an Outbox over a Store with the default dead-letter cap.
 func NewOutbox(store Store) *Outbox {
-	return &Outbox{store: store, now: time.Now}
+	return &Outbox{store: store, now: time.Now, maxAttempts: DefaultOutboxMaxAttempts}
+}
+
+// WithMaxAttempts sets the delivery-attempt cap after which an entry is
+// dead-lettered. A value <= 0 restores the default. It returns the Outbox for
+// chaining.
+func (o *Outbox) WithMaxAttempts(n int) *Outbox {
+	if n <= 0 {
+		n = DefaultOutboxMaxAttempts
+	}
+	o.maxAttempts = n
+	return o
 }
 
 // Record persists an external effect for later delivery. The idempotencyKey must
@@ -64,7 +81,7 @@ func (o *Outbox) DrainOnce(ctx context.Context, d Dispatcher, limit int) (int, e
 	sent := 0
 	for _, e := range entries {
 		if err := d.Dispatch(ctx, e); err != nil {
-			if markErr := o.store.MarkOutboxFailed(ctx, e.ID, err.Error(), o.now()); markErr != nil {
+			if markErr := o.store.MarkOutboxFailed(ctx, e.ID, err.Error(), o.maxAttempts, o.now()); markErr != nil {
 				return sent, fmt.Errorf("outbox drain: mark failed: %w", markErr)
 			}
 			continue

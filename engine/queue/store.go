@@ -52,8 +52,15 @@ type Store interface {
 	CompleteRun(ctx context.Context, runID, owner, status, lastErr string, now time.Time) error
 
 	// RescheduleRun returns a leased run to pending, available at availableAt,
-	// optionally replacing its payload (durable sleep / retry backoff).
+	// optionally replacing its payload (durable sleep). It does NOT touch the
+	// attempts counter: durable timers and parks are normal redeliveries, not
+	// failed attempts, and must not burn the retry budget.
 	RescheduleRun(ctx context.Context, runID, owner string, availableAt time.Time, patch []byte, now time.Time) error
+
+	// RetryRun returns a leased run to pending, available at availableAt, AND
+	// increments its attempts counter. Unlike RescheduleRun this consumes retry
+	// budget: it is the path taken after an execution error.
+	RetryRun(ctx context.Context, runID, owner string, availableAt time.Time, patch []byte, now time.Time) error
 
 	// ParkRun suspends a leased run pending a signal named waitSignal. If a
 	// matching signal was already delivered for the session, the run is made
@@ -90,8 +97,11 @@ type Store interface {
 	// MarkOutboxSent marks an entry delivered.
 	MarkOutboxSent(ctx context.Context, id string, now time.Time) error
 
-	// MarkOutboxFailed records a delivery failure (entry stays pending for retry).
-	MarkOutboxFailed(ctx context.Context, id, errMsg string, now time.Time) error
+	// MarkOutboxFailed records a delivery failure, incrementing attempts. When
+	// the incremented attempts reach maxAttempts the entry is dead-lettered
+	// (status OutboxFailed) so it is no longer claimed; otherwise it stays
+	// pending for retry. A maxAttempts <= 0 disables dead-lettering.
+	MarkOutboxFailed(ctx context.Context, id, errMsg string, maxAttempts int, now time.Time) error
 
 	// Close releases resources owned by the store.
 	Close() error
