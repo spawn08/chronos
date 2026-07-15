@@ -70,7 +70,25 @@ func NewRetryHook(maxRetries int) *RetryHook {
 		MaxRetries: maxRetries,
 		BaseDelay:  500 * time.Millisecond,
 		MaxDelay:   30 * time.Second,
-		SleepFn:    time.Sleep,
+	}
+}
+
+// sleep waits for d, honoring context cancellation. A custom SleepFn (used by
+// tests for instant execution) takes precedence; the default path selects on
+// ctx.Done so a canceled/expired context aborts the backoff immediately instead
+// of blocking for the full delay.
+func (h *RetryHook) sleep(ctx context.Context, d time.Duration) error {
+	if h.SleepFn != nil {
+		h.SleepFn(d)
+		return ctx.Err()
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
 	}
 }
 
@@ -104,11 +122,6 @@ func (h *RetryHook) After(ctx context.Context, evt *Event) error {
 		return nil
 	}
 
-	sleepFn := h.SleepFn
-	if sleepFn == nil {
-		sleepFn = time.Sleep
-	}
-
 	var lastErr error
 	for attempt := 1; attempt <= h.MaxRetries; attempt++ {
 		delay := h.backoff(attempt)
@@ -117,10 +130,8 @@ func (h *RetryHook) After(ctx context.Context, evt *Event) error {
 		}
 		h.addRetries(1)
 
-		sleepFn(delay)
-
-		if ctx.Err() != nil {
-			return fmt.Errorf("retry canceled: %w", ctx.Err())
+		if err := h.sleep(ctx, delay); err != nil {
+			return fmt.Errorf("retry canceled: %w", err)
 		}
 
 		resp, err := provider.Chat(ctx, req)
