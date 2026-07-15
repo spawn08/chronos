@@ -15,8 +15,8 @@ func TestNewBroker(t *testing.T) {
 	if b == nil {
 		t.Fatal("NewBroker returned nil")
 	}
-	if b.clients == nil {
-		t.Fatal("clients map should be initialized")
+	if b.fanout == nil {
+		t.Fatal("fanout should be initialized")
 	}
 }
 
