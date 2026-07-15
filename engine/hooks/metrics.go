@@ -152,3 +152,132 @@ func (h *MetricsHook) Reset() {
 func metricsKey(evt *Event) string {
 	return string(evt.Type) + ":" + evt.Name
 }
+
+// MetricsSink is the minimal metrics interface that PrometheusHook feeds during
+// execution. It is defined here (rather than importing os/metrics) so the
+// engine layer stays free of a dependency on the control plane; the integrator
+// wires a concrete sink such as *metrics.Registry, which satisfies this
+// interface. Tenant is plumbed from context so cost/latency/tokens can be
+// attributed per tenant.
+type MetricsSink interface {
+	RecordToolCall(tenant, tool string, d time.Duration, isErr bool)
+	RecordModelCall(tenant, provider string, d time.Duration, promptTokens, completionTokens int64, isErr bool)
+}
+
+// tenantContextKey carries a tenant identifier through context for metric
+// attribution. Kept unexported to avoid collisions.
+type tenantContextKey struct{}
+
+// WithTenant returns a context carrying the tenant id used for metric labels.
+func WithTenant(ctx context.Context, tenant string) context.Context {
+	return context.WithValue(ctx, tenantContextKey{}, tenant)
+}
+
+// TenantFromContext returns the tenant id from context, or "" if unset.
+func TenantFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if v, ok := ctx.Value(tenantContextKey{}).(string); ok {
+		return v
+	}
+	return ""
+}
+
+// PrometheusHook bridges execution events to a MetricsSink (e.g. the ChronosOS
+// Prometheus registry) so tool calls, model calls, tokens, errors, and latency
+// are recorded as execution happens. It tracks per-call start times to compute
+// durations across the Before/After boundary.
+type PrometheusHook struct {
+	sink    MetricsSink
+	mu      sync.Mutex
+	pending map[string]time.Time
+}
+
+// NewPrometheusHook creates a hook that feeds sink. A nil sink makes the hook a
+// no-op (safe to install unconditionally).
+func NewPrometheusHook(sink MetricsSink) *PrometheusHook {
+	return &PrometheusHook{
+		sink:    sink,
+		pending: make(map[string]time.Time),
+	}
+}
+
+func (h *PrometheusHook) Before(_ context.Context, evt *Event) error {
+	switch evt.Type {
+	case EventModelCallBefore, EventToolCallBefore:
+		h.mu.Lock()
+		h.pending[metricsKey(evt)] = time.Now()
+		h.mu.Unlock()
+	}
+	return nil
+}
+
+func (h *PrometheusHook) After(ctx context.Context, evt *Event) error {
+	if h.sink == nil {
+		return nil
+	}
+	switch evt.Type {
+	case EventModelCallAfter, EventToolCallAfter:
+	default:
+		return nil
+	}
+
+	h.mu.Lock()
+	key := metricsKey(evt)
+	started, ok := h.pending[key]
+	if !ok {
+		started = time.Now()
+	}
+	delete(h.pending, key)
+	h.mu.Unlock()
+
+	dur := time.Since(started)
+	tenant := TenantFromContext(ctx)
+	isErr := evt.Error != nil
+
+	switch evt.Type {
+	case EventToolCallAfter:
+		h.sink.RecordToolCall(tenant, evt.Name, dur, isErr)
+	case EventModelCallAfter:
+		provider := providerFromEvent(evt)
+		prompt, completion := tokensFromEvent(evt)
+		h.sink.RecordModelCall(tenant, provider, dur, prompt, completion, isErr)
+	}
+	return nil
+}
+
+// providerFromEvent extracts the model provider name from event metadata,
+// falling back to the event name (the model id) when absent.
+func providerFromEvent(evt *Event) string {
+	if evt.Metadata != nil {
+		if p, ok := evt.Metadata["provider"].(string); ok && p != "" {
+			return p
+		}
+	}
+	return evt.Name
+}
+
+// tokensFromEvent reads prompt/completion token counts from event metadata.
+// It tolerates both int and int64 values.
+func tokensFromEvent(evt *Event) (prompt, completion int64) {
+	if evt.Metadata == nil {
+		return 0, 0
+	}
+	prompt = metaInt64(evt.Metadata["prompt_tokens"])
+	completion = metaInt64(evt.Metadata["completion_tokens"])
+	return prompt, completion
+}
+
+func metaInt64(v any) int64 {
+	switch n := v.(type) {
+	case int:
+		return int64(n)
+	case int64:
+		return n
+	case float64:
+		return int64(n)
+	default:
+		return 0
+	}
+}
