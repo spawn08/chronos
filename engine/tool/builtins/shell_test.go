@@ -4,7 +4,30 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/spawn08/chronos/engine/tool"
 )
+
+// TestShellTool_Permissions asserts P2-001: the host shell tools never
+// auto-approve on the host, while the sandbox-backed shell may.
+func TestShellTool_Permissions(t *testing.T) {
+	tests := []struct {
+		name string
+		def  *tool.Definition
+		want tool.Permission
+	}{
+		{"NewShellTool requires approval", NewShellTool(nil, 0), tool.PermRequireApproval},
+		{"NewAutoShellTool requires approval (host, no isolation)", NewAutoShellTool(nil, 0), tool.PermRequireApproval},
+		{"NewSandboxShellTool auto-allowed (confined)", NewSandboxShellTool(nil, 0), tool.PermAllow},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.def.Permission != tc.want {
+				t.Errorf("Permission = %v, want %v", tc.def.Permission, tc.want)
+			}
+		})
+	}
+}
 
 func TestShellTool_Echo(t *testing.T) {
 	sh := NewShellTool(nil, 5*time.Second)

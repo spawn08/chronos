@@ -22,6 +22,9 @@ type Config struct {
 	// Container-specific
 	Image   string `json:"image,omitempty"`
 	Network string `json:"network,omitempty"`
+	// Runtime selects a hardened OCI runtime for the container backend
+	// (e.g. "runsc" for gVisor, "kata-runtime"). Empty uses the daemon default.
+	Runtime string `json:"runtime,omitempty"`
 	// K8s-specific
 	Namespace  string `json:"namespace,omitempty"`
 	ServiceAcc string `json:"service_account,omitempty"`
@@ -44,23 +47,34 @@ func NewFromConfig(cfg Config) (Sandbox, error) {
 		return NewContainerSandbox(ContainerConfig{
 			Image:       cfg.Image,
 			NetworkMode: cfg.Network,
+			Runtime:     cfg.Runtime,
 		}), nil
 
 	case BackendWASM:
 		if cfg.WASMPath == "" {
 			return nil, fmt.Errorf("sandbox: wasm backend requires wasm_path")
 		}
-		return NewWASMSandbox(cfg.WASMPath), nil
+		// Stub backend: fails at construction (P2-001).
+		sb, err := NewWASMSandbox(cfg.WASMPath)
+		if err != nil {
+			return nil, fmt.Errorf("sandbox: %w", err)
+		}
+		return sb, nil
 
 	case BackendK8sJob:
 		if cfg.Image == "" {
 			return nil, fmt.Errorf("sandbox: k8s backend requires image")
 		}
-		return NewK8sJobSandbox(K8sJobConfig{
+		// Stub backend: fails at construction (P2-001).
+		sb, err := NewK8sJobSandbox(K8sJobConfig{
 			Image:          cfg.Image,
 			Namespace:      cfg.Namespace,
 			ServiceAccount: cfg.ServiceAcc,
-		}), nil
+		})
+		if err != nil {
+			return nil, fmt.Errorf("sandbox: %w", err)
+		}
+		return sb, nil
 
 	default:
 		return nil, fmt.Errorf("sandbox: unknown backend %q (supported: process, container, wasm, k8s)", cfg.Backend)
