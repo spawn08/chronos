@@ -65,6 +65,16 @@ func (s *SQLStore) exec(ctx context.Context, query string, args ...any) (sql.Res
 	return s.db.ExecContext(ctx, s.rebind(query), args...)
 }
 
+// forUpdate returns the row-locking clause for the dialect. Postgres uses
+// SELECT ... FOR UPDATE to serialize concurrent decisions on the same rows;
+// SQLite serializes writers (immediate transactions) so it needs no clause.
+func (s *SQLStore) forUpdate() string {
+	if s.dialect == DialectPostgres {
+		return " FOR UPDATE"
+	}
+	return ""
+}
+
 // Close closes the underlying database.
 func (s *SQLStore) Close() error {
 	if err := s.db.Close(); err != nil {
@@ -206,8 +216,11 @@ func (s *SQLStore) DequeueRun(ctx context.Context, owner string, lease time.Dura
 	if s.dialect == DialectPostgres {
 		skipLocked = " FOR UPDATE SKIP LOCKED"
 	}
+	// attempts is NOT incremented here: a claim is a delivery, not a failed
+	// attempt. attempts counts only failed attempts (the retry budget), so
+	// durable sleeps and parks that legitimately re-enqueue a run do not burn it.
 	query := `UPDATE queue_runs
-		SET status='` + StatusLeased + `', lease_owner=?, lease_expires_at=?, attempts=attempts+1, updated_at=?
+		SET status='` + StatusLeased + `', lease_owner=?, lease_expires_at=?, updated_at=?
 		WHERE id = (
 			SELECT id FROM queue_runs
 			WHERE status='` + StatusPending + `' AND available_at <= ?
@@ -275,6 +288,31 @@ func (s *SQLStore) RescheduleRun(ctx context.Context, runID, owner string, avail
 	return leaseAffected(res)
 }
 
+// RetryRun returns a run to pending like RescheduleRun but also increments the
+// attempts counter, consuming retry budget. It is the post-error retry path.
+func (s *SQLStore) RetryRun(ctx context.Context, runID, owner string, availableAt time.Time, patch []byte, now time.Time) error {
+	now = utc(now)
+	var (
+		res sql.Result
+		err error
+	)
+	if patch != nil {
+		res, err = s.exec(ctx, `UPDATE queue_runs
+			SET status='`+StatusPending+`', available_at=?, payload=?, attempts=attempts+1, lease_owner='', lease_expires_at=NULL, updated_at=?
+			WHERE id=? AND status='`+StatusLeased+`' AND lease_owner=?`,
+			utc(availableAt), patch, now, runID, owner)
+	} else {
+		res, err = s.exec(ctx, `UPDATE queue_runs
+			SET status='`+StatusPending+`', available_at=?, attempts=attempts+1, lease_owner='', lease_expires_at=NULL, updated_at=?
+			WHERE id=? AND status='`+StatusLeased+`' AND lease_owner=?`,
+			utc(availableAt), now, runID, owner)
+	}
+	if err != nil {
+		return fmt.Errorf("retry run: %w", err)
+	}
+	return leaseAffected(res)
+}
+
 // ParkRun suspends a leased run pending a signal, honoring an already-delivered
 // signal to avoid a lost-signal race.
 func (s *SQLStore) ParkRun(ctx context.Context, runID, owner, waitSignal string, patch []byte, now time.Time) error {
@@ -285,9 +323,14 @@ func (s *SQLStore) ParkRun(ctx context.Context, runID, owner, waitSignal string,
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	// Lock the run row (Postgres) so a concurrent same-session DeliverSignal
+	// cannot make its wake/retain decision until this park commits, and vice
+	// versa. This closes the lost-wakeup race: without a shared lock point a
+	// park could commit "parked" just after a deliver decided to retain (rather
+	// than wake) it, stranding the run on an already-delivered signal.
 	var sessionID string
 	err = tx.QueryRowContext(ctx, s.rebind(
-		`SELECT session_id FROM queue_runs WHERE id=? AND status='`+StatusLeased+`' AND lease_owner=?`),
+		`SELECT session_id FROM queue_runs WHERE id=? AND status='`+StatusLeased+`' AND lease_owner=?`+s.forUpdate()),
 		runID, owner).Scan(&sessionID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -355,6 +398,27 @@ func parkExec(ctx context.Context, tx *sql.Tx, rebind func(string) string, runID
 	return nil
 }
 
+// lockSessionRuns takes SELECT ... FOR UPDATE row locks on every run of the
+// session (Postgres). Draining the rows forces the locks to be acquired within
+// the caller's transaction, establishing the shared lock point with ParkRun.
+func lockSessionRuns(ctx context.Context, tx *sql.Tx, rebind func(string) string, sessionID string) error {
+	rows, err := tx.QueryContext(ctx, rebind(`SELECT id FROM queue_runs WHERE session_id=? FOR UPDATE`), sessionID)
+	if err != nil {
+		return fmt.Errorf("deliver signal: lock session: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return fmt.Errorf("deliver signal: lock session scan: %w", err)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("deliver signal: lock session rows: %w", err)
+	}
+	return nil
+}
+
 // DeliverSignal wakes parked runs waiting on sig.Name; retains the signal if none.
 func (s *SQLStore) DeliverSignal(ctx context.Context, sig *Signal, now time.Time) (int, error) {
 	now = utc(now)
@@ -363,6 +427,16 @@ func (s *SQLStore) DeliverSignal(ctx context.Context, sig *Signal, now time.Time
 		return 0, fmt.Errorf("deliver signal: begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+
+	// Lock this session's run rows (Postgres) before deciding wake-vs-retain, on
+	// the same rows ParkRun locks. This serializes the two so a concurrent park
+	// cannot slip in between our wake attempt and retain insert (lost wakeup).
+	// SQLite serializes writers already, so the lock clause is empty there.
+	if s.dialect == DialectPostgres {
+		if err := lockSessionRuns(ctx, tx, s.rebind, sig.SessionID); err != nil {
+			return 0, err
+		}
+	}
 
 	res, err := tx.ExecContext(ctx, s.rebind(`UPDATE queue_runs
 		SET status='`+StatusPending+`', available_at=?, signal_payload=?, wait_signal='', updated_at=?
@@ -415,18 +489,21 @@ func (s *SQLStore) RecoverOrphans(ctx context.Context, now time.Time) (int, erro
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	// Fail runs whose retries are exhausted.
+	// A lease expiry means the in-flight attempt was lost = a failed attempt, so
+	// the effective failed count is attempts+1. Use the same boundary the worker
+	// uses on an execution error: fail terminally when attempts+1 >= max_attempts,
+	// otherwise re-enqueue and increment attempts to record the lost attempt.
 	if _, err = tx.ExecContext(ctx, s.rebind(`UPDATE queue_runs
 		SET status='`+StatusFailed+`', last_error='lease expired; attempts exhausted', lease_owner='', lease_expires_at=NULL, updated_at=?
-		WHERE status='`+StatusLeased+`' AND lease_expires_at < ? AND attempts >= max_attempts`),
+		WHERE status='`+StatusLeased+`' AND lease_expires_at < ? AND attempts+1 >= max_attempts`),
 		now, now); err != nil {
 		return 0, fmt.Errorf("recover orphans: fail exhausted: %w", err)
 	}
 
-	// Re-enqueue recoverable runs.
+	// Re-enqueue recoverable runs, charging the lost attempt to the retry budget.
 	res, err := tx.ExecContext(ctx, s.rebind(`UPDATE queue_runs
-		SET status='`+StatusPending+`', available_at=?, lease_owner='', lease_expires_at=NULL, updated_at=?
-		WHERE status='`+StatusLeased+`' AND lease_expires_at < ? AND attempts < max_attempts`),
+		SET status='`+StatusPending+`', available_at=?, attempts=attempts+1, lease_owner='', lease_expires_at=NULL, updated_at=?
+		WHERE status='`+StatusLeased+`' AND lease_expires_at < ? AND attempts+1 < max_attempts`),
 		now, now, now)
 	if err != nil {
 		return 0, fmt.Errorf("recover orphans: re-enqueue: %w", err)
@@ -546,10 +623,23 @@ func (s *SQLStore) MarkOutboxSent(ctx context.Context, id string, now time.Time)
 	return nil
 }
 
-// MarkOutboxFailed records a delivery failure; the entry stays pending for retry.
-func (s *SQLStore) MarkOutboxFailed(ctx context.Context, id, errMsg string, now time.Time) error {
-	if _, err := s.exec(ctx, `UPDATE queue_outbox SET attempts=attempts+1, last_error=? WHERE id=?`,
-		errMsg, id); err != nil {
+// MarkOutboxFailed records a delivery failure and increments attempts. When the
+// incremented attempts reach maxAttempts (> 0) the entry is dead-lettered
+// (status OutboxFailed) so ClaimOutbox stops returning it and a poison entry can
+// no longer starve newer effects; otherwise it stays pending for retry.
+func (s *SQLStore) MarkOutboxFailed(ctx context.Context, id, errMsg string, maxAttempts int, now time.Time) error {
+	if maxAttempts <= 0 {
+		if _, err := s.exec(ctx, `UPDATE queue_outbox SET attempts=attempts+1, last_error=? WHERE id=?`,
+			errMsg, id); err != nil {
+			return fmt.Errorf("mark outbox failed: %w", err)
+		}
+		return nil
+	}
+	if _, err := s.exec(ctx, `UPDATE queue_outbox
+		SET attempts=attempts+1, last_error=?,
+		    status=CASE WHEN attempts+1 >= ? THEN '`+OutboxFailed+`' ELSE status END
+		WHERE id=?`,
+		errMsg, maxAttempts, id); err != nil {
 		return fmt.Errorf("mark outbox failed: %w", err)
 	}
 	return nil

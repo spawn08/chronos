@@ -258,10 +258,23 @@ func (q *Queue) Complete(ctx context.Context, runID, owner, status, lastErr stri
 
 // Sleep durably reschedules a leased run to become available after delay. It is
 // the primitive behind "wait N, then continue" that survives process restarts.
+// Sleep does NOT consume retry budget (attempts is unchanged): durable timers
+// and HITL parks are healthy redeliveries, not failures.
 func (q *Queue) Sleep(ctx context.Context, runID, owner string, delay time.Duration, patch []byte) error {
 	availableAt := q.now().Add(delay)
 	if err := q.store.RescheduleRun(ctx, runID, owner, availableAt, patch, q.now()); err != nil {
 		return fmt.Errorf("sleep: %w", err)
+	}
+	return nil
+}
+
+// Retry durably reschedules a leased run to become available after delay AND
+// increments its attempts counter (the retry budget). It is the post-error
+// backoff path; callers must decide separately when attempts are exhausted.
+func (q *Queue) Retry(ctx context.Context, runID, owner string, delay time.Duration, patch []byte) error {
+	availableAt := q.now().Add(delay)
+	if err := q.store.RetryRun(ctx, runID, owner, availableAt, patch, q.now()); err != nil {
+		return fmt.Errorf("retry: %w", err)
 	}
 	return nil
 }

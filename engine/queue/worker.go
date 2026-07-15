@@ -187,10 +187,14 @@ func (w *Worker) applyResult(ctx context.Context, r *Run, res Result) {
 	var err error
 	switch {
 	case res.Err != nil:
-		if r.Attempts >= r.MaxAttempts {
+		// r.Attempts is the number of prior failed attempts; this error makes the
+		// failed count r.Attempts+1. Fail terminally at the budget, else retry via
+		// the attempts-incrementing path (Retry, not Sleep) so budget is consumed.
+		failedCount := r.Attempts + 1
+		if failedCount >= r.MaxAttempts {
 			err = w.q.Complete(bg, r.ID, w.cfg.ID, StatusFailed, res.Err.Error())
 		} else {
-			err = w.q.Sleep(bg, r.ID, w.cfg.ID, w.cfg.Backoff(r.Attempts), res.Patch)
+			err = w.q.Retry(bg, r.ID, w.cfg.ID, w.cfg.Backoff(failedCount), res.Patch)
 		}
 	case res.Sleep > 0:
 		err = w.q.Sleep(bg, r.ID, w.cfg.ID, res.Sleep, res.Patch)

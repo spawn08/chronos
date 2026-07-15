@@ -59,6 +59,79 @@ func TestWorker_RetryThenFail(t *testing.T) {
 	}
 }
 
+// TestWorker_SleepAndParkDoNotBurnBudget is the FINDING D01 regression: a run
+// that durably sleeps and parks far more times than MaxAttempts must NOT be
+// failed terminally and must still complete, with attempts staying 0 across the
+// healthy yields (only real failures consume the retry budget).
+func TestWorker_SleepAndParkDoNotBurnBudget(t *testing.T) {
+	s := newStore(t)
+	q := New(s, Config{})
+	ctx := context.Background()
+
+	// Tight budget: if a sleep/park charged attempts this would fail terminally.
+	run := &Run{SessionID: "s1", MaxAttempts: 2}
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+	id := run.ID
+
+	var yields atomic.Int64
+	exec := func(ctx context.Context, r *Run) Result {
+		if r.Attempts != 0 {
+			t.Errorf("attempts must stay 0 across sleeps/parks, got %d", r.Attempts)
+		}
+		switch yields.Add(1) {
+		case 1, 2, 3, 4, 5: // 5 durable sleeps, well past MaxAttempts=2
+			return Result{Sleep: 2 * time.Millisecond}
+		case 6: // then a HITL park
+			return Result{ParkSignal: "approve"}
+		default: // finally complete
+			return Result{}
+		}
+	}
+	w, err := NewWorker(q, exec, WorkerConfig{ID: "w1", Lease: time.Second})
+	if err != nil {
+		t.Fatalf("new worker: %v", err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		got, err := q.Get(ctx, id)
+		if err != nil {
+			t.Fatalf("get: %v", err)
+		}
+		if got.Status == StatusCompleted {
+			break
+		}
+		if got.Status == StatusFailed {
+			t.Fatalf("run failed terminally after healthy yields: %q", got.LastError)
+		}
+		if got.Status == StatusParked {
+			if _, err := q.Signal(ctx, &Signal{SessionID: "s1", Name: "approve"}); err != nil {
+				t.Fatalf("signal: %v", err)
+			}
+		}
+		if _, err := w.RunOnce(ctx); err != nil {
+			t.Fatalf("run once: %v", err)
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	got, err := q.Get(ctx, id)
+	if err != nil {
+		t.Fatalf("final get: %v", err)
+	}
+	if got.Status != StatusCompleted {
+		t.Fatalf("run did not complete, status=%s", got.Status)
+	}
+	if got.Attempts != 0 {
+		t.Fatalf("attempts want 0 after sleeps/parks, got %d", got.Attempts)
+	}
+	if yields.Load() < 7 {
+		t.Fatalf("executor should have yielded >=7 times, got %d", yields.Load())
+	}
+}
+
 // TestWorker_CrossWorkerExecution proves a run submitted by a producer is
 // executed by one of several concurrent workers on independent DB handles
 // (simulating separate nodes), each run exactly once.

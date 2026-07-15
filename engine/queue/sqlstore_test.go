@@ -53,8 +53,10 @@ func TestSQLStore_DequeueLeasesAndOrders(t *testing.T) {
 	if got.Status != StatusLeased || got.LeaseOwner != "w1" {
 		t.Fatalf("run not leased to w1: %+v", got)
 	}
-	if got.Attempts != 1 {
-		t.Fatalf("attempts want 1 got %d", got.Attempts)
+	// A claim is a delivery, not a failed attempt: attempts must stay 0 so
+	// durable sleeps/parks do not burn the retry budget.
+	if got.Attempts != 0 {
+		t.Fatalf("attempts want 0 after claim got %d", got.Attempts)
 	}
 	if got.LeaseExpiresAt == nil || !got.LeaseExpiresAt.After(now) {
 		t.Fatalf("lease expiry not set: %+v", got.LeaseExpiresAt)
@@ -240,9 +242,156 @@ func TestSQLStore_RecoverOrphans(t *testing.T) {
 	if rec.Status != StatusPending {
 		t.Fatalf("recoverable not re-enqueued: %s", rec.Status)
 	}
+	// A lost lease is a failed attempt: recovery must charge the retry budget.
+	if rec.Attempts != 1 {
+		t.Fatalf("recoverable attempts want 1 got %d", rec.Attempts)
+	}
 	exh, _ := s.GetRun(ctx, "exhausted")
 	if exh.Status != StatusFailed {
 		t.Fatalf("exhausted not failed: %s", exh.Status)
+	}
+}
+
+// TestSQLStore_RetryVsReschedule proves the attempts semantics: RetryRun (the
+// post-error path) burns retry budget while RescheduleRun (durable sleep) does
+// not. attempts counts only failed attempts.
+func TestSQLStore_RetryVsReschedule(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	now := time.Now()
+	mustEnqueue(t, s, &Run{ID: "r1", SessionID: "s1", MaxAttempts: 5})
+
+	// Sleep (reschedule) several times: attempts must stay 0.
+	for i := 0; i < 3; i++ {
+		if _, err := s.DequeueRun(ctx, "w1", time.Minute, now); err != nil {
+			t.Fatalf("dequeue %d: %v", i, err)
+		}
+		if err := s.RescheduleRun(ctx, "r1", "w1", now, nil, now); err != nil {
+			t.Fatalf("reschedule %d: %v", i, err)
+		}
+	}
+	got, _ := s.GetRun(ctx, "r1")
+	if got.Attempts != 0 {
+		t.Fatalf("attempts after 3 sleeps want 0 got %d", got.Attempts)
+	}
+
+	// Retry twice: attempts must climb to 2.
+	for i := 0; i < 2; i++ {
+		if _, err := s.DequeueRun(ctx, "w1", time.Minute, now); err != nil {
+			t.Fatalf("dequeue retry %d: %v", i, err)
+		}
+		if err := s.RetryRun(ctx, "r1", "w1", now, nil, now); err != nil {
+			t.Fatalf("retry %d: %v", i, err)
+		}
+	}
+	got, _ = s.GetRun(ctx, "r1")
+	if got.Attempts != 2 {
+		t.Fatalf("attempts after 2 retries want 2 got %d", got.Attempts)
+	}
+}
+
+// TestSQLStore_ParkSignalOrdering documents the park/deliver ordering guarantee
+// that FINDING Q01 hardens for Postgres. Under SQLite (serialized writers) both
+// interleavings are already correct; the Postgres FOR UPDATE lock reproduces the
+// same guarantee. Both orderings must leave the run runnable, never stranded.
+func TestSQLStore_ParkSignalOrdering(t *testing.T) {
+	tests := []struct {
+		name         string
+		signalFirst  bool // deliver the signal before the run parks
+		wantAwakened int
+	}{
+		{"park then signal wakes it", false, 1},
+		{"signal then park consumes retained", true, 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newStore(t)
+			ctx := context.Background()
+			now := time.Now()
+			mustEnqueue(t, s, &Run{ID: "r1", SessionID: "s1"})
+			if _, err := s.DequeueRun(ctx, "w1", time.Minute, now); err != nil {
+				t.Fatalf("dequeue: %v", err)
+			}
+
+			deliver := func() int {
+				n, err := s.DeliverSignal(ctx, &Signal{SessionID: "s1", Name: "go", Payload: []byte("p")}, now)
+				if err != nil {
+					t.Fatalf("deliver: %v", err)
+				}
+				return n
+			}
+			park := func() {
+				if err := s.ParkRun(ctx, "r1", "w1", "go", nil, now); err != nil {
+					t.Fatalf("park: %v", err)
+				}
+			}
+
+			if tc.signalFirst {
+				if n := deliver(); n != tc.wantAwakened {
+					t.Fatalf("awakened=%d want %d", n, tc.wantAwakened)
+				}
+				park()
+			} else {
+				park()
+				if n := deliver(); n != tc.wantAwakened {
+					t.Fatalf("awakened=%d want %d", n, tc.wantAwakened)
+				}
+			}
+
+			// Regardless of ordering the run must be runnable, not stranded parked.
+			got, err := s.DequeueRun(ctx, "w2", time.Minute, now)
+			if err != nil {
+				t.Fatalf("run stranded (not runnable after park+signal): %v", err)
+			}
+			if string(got.SignalPayload) != "p" {
+				t.Fatalf("signal payload not delivered: %q", got.SignalPayload)
+			}
+		})
+	}
+}
+
+// TestSQLStore_OutboxDeadLetter proves a permanently-failing entry is
+// dead-lettered once attempts reach the cap and is no longer returned by
+// ClaimOutbox (FINDING Q05), so it cannot starve newer effects.
+func TestSQLStore_OutboxDeadLetter(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	now := time.Now()
+	if err := s.EnqueueOutbox(ctx, &OutboxEntry{IdempotencyKey: "poison", Topic: "webhook"}); err != nil {
+		t.Fatalf("enqueue outbox: %v", err)
+	}
+
+	const cap = 3
+	for i := 0; i < cap; i++ {
+		entries, err := s.ClaimOutbox(ctx, 10)
+		if err != nil {
+			t.Fatalf("claim %d: %v", i, err)
+		}
+		if len(entries) != 1 {
+			t.Fatalf("attempt %d: want 1 claimable entry, got %d", i, len(entries))
+		}
+		if err := s.MarkOutboxFailed(ctx, entries[0].ID, "boom", cap, now); err != nil {
+			t.Fatalf("mark failed %d: %v", i, err)
+		}
+	}
+
+	// After the cap it is dead-lettered: no longer claimable.
+	entries, err := s.ClaimOutbox(ctx, 10)
+	if err != nil {
+		t.Fatalf("claim after cap: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("want 0 claimable after dead-letter, got %d", len(entries))
+	}
+	// And its terminal status is OutboxFailed.
+	var status string
+	var attempts int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT status, attempts FROM queue_outbox WHERE idempotency_key='poison'`).Scan(&status, &attempts); err != nil {
+		t.Fatalf("inspect: %v", err)
+	}
+	if status != OutboxFailed || attempts != cap {
+		t.Fatalf("want status=%s attempts=%d, got status=%s attempts=%d", OutboxFailed, cap, status, attempts)
 	}
 }
 
