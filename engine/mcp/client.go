@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -108,8 +109,6 @@ type Client struct {
 	nextID     atomic.Int64
 	closed     atomic.Bool
 	info       ServerInfo
-	tools      []ToolInfo
-	resources  []ResourceInfo
 }
 
 // ServerInfo holds the server's initialization response.
@@ -229,7 +228,6 @@ func (c *Client) ListTools(ctx context.Context) ([]ToolInfo, error) {
 	if err := json.Unmarshal(result, &resp); err != nil {
 		return nil, fmt.Errorf("mcp: parse tools: %w", err)
 	}
-	c.tools = resp.Tools
 	return resp.Tools, nil
 }
 
@@ -287,7 +285,6 @@ func (c *Client) ListResources(ctx context.Context) ([]ResourceInfo, error) {
 	if err := json.Unmarshal(result, &resp); err != nil {
 		return nil, fmt.Errorf("mcp: parse resources: %w", err)
 	}
-	c.resources = resp.Resources
 	return resp.Resources, nil
 }
 
@@ -359,7 +356,7 @@ func (c *Client) call(ctx context.Context, method string, params any) (json.RawM
 //
 // The context is honored via a read deadline on the underlying stdout file
 // descriptor (when supported): a context deadline is applied directly, and a
-// watcher goroutine unblocks the read if the context is cancelled without a
+// watcher goroutine unblocks the read if the context is canceled without a
 // deadline. This guarantees the read never blocks indefinitely while holding
 // c.mu.
 func (c *Client) callLocked(ctx context.Context, method string, params any) (json.RawMessage, error) {
@@ -422,8 +419,23 @@ func (c *Client) callLocked(ctx context.Context, method string, params any) (jso
 			if cerr := ctx.Err(); cerr != nil {
 				return nil, fmt.Errorf("mcp: %s: %w", method, cerr)
 			}
+			// Close sets c.closed (a release) before tripping the read
+			// deadline, so a closed client is observed here first — check it
+			// before treating a timeout as ctx-driven, or we'd block on a
+			// ctx that Close never cancels.
 			if c.closed.Load() {
 				return nil, fmt.Errorf("read: client is closed")
+			}
+			// A read-deadline timeout that is not from Close is only ever set
+			// from the per-call ctx (its deadline, or the watcher on
+			// cancellation). The fd deadline and the ctx timer are independent,
+			// so the read can time out a hair before ctx.Err() is set; wait for
+			// the definitive ctx error rather than surfacing the raw i/o
+			// timeout.
+			var timeoutErr interface{ Timeout() bool }
+			if c.stdoutFile != nil && errors.As(err, &timeoutErr) && timeoutErr.Timeout() {
+				<-ctx.Done()
+				return nil, fmt.Errorf("mcp: %s: %w", method, ctx.Err())
 			}
 			return nil, fmt.Errorf("read: %w", err)
 		}

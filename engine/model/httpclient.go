@@ -67,18 +67,6 @@ func withCircuitBreaker(cb *circuitBreaker) httpOption {
 	return func(h *httpClient) { h.breaker = cb }
 }
 
-// withBackoff overrides the exponential-backoff base and ceiling.
-func withBackoff(base, max time.Duration) httpOption {
-	return func(h *httpClient) {
-		if base > 0 {
-			h.backoffBase = base
-		}
-		if max > 0 {
-			h.backoffMax = max
-		}
-	}
-}
-
 // withSleepFn overrides the backoff sleep function (used in tests to avoid real
 // delays).
 func withSleepFn(fn func(ctx context.Context, d time.Duration) error) httpOption {

@@ -64,7 +64,7 @@ func (h *CacheHook) Before(_ context.Context, evt *Event) error {
 	defer h.mu.Unlock()
 
 	if elem, found := h.cache[key]; found {
-		entry := elem.Value.(*cacheEntry)
+		entry, _ := elem.Value.(*cacheEntry)
 		if time.Since(entry.createdAt) < h.TTL {
 			h.lru.MoveToFront(elem)
 			if evt.Metadata == nil {
@@ -108,7 +108,7 @@ func (h *CacheHook) After(_ context.Context, evt *Event) error {
 
 	// Update in place if the key already exists.
 	if elem, found := h.cache[key]; found {
-		entry := elem.Value.(*cacheEntry)
+		entry, _ := elem.Value.(*cacheEntry)
 		entry.output = evt.Output
 		entry.createdAt = time.Now()
 		h.lru.MoveToFront(elem)
@@ -135,7 +135,9 @@ func (h *CacheHook) After(_ context.Context, evt *Event) error {
 // must hold the write lock.
 func (h *CacheHook) removeElement(elem *list.Element) {
 	h.lru.Remove(elem)
-	delete(h.cache, elem.Value.(*cacheEntry).key)
+	if entry, ok := elem.Value.(*cacheEntry); ok {
+		delete(h.cache, entry.key)
+	}
 }
 
 // Clear removes all cached entries.

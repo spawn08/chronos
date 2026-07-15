@@ -124,9 +124,9 @@ func (m *Migrator) unlock(ctx context.Context, conn *sql.Conn) {
 // Migrate applies all pending migrations. Under Postgres it holds a
 // pg_advisory_lock for the duration so concurrent migrators serialize.
 func (m *Migrator) Migrate(ctx context.Context) error {
-	conn, err := m.db.Conn(ctx)
-	if err != nil {
-		return fmt.Errorf("migrate: acquire conn: %w", err)
+	conn, connErr := m.db.Conn(ctx)
+	if connErr != nil {
+		return fmt.Errorf("migrate: acquire conn: %w", connErr)
 	}
 	defer func() { _ = conn.Close() }()
 

@@ -132,7 +132,7 @@ func TestCallContextHonored(t *testing.T) {
 			select {
 			case err := <-done:
 				if err == nil {
-					t.Fatal("expected error from cancelled/timed-out call")
+					t.Fatal("expected error from canceled/timed-out call")
 				}
 				if elapsed := time.Since(start); elapsed > 2*time.Second {
 					t.Fatalf("call took too long to honor ctx: %v", elapsed)
@@ -147,7 +147,7 @@ func TestCallContextHonored(t *testing.T) {
 			// The lock must have been released: a fresh acquisition succeeds
 			// immediately. This proves callLocked did not leave mu held.
 			if !client.mu.TryLock() {
-				t.Fatal("request lock still held after ctx-cancelled call")
+				t.Fatal("request lock still held after ctx-canceled call")
 			}
 			client.mu.Unlock()
 		})
@@ -311,7 +311,7 @@ func TestMCPToolsDefaultPermission(t *testing.T) {
 		go func() {
 			sc := bufio.NewScanner(serverR)
 			if sc.Scan() {
-				serverW.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"danger","description":"d"}]}}` + "\n"))
+				_, _ = serverW.WriteString(`{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"danger","description":"d"}]}}` + "\n")
 			}
 		}()
 
