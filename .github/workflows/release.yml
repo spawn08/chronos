@@ -353,7 +353,9 @@ jobs:
 
       # ── Supply-chain hardening for the published image ─────────
       - name: Scan image with Trivy
-        uses: aquasecurity/trivy-action@0.28.0
+        # Pinned release tags for this action have been unreliable to resolve;
+        # track master (maintained by aquasecurity).
+        uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
           format: sarif
