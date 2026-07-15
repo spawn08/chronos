@@ -34,6 +34,15 @@ type Handler func(ctx context.Context, args map[string]any) (any, error)
 // It should block until approved/denied and return true if approved.
 type ApprovalFunc func(ctx context.Context, toolName string, args map[string]any) (bool, error)
 
+// Approver is the integration seam a human-in-the-loop approval service (e.g.
+// os/approval) plugs into. An implementation blocks until a tool call is
+// approved or denied — honoring ctx cancellation — and returns true if approved.
+// It is intentionally identical in shape to ApprovalFunc so the control-plane
+// approval service can be wired into the tool path without an adapter.
+type Approver interface {
+	RequestApproval(ctx context.Context, toolName string, args map[string]any) (bool, error)
+}
+
 // UserInputFunc is called when a tool needs user input before executing.
 // It should block until input is provided and return the input string.
 type UserInputFunc func(ctx context.Context, toolName string, prompt string) (string, error)
@@ -65,6 +74,19 @@ func (r *Registry) SetUserInputHandler(fn UserInputFunc) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.userInput = fn
+}
+
+// SetApprover installs an Approver as the approval handler for tools whose
+// Permission is PermRequireApproval (and for RequiresConfirmation tools). It is
+// a convenience over SetApprovalHandler for the common case of connecting the
+// control-plane approval service (os/approval) into the tool execution path. A
+// nil approver clears any installed handler.
+func (r *Registry) SetApprover(a Approver) {
+	if a == nil {
+		r.SetApprovalHandler(nil)
+		return
+	}
+	r.SetApprovalHandler(a.RequestApproval)
 }
 
 // Register adds a tool definition.
