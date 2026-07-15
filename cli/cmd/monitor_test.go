@@ -80,8 +80,8 @@ chronos_model_latency_seconds_sum 5.5
 	if stats.ActiveSessionsG != 3 {
 		t.Errorf("ActiveSessionsG=%v, want 3", stats.ActiveSessionsG)
 	}
-	if stats.ModelLatencyP50 != 5.5 {
-		t.Errorf("ModelLatencyP50=%v, want 5.5", stats.ModelLatencyP50)
+	if stats.ModelLatencySum != 5.5 {
+		t.Errorf("ModelLatencySum=%v, want 5.5", stats.ModelLatencySum)
 	}
 }
 
@@ -165,7 +165,7 @@ func TestRenderDashboard_NoError(t *testing.T) {
 		ModelCallsTotal: 8,
 		TokensUsedTotal: 1500,
 		ErrorsTotal:     1,
-		ModelLatencyP50: 2.0,
+		ModelLatencySum: 2.0,
 		FetchedAt:       time.Now(),
 	}
 	// Just ensure no panic

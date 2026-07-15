@@ -168,12 +168,14 @@ func runDeploy() error {
 			}
 		}
 		fmt.Printf("\n  [%d inter-agent messages exchanged]\n", len(t.MessageHistory()))
-	} else if len(agents) > 0 {
-		// No team — run the first agent directly
-		var firstAgent *agent.Agent
-		for _, a := range agents {
-			firstAgent = a
-			break
+	} else if len(dc.Agents) > 0 {
+		// No team — run the first agent in config order. agents is a map keyed
+		// by ID, so select deterministically by the config's declared order
+		// rather than ranging the map (whose iteration order is randomized).
+		firstID := dc.Agents[0].ID
+		firstAgent, ok := agents[firstID]
+		if !ok {
+			return fmt.Errorf("agent %q was not built from config", firstID)
 		}
 		fmt.Printf("\n━━━ Running agent: %s ━━━\n", firstAgent.Name)
 		resp, err := firstAgent.Chat(ctx, message)

@@ -122,8 +122,15 @@ All examples with **No** API keys run with mock providers — no external calls.
 | [chat_with_tools](examples/chat_with_tools/) | Agent chat with calculator and lookup tools | No |
 | [fallback_provider](examples/fallback_provider/) | Provider chain with automatic failover | No |
 | [sandbox_execution](examples/sandbox_execution/) | Process sandbox with timeouts and I/O capture | No |
+| [durable_queue](examples/durable_queue/) | Durable work queue: leased workers, durable sleep, park/signal HITL, orphan recovery | No |
+| [durable_hitl](examples/durable_hitl/) | Human-in-the-loop approval with checkpoint + resume | No |
+| [multi_round_tools](examples/multi_round_tools/) | Multi-round sequential tool calls retaining full context | No |
+| [multitenant_memory](examples/multitenant_memory/) | Per-user long-term memory isolation on one agent | No |
+| [cli_agent](examples/cli_agent/) | Build, inspect, and run an agent from YAML via the CLI | No |
+| [cli_ops](examples/cli_ops/) | Operate Chronos from the CLI: serve, monitor, db, sessions, pipe, deploy | No |
 | [multi_agent](examples/multi_agent/) | All 4 team strategies, bus delegation | Optional |
 | [multi_provider](examples/multi_provider/) | OpenAI, Anthropic, Gemini, Mistral, Ollama | Yes |
+| [mcp_agent](examples/mcp_agent/) | Agent using MCP tools over stdio transport | Yes |
 
 Run any example: `go run ./examples/<name>/`
 

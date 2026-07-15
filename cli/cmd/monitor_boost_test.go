@@ -28,8 +28,8 @@ chronos_model_latency_seconds_sum{model="b"} 2.5
 `
 	var stats monitorStats
 	parsePrometheusText(text, &stats)
-	if stats.ModelLatencyP50 != 3.5 {
-		t.Errorf("ModelLatencyP50 = %v, want 3.5", stats.ModelLatencyP50)
+	if stats.ModelLatencySum != 3.5 {
+		t.Errorf("ModelLatencySum = %v, want 3.5", stats.ModelLatencySum)
 	}
 }
 
