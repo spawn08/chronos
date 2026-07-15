@@ -207,7 +207,7 @@ func topicFromRequest(r *http.Request, defaultTopic string) string {
 // connection gets a unique subscriber id, so concurrent clients never clobber
 // one another. Periodic keepalive comments (see WithHeartbeat) keep idle
 // connections and intermediary proxies from timing out, and the subscription is
-// released when the client disconnects (request context is cancelled) or the
+// released when the client disconnects (request context is canceled) or the
 // subscriber cap is exceeded (HTTP 503).
 func (b *Broker) SSEHandler(defaultTopic string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

@@ -38,9 +38,10 @@ type Runner struct {
 	maxSteps    int
 	nodeTimeout time.Duration
 
-	mu       sync.Mutex
-	started  bool // guards single-use
-	chClosed bool // guards emit against a send on a closed channel
+	mu        sync.Mutex
+	started   bool   // guards single-use
+	chClosed  bool   // guards emit against a send on a closed channel
+	sessionID string // topic for per-session SSE routing; set in execute
 }
 
 // NewRunner creates a runner for the given compiled graph.
@@ -96,12 +97,17 @@ func (r *Runner) emit(evt StreamEvent) {
 		default:
 		}
 	}
+	topic := r.sessionID
 	r.mu.Unlock()
 	if r.broker != nil {
-		r.broker.Publish(stream.Event{
-			Type: evt.Type,
-			Data: evt,
-		})
+		se := stream.Event{Type: evt.Type, Data: evt}
+		// Route to the session's topic so only that session's SSE subscribers
+		// receive it; fall back to a broadcast when no session is set.
+		if topic != "" {
+			r.broker.PublishTopic(topic, se)
+		} else {
+			r.broker.Publish(se)
+		}
 	}
 }
 
@@ -276,6 +282,12 @@ func (r *Runner) execute(ctx context.Context, rs *RunState, skipFirstInterrupt b
 		return nil, err
 	}
 	defer r.closeLocalCh()
+
+	// Record the session so emit routes SSE events to this session's topic
+	// (per-session isolation). The runner is single-use, so this is set once.
+	r.mu.Lock()
+	r.sessionID = rs.SessionID
+	r.mu.Unlock()
 
 	// Start a top-level graph execution span
 	var graphSpan *storage.Trace

@@ -155,11 +155,12 @@ func TestHandlerPool_BoundsConcurrency(t *testing.T) {
 				Subject: "work",
 				Body:    json.RawMessage(fmt.Sprintf(`{"n":%d}`, i)),
 			})
-			if err == nil {
+			switch {
+			case err == nil:
 				accepted.Add(1)
-			} else if strings.Contains(err.Error(), "back-pressure") {
+			case strings.Contains(err.Error(), "back-pressure"):
 				backpressure.Add(1)
-			} else {
+			default:
 				t.Errorf("unexpected send error: %v", err)
 			}
 		}(i)

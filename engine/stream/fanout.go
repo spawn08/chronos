@@ -29,10 +29,11 @@ type FanOut interface {
 	// Unsubscribe removes the subscriber with the given id and releases its
 	// resources. It is a no-op for an unknown id.
 	Unsubscribe(id string)
-	// Publish delivers evt to every subscriber of topic. An empty topic is a
-	// broadcast that reaches every subscriber regardless of topic. Delivery is
-	// best-effort: a subscriber whose buffer is full drops the event rather
-	// than blocking publishers.
+	// Publish delivers evt to subscribers of topic plus any firehose
+	// (empty-topic) subscribers. An empty topic is a broadcast that reaches
+	// every subscriber regardless of topic. Delivery is best-effort: a
+	// subscriber whose buffer is full drops the event rather than blocking
+	// publishers.
 	Publish(topic string, evt Event)
 	// Close releases all subscriptions and underlying resources.
 	Close() error
@@ -96,7 +97,11 @@ func (f *inProcessFanOut) Publish(topic string, evt Event) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	for _, s := range f.subs {
-		if topic != "" && s.topic != topic {
+		// A topic-scoped publish reaches that topic's subscribers plus
+		// firehose subscribers (empty topic); a broadcast (empty topic)
+		// reaches everyone. Session/tenant subscribers never see other
+		// topics' events.
+		if topic != "" && s.topic != topic && s.topic != "" {
 			continue
 		}
 		select {

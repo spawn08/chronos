@@ -25,7 +25,9 @@ func drain(ch <-chan Event) []Event {
 }
 
 // TestBroker_PublishTopic_Isolation proves an event published to one topic is
-// not delivered to a subscriber on a different topic (no cross-session leak).
+// not delivered to a subscriber on a *different* named topic (no cross-session
+// leak), while a firehose (empty-topic) subscriber still observes it — the
+// dashboard/monitor case.
 func TestBroker_PublishTopic_Isolation(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -34,8 +36,8 @@ func TestBroker_PublishTopic_Isolation(t *testing.T) {
 		wantB       bool
 		wantGlobalC bool
 	}{
-		{name: "topic A only", publishTo: "session-A", wantA: true, wantB: false, wantGlobalC: false},
-		{name: "topic B only", publishTo: "session-B", wantA: false, wantB: true, wantGlobalC: false},
+		{name: "topic A only", publishTo: "session-A", wantA: true, wantB: false, wantGlobalC: true},
+		{name: "topic B only", publishTo: "session-B", wantA: false, wantB: true, wantGlobalC: true},
 	}
 
 	for _, tc := range tests {
@@ -64,7 +66,7 @@ func TestBroker_PublishTopic_Isolation(t *testing.T) {
 				t.Errorf("subscriber B received=%v, want %v", got, tc.wantB)
 			}
 			if got := len(drain(chC)) > 0; got != tc.wantGlobalC {
-				t.Errorf("global subscriber received=%v, want %v (topic publish must not reach global)", got, tc.wantGlobalC)
+				t.Errorf("firehose subscriber received=%v, want %v (topic publish must reach the firehose)", got, tc.wantGlobalC)
 			}
 		})
 	}
