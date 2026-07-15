@@ -126,6 +126,10 @@ type ChatResponse struct {
 	StopReason StopReason `json:"stop_reason,omitempty"`
 	// Delta is true when this is a partial streaming response.
 	Delta bool `json:"delta,omitempty"`
+	// Err carries a streaming transport/parse error surfaced mid-stream. It is
+	// non-nil only on the final delta emitted when a stream fails to read
+	// cleanly (e.g. bufio.Scanner error). Not serialized.
+	Err error `json:"-"`
 }
 
 // Usage tracks token consumption.

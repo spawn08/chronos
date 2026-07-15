@@ -38,7 +38,7 @@ func NewAnthropicWithConfig(cfg ProviderConfig) *Anthropic {
 	}
 	return &Anthropic{
 		config: cfg,
-		http:   newHTTPClient(cfg.BaseURL, cfg.TimeoutSec, headers),
+		http:   newHTTPClient(cfg.BaseURL, cfg.TimeoutSec, headers, withMaxRetries(cfg.MaxRetries)),
 	}
 }
 
@@ -55,7 +55,7 @@ func (a *Anthropic) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, 
 	defer drainAndClose(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("anthropic chat: %s", readErrorBody(resp))
+		return nil, fmt.Errorf("anthropic chat: %w", newAPIError(resp))
 	}
 
 	var raw anthropicResponse
@@ -68,22 +68,22 @@ func (a *Anthropic) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, 
 func (a *Anthropic) StreamChat(ctx context.Context, req *ChatRequest) (<-chan *ChatResponse, error) {
 	body := a.buildRequestBody(req, true)
 
-	resp, err := a.http.post(ctx, "/v1/messages", body)
+	resp, err := a.http.postStream(ctx, "/v1/messages", body)
 	if err != nil {
 		return nil, fmt.Errorf("anthropic stream: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		errMsg := readErrorBody(resp)
+		apiErr := newAPIError(resp)
 		resp.Body.Close()
-		return nil, fmt.Errorf("anthropic stream: %s", errMsg)
+		return nil, fmt.Errorf("anthropic stream: %w", apiErr)
 	}
 
 	ch := make(chan *ChatResponse, 64)
 	go func() {
 		defer resp.Body.Close()
 		defer close(ch)
-		a.readSSEStream(resp, ch)
+		a.readSSEStream(ctx, resp, ch)
 	}()
 	return ch, nil
 }
@@ -209,20 +209,24 @@ func (a *Anthropic) convertResponse(raw *anthropicResponse) *ChatResponse {
 	return cr
 }
 
-func (a *Anthropic) readSSEStream(resp *http.Response, ch chan<- *ChatResponse) {
+func (a *Anthropic) readSSEStream(ctx context.Context, resp *http.Response, ch chan<- *ChatResponse) {
 	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxSSELineBytes)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if !strings.HasPrefix(line, "data: ") {
+		if !strings.HasPrefix(line, "data:") {
 			continue
 		}
-		data := strings.TrimPrefix(line, "data: ")
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 
 		var event struct {
 			Type  string `json:"type"`
+			Index int    `json:"index"`
 			Delta struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
+				Type        string `json:"type"`
+				Text        string `json:"text"`
+				PartialJSON string `json:"partial_json"`
+				StopReason  string `json:"stop_reason"`
 			} `json:"delta"`
 			ContentBlock struct {
 				Type  string `json:"type"`
@@ -230,24 +234,101 @@ func (a *Anthropic) readSSEStream(resp *http.Response, ch chan<- *ChatResponse) 
 				Name  string `json:"name"`
 				Input any    `json:"input"`
 			} `json:"content_block"`
-			Index int `json:"index"`
+			Message struct {
+				Usage struct {
+					InputTokens  int `json:"input_tokens"`
+					OutputTokens int `json:"output_tokens"`
+				} `json:"usage"`
+			} `json:"message"`
+			Usage struct {
+				InputTokens  int `json:"input_tokens"`
+				OutputTokens int `json:"output_tokens"`
+			} `json:"usage"`
 		}
 		if err := json.Unmarshal([]byte(data), &event); err != nil {
 			continue
 		}
 
 		switch event.Type {
+		case "message_start":
+			// Prompt token usage arrives up front.
+			if event.Message.Usage.InputTokens > 0 {
+				if !sendCtx(ctx, ch, &ChatResponse{Role: RoleAssistant, Delta: true,
+					Usage: Usage{PromptTokens: event.Message.Usage.InputTokens}}) {
+					return
+				}
+			}
+		case "content_block_start":
+			// A tool_use block begins: emit the tool call identity so callers can
+			// start assembling arguments from subsequent input_json_delta events.
+			if event.ContentBlock.Type == "tool_use" {
+				args := ""
+				if event.ContentBlock.Input != nil {
+					if b, err := json.Marshal(event.ContentBlock.Input); err == nil && string(b) != "{}" && string(b) != "null" {
+						args = string(b)
+					}
+				}
+				if !sendCtx(ctx, ch, &ChatResponse{Role: RoleAssistant, Delta: true,
+					StopReason: StopReasonToolCall,
+					ToolCalls: []ToolCall{{
+						ID:        event.ContentBlock.ID,
+						Name:      event.ContentBlock.Name,
+						Arguments: args,
+					}},
+				}) {
+					return
+				}
+			}
 		case "content_block_delta":
-			if event.Delta.Type == "text_delta" {
-				ch <- &ChatResponse{
-					Content: event.Delta.Text,
-					Role:    RoleAssistant,
-					Delta:   true,
+			switch event.Delta.Type {
+			case "text_delta":
+				if !sendCtx(ctx, ch, &ChatResponse{Content: event.Delta.Text, Role: RoleAssistant, Delta: true}) {
+					return
+				}
+			case "input_json_delta":
+				// Streamed fragment of a tool call's JSON arguments.
+				if !sendCtx(ctx, ch, &ChatResponse{Role: RoleAssistant, Delta: true,
+					StopReason: StopReasonToolCall,
+					ToolCalls:  []ToolCall{{Arguments: event.Delta.PartialJSON}},
+				}) {
+					return
+				}
+			}
+		case "message_delta":
+			cr := &ChatResponse{Role: RoleAssistant, Delta: true}
+			if event.Usage.OutputTokens > 0 {
+				cr.Usage.CompletionTokens = event.Usage.OutputTokens
+			}
+			if sr := mapAnthropicStopReason(event.Delta.StopReason); sr != "" {
+				cr.StopReason = sr
+			}
+			if cr.Usage.CompletionTokens > 0 || cr.StopReason != "" {
+				if !sendCtx(ctx, ch, cr) {
+					return
 				}
 			}
 		case "message_stop":
 			return
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		sendCtx(ctx, ch, &ChatResponse{Role: RoleAssistant, Delta: true, Err: fmt.Errorf("anthropic stream read: %w", err)})
+	}
+}
+
+// mapAnthropicStopReason converts an Anthropic stop_reason to a StopReason.
+// It returns "" when the reason is empty so callers can distinguish "no stop
+// reason yet" from an explicit end.
+func mapAnthropicStopReason(reason string) StopReason {
+	switch reason {
+	case "":
+		return ""
+	case "max_tokens":
+		return StopReasonMaxTokens
+	case "tool_use":
+		return StopReasonToolCall
+	default:
+		return StopReasonEnd
 	}
 }
 

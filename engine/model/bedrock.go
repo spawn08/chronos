@@ -49,7 +49,7 @@ func NewBedrockWithConfig(region string, cfg ProviderConfig, secretKey string) *
 	return &Bedrock{
 		config: cfg,
 		region: region,
-		http:   newHTTPClient(cfg.BaseURL, cfg.TimeoutSec, headers),
+		http:   newHTTPClient(cfg.BaseURL, cfg.TimeoutSec, headers, withMaxRetries(cfg.MaxRetries)),
 	}
 }
 

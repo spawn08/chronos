@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"strings"
@@ -11,21 +12,21 @@ func TestReadOpenAISSEStream_Done_Deep(t *testing.T) {
 	body := strings.NewReader("foo\n\ndata: [DONE]\n")
 	resp := &http.Response{Body: io.NopCloser(body)}
 	ch := make(chan *ChatResponse, 8)
-	readOpenAISSEStream(resp, ch)
+	readOpenAISSEStream(context.Background(), resp, ch)
 }
 
 func TestReadOpenAISSEStream_InvalidJSONSkipped_Deep(t *testing.T) {
 	body := strings.NewReader("data: {not-json\n\ndata: [DONE]\n")
 	resp := &http.Response{Body: io.NopCloser(body)}
 	ch := make(chan *ChatResponse, 8)
-	readOpenAISSEStream(resp, ch)
+	readOpenAISSEStream(context.Background(), resp, ch)
 }
 
 func TestReadOpenAISSEStream_EmptyChoices_Deep(t *testing.T) {
 	body := strings.NewReader(`data: {"id":"x","choices":[]}` + "\n\n" + "data: [DONE]\n")
 	resp := &http.Response{Body: io.NopCloser(body)}
 	ch := make(chan *ChatResponse, 8)
-	readOpenAISSEStream(resp, ch)
+	readOpenAISSEStream(context.Background(), resp, ch)
 	select {
 	case <-ch:
 		t.Fatal("unexpected chunk for empty choices")
@@ -38,7 +39,7 @@ func TestReadOpenAISSEStream_ContentDelta_Deep(t *testing.T) {
 	body := strings.NewReader("data: " + chunk + "\n\n" + "data: [DONE]\n")
 	resp := &http.Response{Body: io.NopCloser(body)}
 	ch := make(chan *ChatResponse, 8)
-	readOpenAISSEStream(resp, ch)
+	readOpenAISSEStream(context.Background(), resp, ch)
 	got := <-ch
 	if got.Content != "hi" || !got.Delta {
 		t.Fatalf("got %+v", got)
@@ -50,7 +51,7 @@ func TestReadOpenAISSEStream_ToolCallsDelta_Deep(t *testing.T) {
 	body := strings.NewReader("data: " + chunk + "\n\n" + "data: [DONE]\n")
 	resp := &http.Response{Body: io.NopCloser(body)}
 	ch := make(chan *ChatResponse, 8)
-	readOpenAISSEStream(resp, ch)
+	readOpenAISSEStream(context.Background(), resp, ch)
 	got := <-ch
 	if len(got.ToolCalls) != 1 || got.ToolCalls[0].Name != "alpha" {
 		t.Fatalf("got %+v", got.ToolCalls)
@@ -63,7 +64,7 @@ func TestReadOpenAISSEStream_MultipleTextChunks_Deep(t *testing.T) {
 		"data: [DONE]\n")
 	resp := &http.Response{Body: io.NopCloser(body)}
 	ch := make(chan *ChatResponse, 8)
-	readOpenAISSEStream(resp, ch)
+	readOpenAISSEStream(context.Background(), resp, ch)
 	<-ch
 	<-ch
 }
