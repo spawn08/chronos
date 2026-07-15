@@ -375,6 +375,10 @@ jobs:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
           format: spdx-json
           output-file: image-sbom.spdx.json
+          # The image SBOM is attested to the image via cosign below; don't also
+          # upload it as a release asset (this job is least-privilege
+          # contents: read, and the source SBOM is already on the release).
+          upload-release-assets: false
 
       - name: Sign the published image (keyless OIDC)
         env:
