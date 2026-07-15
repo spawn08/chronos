@@ -71,13 +71,20 @@ var envelopePool = sync.Pool{
 	New: func() any { return &Envelope{} },
 }
 
-// AcquireEnvelope returns a pooled envelope. Call ReleaseEnvelope when done.
+// AcquireEnvelope returns a pooled envelope for building an outgoing message.
+// Call ReleaseEnvelope only for envelopes you did NOT hand to a bus (see the
+// ReleaseEnvelope warning).
 func AcquireEnvelope() *Envelope {
 	e, _ := envelopePool.Get().(*Envelope)
 	return e
 }
 
 // ReleaseEnvelope returns an envelope to the pool after clearing it.
+//
+// WARNING: do NOT release an envelope after passing it to Bus.Send/SendAndWait.
+// The bus retains that pointer (in message history and in the recipient's
+// inbox), so releasing it zeroes state still in use and corrupts delivery.
+// Release is only safe for envelopes you built but did not send.
 func ReleaseEnvelope(e *Envelope) {
 	*e = Envelope{}
 	envelopePool.Put(e)

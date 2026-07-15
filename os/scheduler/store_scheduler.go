@@ -38,11 +38,13 @@ type Store interface {
 	Close() error
 }
 
-// StoreScheduler is a store-backed Scheduler that fires each due schedule
-// exactly once across all replicas sharing the Store. It claims due schedules
-// with an atomic conditional advance of NextRunAt (the SELECT ... FOR UPDATE
-// SKIP LOCKED equivalent on Postgres; SQLite serializes writers), so two
-// replicas polling the same store never double-fire a schedule.
+// StoreScheduler is a store-backed Scheduler that claims each due schedule
+// exactly once across all replicas sharing the Store, via an atomic conditional
+// advance of NextRunAt (SELECT ... FOR UPDATE SKIP LOCKED on Postgres; SQLite
+// serializes writers), so two replicas polling the same store never both claim
+// the same firing. Note this is exactly-once *claiming* / at-most-once
+// *execution*: a crash after the claim commits but before runFn completes drops
+// that one firing (it is not retried), rather than risking a double-run.
 //
 // It implements Runner. The Runner methods match the in-process Scheduler's
 // signatures for drop-in substitution and therefore take no ctx; they use a

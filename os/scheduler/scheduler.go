@@ -102,7 +102,10 @@ func (s *Scheduler) Add(agentID, cronExpr, input string, newSession bool) (*Sche
 		NewSession: newSession,
 		Enabled:    true,
 		CreatedAt:  time.Now(),
-		NextRunAt:  nextCronTime(cronExpr, time.Now()),
+		// Compute the next fire time in UTC so the in-process scheduler and the
+		// store-backed StoreScheduler (which claims in UTC) agree on when a cron
+		// expression fires.
+		NextRunAt: nextCronTime(cronExpr, time.Now().UTC()),
 	}
 	s.schedules[sched.ID] = sched
 	return sched, nil
@@ -217,7 +220,7 @@ func (s *Scheduler) executeSched(ctx context.Context, sched *Schedule) {
 	s.mu.Lock()
 	sched.LastRunAt = record.StartedAt
 	sched.RunCount++
-	sched.NextRunAt = nextCronTime(sched.CronExpr, time.Now())
+	sched.NextRunAt = nextCronTime(sched.CronExpr, time.Now().UTC())
 	if !sched.NewSession {
 		sched.SessionID = sessionID
 	}

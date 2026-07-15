@@ -39,6 +39,11 @@ const (
 )
 
 // Server is the ChronosOS control plane.
+//
+// To feed the Metrics registry from execution, add
+// hooks.NewPrometheusHook(s.Metrics) to the hook chain of the agents you run
+// (agents live outside the control plane, so this is wired at agent
+// construction). The registry is exposed at /metrics regardless.
 type Server struct {
 	Addr            string
 	Store           storage.Storage

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/spawn08/chronos/engine/stream"
-	"github.com/spawn08/chronos/os/trace"
 	"github.com/spawn08/chronos/storage"
 )
 
@@ -33,7 +32,7 @@ type Runner struct {
 	graph       *CompiledGraph
 	store       storage.Storage
 	broker      *stream.Broker
-	tracer      *trace.Collector
+	tracer      Tracer
 	localCh     chan StreamEvent
 	maxSteps    int
 	nodeTimeout time.Duration
@@ -60,8 +59,17 @@ func (r *Runner) WithBroker(b *stream.Broker) *Runner {
 	return r
 }
 
-// WithTracer attaches a trace.Collector for span-based execution tracing.
-func (r *Runner) WithTracer(t *trace.Collector) *Runner {
+// Tracer records execution spans. It is defined here (rather than importing the
+// os/trace control-plane package) so the engine layer never depends upward on
+// os/; the ChronosOS *trace.Collector satisfies it. Both methods use
+// storage.Trace, which the engine already depends on.
+type Tracer interface {
+	StartSpan(ctx context.Context, sessionID, name, kind string) (*storage.Trace, error)
+	EndSpan(ctx context.Context, t *storage.Trace, output any, errMsg string) error
+}
+
+// WithTracer attaches a Tracer for span-based execution tracing.
+func (r *Runner) WithTracer(t Tracer) *Runner {
 	r.tracer = t
 	return r
 }
@@ -267,6 +275,11 @@ func (r *Runner) ReplayFrom(ctx context.Context, checkpointID string) (*RunState
 		UpdatedAt:   time.Now(),
 	}
 
+	// Set the session topic before emitting so replay_start is routed to this
+	// session (not broadcast); execute sets it again harmlessly.
+	r.mu.Lock()
+	r.sessionID = rs.SessionID
+	r.mu.Unlock()
 	r.emit(StreamEvent{Type: "replay_start", NodeID: cp.NodeID, State: rs.State})
 	return r.execute(ctx, rs, true)
 }

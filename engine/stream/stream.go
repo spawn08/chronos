@@ -112,11 +112,15 @@ func NewBroker(opts ...Option) *Broker {
 	return b
 }
 
-// Subscribe creates a broadcast subscription under the caller-supplied id and
-// returns its channel. It exists for backward compatibility: the subscription
-// receives every broadcast Publish. Re-subscribing with an existing id replaces
-// the previous subscription. If the subscriber cap is reached the returned
-// channel is already closed.
+// Subscribe creates a firehose subscription under the caller-supplied id and
+// returns its channel. It exists for backward compatibility: with the empty
+// topic the subscription receives every event — both broadcast Publish and any
+// PublishTopic to a named session/tenant. (This is a deliberate change from the
+// pre-routing behavior, where it saw only broadcasts; it is what the dashboard
+// and monitor rely on.) Use SubscribeTopic for a session-scoped stream that is
+// isolated from other sessions. Re-subscribing with an existing id replaces the
+// previous subscription. If the subscriber cap is reached the returned channel
+// is already closed.
 func (b *Broker) Subscribe(id string) <-chan Event {
 	b.mu.Lock()
 	if old, ok := b.legacy[id]; ok {

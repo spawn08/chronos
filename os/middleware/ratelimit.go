@@ -237,7 +237,11 @@ func (l *SQLLimiter) Allow(ctx context.Context, key string, limit int, window ti
 		// the caller) rather than resetting it on corrupt/zero state.
 		return Result{}, fmt.Errorf("ratelimit allow: read: %w", err)
 	case errors.Is(err, sql.ErrNoRows) || now.After(resetAt):
-		// Fresh or expired window: (re)start the counter at 1.
+		// Fresh or expired window: (re)start the counter at 1. Note: FOR UPDATE
+		// cannot lock a not-yet-existing row, so at the very first request(s) of
+		// a brand-new key, concurrent replicas may each see ErrNoRows and upsert
+		// count=1 — a brief, bounded over-admission at window start only. The
+		// existing-row path below is fully serialized by FOR UPDATE.
 		count = 1
 		resetAt = now.Add(window)
 		if _, uErr := tx.ExecContext(ctx, l.rebind(

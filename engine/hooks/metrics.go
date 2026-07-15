@@ -35,13 +35,13 @@ type MetricsSummary struct {
 type MetricsHook struct {
 	mu      sync.Mutex
 	calls   []CallMetric
-	pending map[string]time.Time // event name -> start time
+	pending map[string][]time.Time // key -> FIFO stack of start times
 }
 
 // NewMetricsHook creates a new metrics hook.
 func NewMetricsHook() *MetricsHook {
 	return &MetricsHook{
-		pending: make(map[string]time.Time),
+		pending: make(map[string][]time.Time),
 	}
 }
 
@@ -49,7 +49,7 @@ func (h *MetricsHook) Before(_ context.Context, evt *Event) error {
 	switch evt.Type {
 	case EventModelCallBefore, EventToolCallBefore:
 		h.mu.Lock()
-		h.pending[metricsKey(evt)] = time.Now()
+		pushPending(h.pending, metricsKey(evt))
 		h.mu.Unlock()
 	}
 	return nil
@@ -65,12 +65,10 @@ func (h *MetricsHook) After(_ context.Context, evt *Event) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	key := metricsKey(evt)
-	started, ok := h.pending[key]
+	started, ok := popPending(h.pending, metricsKey(evt))
 	if !ok {
 		started = time.Now()
 	}
-	delete(h.pending, key)
 
 	metric := CallMetric{
 		Type:      evt.Type,
@@ -146,11 +144,33 @@ func (h *MetricsHook) Reset() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = nil
-	h.pending = make(map[string]time.Time)
+	h.pending = make(map[string][]time.Time)
 }
 
 func metricsKey(evt *Event) string {
 	return string(evt.Type) + ":" + evt.Name
+}
+
+// pushPending records a start time for key. Callers must hold the hook's mutex.
+func pushPending(m map[string][]time.Time, key string) {
+	m[key] = append(m[key], time.Now())
+}
+
+// popPending removes and returns the oldest start time for key (FIFO), so
+// concurrent same-named calls each pair with a real start time instead of
+// colliding on a single map slot. Callers must hold the hook's mutex.
+func popPending(m map[string][]time.Time, key string) (time.Time, bool) {
+	s := m[key]
+	if len(s) == 0 {
+		return time.Time{}, false
+	}
+	t := s[0]
+	if len(s) == 1 {
+		delete(m, key)
+	} else {
+		m[key] = s[1:]
+	}
+	return t, true
 }
 
 // MetricsSink is the minimal metrics interface that PrometheusHook feeds during
@@ -191,7 +211,7 @@ func TenantFromContext(ctx context.Context) string {
 type PrometheusHook struct {
 	sink    MetricsSink
 	mu      sync.Mutex
-	pending map[string]time.Time
+	pending map[string][]time.Time
 }
 
 // NewPrometheusHook creates a hook that feeds sink. A nil sink makes the hook a
@@ -199,7 +219,7 @@ type PrometheusHook struct {
 func NewPrometheusHook(sink MetricsSink) *PrometheusHook {
 	return &PrometheusHook{
 		sink:    sink,
-		pending: make(map[string]time.Time),
+		pending: make(map[string][]time.Time),
 	}
 }
 
@@ -207,7 +227,7 @@ func (h *PrometheusHook) Before(_ context.Context, evt *Event) error {
 	switch evt.Type {
 	case EventModelCallBefore, EventToolCallBefore:
 		h.mu.Lock()
-		h.pending[metricsKey(evt)] = time.Now()
+		pushPending(h.pending, metricsKey(evt))
 		h.mu.Unlock()
 	}
 	return nil
@@ -224,13 +244,11 @@ func (h *PrometheusHook) After(ctx context.Context, evt *Event) error {
 	}
 
 	h.mu.Lock()
-	key := metricsKey(evt)
-	started, ok := h.pending[key]
+	started, ok := popPending(h.pending, metricsKey(evt))
+	h.mu.Unlock()
 	if !ok {
 		started = time.Now()
 	}
-	delete(h.pending, key)
-	h.mu.Unlock()
 
 	dur := time.Since(started)
 	tenant := TenantFromContext(ctx)

@@ -214,9 +214,18 @@ func (s *Service) lookup(ctx context.Context, id string) (*Request, error) {
 // resolve records a decision (persisting it if store-backed) and wakes any live
 // in-process waiter. It returns ErrNotFound if the request is unknown.
 func (s *Service) resolve(ctx context.Context, id string, approved bool) error {
+	// decided is the authoritative outcome delivered to the waiter. With a store
+	// it is whatever was durably recorded (Resolve is idempotent: a conflicting
+	// second response returns the already-recorded decision), so the in-process
+	// wake never diverges from the persisted/audited status.
+	decided := approved
 	if s.store != nil {
-		if _, err := s.store.Resolve(ctx, id, approved, s.now()); err != nil {
+		r, err := s.store.Resolve(ctx, id, approved, s.now())
+		if err != nil {
 			return err
+		}
+		if r != nil {
+			decided = r.Status == StatusApproved
 		}
 	}
 
@@ -227,7 +236,7 @@ func (s *Service) resolve(ctx context.Context, id string, approved bool) error {
 		// Buffered channel of size 1; non-blocking send avoids a stuck responder
 		// if the waiter already departed (e.g. ctx canceled).
 		select {
-		case req.Response <- approved:
+		case req.Response <- decided:
 		default:
 		}
 		return nil

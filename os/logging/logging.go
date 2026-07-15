@@ -15,6 +15,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/spawn08/chronos/engine/hooks"
 )
 
 // Level is a log severity.
@@ -32,7 +34,6 @@ type contextKey string
 
 const (
 	correlationIDKey contextKey = "chronos_correlation_id"
-	tenantKey        contextKey = "chronos_tenant"
 )
 
 // Logger emits structured JSON log lines to an io.Writer. It is safe for
@@ -200,20 +201,17 @@ func CorrelationIDFromContext(ctx context.Context) string {
 	return ""
 }
 
-// WithTenant returns a context carrying the given tenant id.
+// WithTenant returns a context carrying the given tenant id. It delegates to
+// engine/hooks so the tenant set by the HTTP middleware and the tenant read by
+// the metrics PrometheusHook share one context key (single source of truth for
+// per-tenant attribution across the os and engine layers).
 func WithTenant(ctx context.Context, tenant string) context.Context {
-	return context.WithValue(ctx, tenantKey, tenant)
+	return hooks.WithTenant(ctx, tenant)
 }
 
 // TenantFromContext returns the tenant id, or "" if none is set.
 func TenantFromContext(ctx context.Context) string {
-	if ctx == nil {
-		return ""
-	}
-	if v, ok := ctx.Value(tenantKey).(string); ok {
-		return v
-	}
-	return ""
+	return hooks.TenantFromContext(ctx)
 }
 
 // NewCorrelationID generates a random hex correlation id.
