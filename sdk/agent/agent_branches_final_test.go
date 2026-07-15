@@ -284,12 +284,17 @@ func TestChat_MaxIterationsStopsToolLoop(t *testing.T) {
 		},
 	})
 
+	// P0-007: exceeding MaxIterations with unsatisfied tool calls must return a
+	// clear error rather than silently returning a partial tool-call response.
 	resp, err := a.Chat(context.Background(), "go")
-	if err != nil {
-		t.Fatal(err)
+	if err == nil {
+		t.Fatalf("expected error when max iterations exceeded, got resp=%+v", resp)
 	}
-	if resp.StopReason != model.StopReasonToolCall {
-		t.Fatalf("expected to stop mid-loop, got %v", resp.StopReason)
+	if resp != nil {
+		t.Fatalf("expected nil response on max-iteration error, got %+v", resp)
+	}
+	if !strings.Contains(err.Error(), "max tool-calling iterations") {
+		t.Fatalf("expected max-iteration error, got %v", err)
 	}
 }
 

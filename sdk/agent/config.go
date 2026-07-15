@@ -14,6 +14,7 @@ import (
 	"github.com/spawn08/chronos/engine/tool"
 	"github.com/spawn08/chronos/engine/tool/builtins"
 	"github.com/spawn08/chronos/storage"
+	"github.com/spawn08/chronos/storage/adapters/postgres"
 	"github.com/spawn08/chronos/storage/adapters/sqlite"
 )
 
@@ -366,13 +367,11 @@ func buildStorage(cfg StorageConfig) (storage.Storage, error) {
 		}
 		return sqlite.New(dsn)
 	case "postgres", "postgresql":
-		// Postgres adapter is available but requires DSN
+		// Postgres adapter uses the pgx driver (registered by the postgres package).
 		if cfg.DSN == "" {
 			return nil, fmt.Errorf("postgres storage requires dsn")
 		}
-		// Import dynamically avoided — callers should wire manually for postgres.
-		// Return nil so callers know to configure it.
-		return nil, fmt.Errorf("postgres storage: set up programmatically via storage/adapters/postgres.New(dsn)")
+		return postgres.New(cfg.DSN)
 	case "none", "memory":
 		return nil, nil
 	default:

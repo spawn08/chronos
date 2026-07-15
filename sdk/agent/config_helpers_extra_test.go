@@ -48,11 +48,17 @@ func TestFileConfig_FindAgent_NotFoundMessage(t *testing.T) {
 	}
 }
 
-func TestBuildStorage_PostgresqlDSNErrorMessage(t *testing.T) {
-	_, err := buildStorage(StorageConfig{Backend: "postgresql", DSN: "postgres://localhost/x"})
-	if err == nil {
-		t.Fatal("expected error for postgres programmatic setup")
+func TestBuildStorage_PostgresqlWired(t *testing.T) {
+	// Postgres is now wired via the pgx driver (P0-012); the "postgresql" alias
+	// builds a store from a valid DSN (lazy open, no live connection).
+	st, err := buildStorage(StorageConfig{Backend: "postgresql", DSN: "postgres://localhost/x"})
+	if err != nil {
+		t.Fatalf("expected postgresql store to build, got %v", err)
 	}
+	if st == nil {
+		t.Fatal("expected non-nil store")
+	}
+	_ = st.Close()
 }
 
 func TestBuildProvider_CompatibleName(t *testing.T) {

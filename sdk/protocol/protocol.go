@@ -461,8 +461,14 @@ func (b *Bus) deliverToLocked(_ context.Context, env *Envelope, agentID string) 
 	}
 
 	if peer.handler != nil {
+		handler := peer.handler
 		go func() {
-			reply, err := peer.handler(context.Background(), env)
+			// Delivery is asynchronous and outlives the Send call, so the
+			// caller's context (which may be canceled once Send returns) is
+			// intentionally not propagated here; a fresh context is used
+			// instead. Panic recovery is required so a misbehaving handler
+			// converts to an error reply rather than crashing the process.
+			reply, err := invokeHandler(context.Background(), handler, env)
 			if err != nil {
 				errBody, _ := json.Marshal(map[string]string{"error": err.Error()})
 				reply = &Envelope{
@@ -505,6 +511,19 @@ func (b *Bus) deliverToLocked(_ context.Context, env *Envelope, agentID string) 
 	default:
 		return fmt.Errorf("protocol: inbox full for %q (back-pressure)", agentID)
 	}
+}
+
+// invokeHandler runs a peer handler, converting any panic into an error so a
+// misbehaving handler fails only its own delivery rather than crashing the
+// process.
+func invokeHandler(ctx context.Context, handler Handler, env *Envelope) (reply *Envelope, err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			reply = nil
+			err = fmt.Errorf("protocol: handler panicked: %v", rec)
+		}
+	}()
+	return handler(ctx, env)
 }
 
 func (b *Bus) recordHistory(env *Envelope) {

@@ -68,10 +68,16 @@ func TestBuildStorage_PostgresErrors(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "dsn") {
 		t.Fatalf("expected dsn error, got %v", err)
 	}
-	_, err = buildStorage(StorageConfig{Backend: "postgres", DSN: "x"})
-	if err == nil || !strings.Contains(err.Error(), "programmatically") {
-		t.Fatalf("expected programmatically error, got %v", err)
+	// Postgres is now wired via the pgx driver (P0-012); a non-empty DSN opens
+	// lazily (no live connection) and returns a usable store.
+	st, err := buildStorage(StorageConfig{Backend: "postgres", DSN: "postgres://user:pass@localhost:5432/db?sslmode=disable"})
+	if err != nil {
+		t.Fatalf("expected postgres store to build, got %v", err)
 	}
+	if st == nil {
+		t.Fatal("expected non-nil postgres store")
+	}
+	_ = st.Close()
 }
 
 func TestBuildStorage_UnknownBackend(t *testing.T) {

@@ -231,6 +231,20 @@ func (a *Agent) debugLog(format string, args ...any) {
 	}
 }
 
+// memoryManager returns the agent's memory manager scoped to the agent's
+// UserID so long-term memory reads and writes are isolated per tenant. When
+// the agent has no UserID, the manager's own tenant scope (which may be the
+// global/tenantless bucket) is used unchanged.
+func (a *Agent) memoryManager() *memory.Manager {
+	if a.MemoryManager == nil {
+		return nil
+	}
+	if a.UserID != "" {
+		return a.MemoryManager.WithUserID(a.UserID)
+	}
+	return a.MemoryManager
+}
+
 // Chat sends a single user message to the agent's model and returns the response.
 // This is a convenience method for agents that have a model but no graph.
 func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatResponse, error) {
@@ -259,9 +273,9 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 		)
 	}
 
-	// Inject long-term user memories into context
-	if a.MemoryManager != nil {
-		if memCtx, err := a.MemoryManager.GetUserMemories(ctx); err == nil && memCtx != "" {
+	// Inject long-term user memories into context (scoped to the agent's tenant)
+	if mgr := a.memoryManager(); mgr != nil {
+		if memCtx, err := mgr.GetUserMemories(ctx); err == nil && memCtx != "" {
 			messages = append(messages, model.Message{Role: model.RoleSystem, Content: memCtx})
 		}
 	}
@@ -396,9 +410,9 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 	for resp.StopReason == model.StopReasonToolCall && len(resp.ToolCalls) > 0 {
 		iteration++
 		if iteration > maxIter {
-			break
+			return nil, fmt.Errorf("agent %q: exceeded max tool-calling iterations (%d) with unsatisfied tool calls", a.ID, maxIter)
 		}
-		resp, err = a.handleToolCalls(ctx, messages, resp)
+		resp, messages, err = a.handleToolCalls(ctx, messages, resp, req.Tools)
 		if err != nil {
 			return nil, err
 		}
@@ -418,16 +432,24 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 		}
 	}
 
-	// Extract memories from conversation
-	if a.MemoryManager != nil {
-		_ = a.MemoryManager.ExtractMemories(ctx, messages)
+	// Extract memories from conversation (scoped to the agent's tenant)
+	if mgr := a.memoryManager(); mgr != nil {
+		_ = mgr.ExtractMemories(ctx, messages)
 	}
 
 	return resp, nil
 }
 
-// handleToolCalls executes tool calls and sends results back to the model.
-func (a *Agent) handleToolCalls(ctx context.Context, messages []model.Message, resp *model.ChatResponse) (*model.ChatResponse, error) {
+// handleToolCalls executes the tool calls in resp, appends the assistant
+// message and each tool result to messages, and issues the follow-up model
+// call. It returns the follow-up response together with the accumulated
+// message history so the caller can thread it into the next iteration — this
+// is what preserves context across multiple tool-calling rounds.
+//
+// tools is passed through to the follow-up model call so the model can request
+// further tools on subsequent rounds; dropping it would break multi-round tool
+// use.
+func (a *Agent) handleToolCalls(ctx context.Context, messages []model.Message, resp *model.ChatResponse, tools []model.ToolDefinition) (*model.ChatResponse, []model.Message, error) {
 	messages = append(messages, model.Message{
 		Role:      model.RoleAssistant,
 		Content:   resp.Content,
@@ -449,7 +471,7 @@ func (a *Agent) handleToolCalls(ctx context.Context, messages []model.Message, r
 		// Fire tool call hooks
 		toolEvt := &hooks.Event{Type: hooks.EventToolCallBefore, Name: tc.Name, Input: args}
 		if err := a.Hooks.Before(ctx, toolEvt); err != nil {
-			return nil, fmt.Errorf("hook before tool %q: %w", tc.Name, err)
+			return nil, messages, fmt.Errorf("hook before tool %q: %w", tc.Name, err)
 		}
 
 		result, err := a.Tools.Execute(ctx, tc.Name, args)
@@ -485,7 +507,13 @@ func (a *Agent) handleToolCalls(ctx context.Context, messages []model.Message, r
 		})
 	}
 
-	return a.Model.Chat(ctx, &model.ChatRequest{Messages: messages})
+	// Pass the tool definitions on the follow-up call so the model can request
+	// more tools on the next round.
+	followUp, err := a.Model.Chat(ctx, &model.ChatRequest{Messages: messages, Tools: tools})
+	if err != nil {
+		return nil, messages, err
+	}
+	return followUp, messages, nil
 }
 
 // Execute runs the agent on a text task and returns the text response.
@@ -571,7 +599,7 @@ func (a *Agent) Run(ctx context.Context, input map[string]any) (*graph.RunState,
 		err = hookErr
 	}
 
-	if a.MemoryManager != nil && err == nil {
+	if mgr := a.memoryManager(); mgr != nil && err == nil {
 		if inputMsg, ok := input["message"].(string); ok {
 			msgs := []model.Message{{Role: model.RoleUser, Content: inputMsg}}
 			if result != nil {
@@ -579,7 +607,7 @@ func (a *Agent) Run(ctx context.Context, input map[string]any) (*graph.RunState,
 					msgs = append(msgs, model.Message{Role: model.RoleAssistant, Content: resp})
 				}
 			}
-			_ = a.MemoryManager.ExtractMemories(ctx, msgs)
+			_ = mgr.ExtractMemories(ctx, msgs)
 		}
 	}
 
