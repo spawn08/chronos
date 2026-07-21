@@ -8,6 +8,7 @@ func TestNewRegistry(t *testing.T) {
 	r := NewRegistry()
 	if r == nil {
 		t.Fatal("NewRegistry returned nil")
+		return
 	}
 	if r.skills == nil {
 		t.Fatal("skills map is nil")

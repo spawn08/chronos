@@ -190,6 +190,7 @@ func TestBuildOTLPMetrics_HistogramBucketCounts(t *testing.T) {
 	}
 	if dp == nil {
 		t.Fatal("histogram data point not found")
+		return
 	}
 	// per-bucket (non-cumulative) counts: [0.05]=1, (0.1,0.5]=1, (0.5,1]=1, (1,+Inf)=1
 	want := []uint64{1, 1, 1, 1}

@@ -11,6 +11,7 @@ func TestNew_PopulatesSubsystems_Boost(t *testing.T) {
 	s := New(":0", st)
 	if s == nil {
 		t.Fatal("nil server")
+		return
 	}
 	if s.Broker == nil || s.Auth == nil || s.Trace == nil || s.Approval == nil || s.Metrics == nil || s.Scheduler == nil || s.mux == nil {
 		t.Fatal("expected all subsystems non-nil")

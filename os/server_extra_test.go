@@ -280,6 +280,7 @@ func TestServerNew_Initializes(t *testing.T) {
 	s := New(":0", store)
 	if s == nil {
 		t.Fatal("expected non-nil server")
+		return
 	}
 	if s.mux == nil {
 		t.Error("mux should be initialized")
