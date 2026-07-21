@@ -33,7 +33,39 @@ type Provider interface {
 | Mistral | `model.NewMistral(apiKey)` | Mistral Large / Medium / Small |
 | Ollama | `model.NewOllama(host, model)` | Local models (e.g., `http://localhost:11434`, `llama3.2`) |
 | Azure | `model.NewAzureOpenAI(endpoint, key, deployment)` | Azure OpenAI |
+| Bedrock | `model.NewBedrock(region, accessKey, secretKey, modelID)` | AWS Bedrock (Claude, Llama, Titan, …) |
+| Vertex AI | `model.NewOpenAICompatibleWithConfig("vertex", cfg)` | Google Cloud Vertex AI via OpenAI-compatible endpoint |
 | Compatible | `model.NewOpenAICompatible(name, url, key, model)` | Any OpenAI-compatible API |
+
+### Google Cloud Vertex AI
+
+Vertex AI exposes an OpenAI-compatible endpoint, so Chronos drives it through `NewOpenAICompatibleWithConfig`. Auth uses a short-lived GCP access token as the Bearer credential:
+
+```go
+project := os.Getenv("GOOGLE_CLOUD_PROJECT")
+location := "us-central1"
+baseURL := fmt.Sprintf(
+    "https://%s-aiplatform.googleapis.com/v1beta1/projects/%s/locations/%s/endpoints/openapi",
+    location, project, location,
+)
+
+provider := model.NewOpenAICompatibleWithConfig("vertex", model.ProviderConfig{
+    APIKey:  os.Getenv("GOOGLE_ACCESS_TOKEN"), // gcloud auth print-access-token
+    BaseURL: baseURL,
+    Model:   "google/gemini-2.5-pro",
+})
+```
+
+### AWS Bedrock
+
+```go
+provider := model.NewBedrock(
+    os.Getenv("AWS_REGION"),
+    os.Getenv("AWS_ACCESS_KEY_ID"),
+    os.Getenv("AWS_SECRET_ACCESS_KEY"),
+    "anthropic.claude-3-5-sonnet-20241022-v2:0",
+)
+```
 
 ## Convenience Constructors
 

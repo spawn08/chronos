@@ -129,10 +129,28 @@ All examples with **No** API keys run with mock providers — no external calls.
 | [cli_agent](examples/cli_agent/) | Build, inspect, and run an agent from YAML via the CLI | No |
 | [cli_ops](examples/cli_ops/) | Operate Chronos from the CLI: serve, monitor, db, sessions, pipe, deploy | No |
 | [multi_agent](examples/multi_agent/) | All 4 team strategies, bus delegation | Optional |
-| [multi_provider](examples/multi_provider/) | OpenAI, Anthropic, Gemini, Mistral, Ollama | Yes |
+| [multi_provider](examples/multi_provider/) | OpenAI, Anthropic, Gemini, Mistral, Ollama, Azure OpenAI, Vertex AI, Bedrock | Yes |
+| [azure](examples/azure/) | Azure OpenAI (chat + streaming) with deployment/API-version config | Yes |
+| [vertex](examples/vertex/) | Google Cloud Vertex AI via OpenAI-compatible endpoint + gcloud token | Yes |
+| [enterprise_sso](examples/enterprise_sso/) | ChronosOS behind OIDC/JWKS SSO (Okta, Azure AD, Google, Auth0) | Yes |
+| [data_residency](examples/data_residency/) | Per-tenant storage routing (EU vs US) with a single logical agent | No |
 | [mcp_agent](examples/mcp_agent/) | Agent using MCP tools over stdio transport | Yes |
 
 Run any example: `go run ./examples/<name>/`
+
+Every example that needs a real LLM (`coding_agent`, `graph_with_llm`, `mcp_agent`, `multi_agent`, `team_deploy`, `multi_provider`) resolves its provider through `examples/internal/providers.Pick()`, so any of these env combos works interchangeably:
+
+| Provider | Environment |
+|----------|-------------|
+| OpenAI | `OPENAI_API_KEY` |
+| Anthropic | `ANTHROPIC_API_KEY` |
+| Google Gemini (AI Studio) | `GEMINI_API_KEY` |
+| Azure OpenAI | `AZURE_OPENAI_API_KEY` + `AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_DEPLOYMENT` (+ optional `AZURE_OPENAI_API_VERSION`) |
+| Google Cloud Vertex AI | `GOOGLE_CLOUD_PROJECT` + `GOOGLE_ACCESS_TOKEN` (+ optional `GOOGLE_CLOUD_LOCATION`, `VERTEX_MODEL`) |
+| AWS Bedrock | `AWS_REGION` + `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` (+ optional `BEDROCK_MODEL_ID`) |
+| Mistral | `MISTRAL_API_KEY` |
+| Ollama (local) | `OLLAMA_HOST` (+ optional `OLLAMA_MODEL`) |
+| Any OpenAI-compatible | `OPENAI_COMPATIBLE_BASE_URL` + `OPENAI_COMPATIBLE_MODEL` (+ optional `_API_KEY`, `_NAME`) — Together, Groq, DeepSeek, OpenRouter, Fireworks, Perplexity, Anyscale, vLLM, LiteLLM |
 
 ---
 

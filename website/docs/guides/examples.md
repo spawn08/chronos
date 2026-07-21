@@ -5,7 +5,17 @@ title: "Examples"
 
 # Examples Guide
 
-Chronos ships with **16 runnable examples** covering every major feature. Most require **no API keys** and run entirely with mock providers and SQLite.
+Chronos ships with **20+ runnable examples** covering every major feature. Most require **no API keys** and run entirely with mock providers and SQLite. They are grouped by type so you can jump straight to what you need:
+
+| Category | What it covers |
+|----------|----------------|
+| [Fundamentals](./examples/fundamentals.md) | Agent builder, tools, guardrails, graph patterns, memory, streaming — all no-key |
+| [LLM Agents](./examples/llm-agents.md) | Live-LLM workflows: StateGraph reasoning, MCP tools, coding agent, multi-agent teams |
+| [Providers & Models](./examples/providers.md) | Azure OpenAI, Vertex AI, Bedrock, multi-provider comparison, failover |
+| [Durability & Sandboxing](./examples/durability.md) | Durable queue, human-in-the-loop resume, process sandboxing |
+| [Enterprise & Multi-Tenancy](./examples/enterprise.md) | OIDC/JWKS SSO, data residency, per-tenant memory isolation |
+| [Observability & CLI](./examples/observability-cli.md) | Metrics/cost/cache/retry hooks, CLI-driven agents and ops |
+| [YAML Configs](./yaml-examples.md) | Declarative agent and team definitions |
 
 ## Running Examples
 
@@ -18,328 +28,103 @@ cd chronos
 go run ./examples/<name>/
 ```
 
-## Feature Index
+## Choosing a provider {#choosing-a-provider}
 
-| Example | Feature area | API key |
-|---------|-------------|---------|
-| [quickstart](#quickstart) | Agent builder, SQLite, StateGraph | No |
-| [chat_with_tools](#chat_with_tools) | Tool calling loop | No |
-| [tools_and_guardrails](#tools_and_guardrails) | Permissions, guardrails | No |
-| [hooks_observability](#hooks_observability) | Metrics, cost, cache, retry, rate limit | No |
-| [graph_patterns](#graph_patterns) | Conditional edges, interrupts, streaming | No |
-| [memory_and_sessions](#memory_and_sessions) | Short/long-term memory, sessions | No |
-| [streaming_sse](#streaming_sse) | Event broker, SSE | No |
-| [fallback_provider](#fallback_provider) | Provider failover | No |
-| [sandbox_execution](#sandbox_execution) | Process sandbox | No |
-| [durable_queue](https://github.com/spawn08/chronos/tree/main/examples/durable_queue) | Durable queue: leased workers, sleep, park/signal HITL, orphan recovery | No |
-| [durable_hitl](https://github.com/spawn08/chronos/tree/main/examples/durable_hitl) | Human-in-the-loop approval with checkpoint + resume | No |
-| [cli_agent](https://github.com/spawn08/chronos/tree/main/examples/cli_agent) | Build, inspect, run an agent from YAML via the CLI | No |
-| [cli_ops](https://github.com/spawn08/chronos/tree/main/examples/cli_ops) | Operate Chronos from the CLI (serve, monitor, db, sessions, pipe, deploy) | No |
-| [multi_agent](#multi_agent) | 4 team strategies | Optional |
-| [graph_with_llm](#graph_with_llm) | StateGraph + live LLM | Yes |
-| [mcp_agent](#mcp_agent) | Model Context Protocol tools | Optional |
-| [coding_agent](#coding_agent) | Autonomous coding agent + RAG | Optional |
-| [team_deploy](#team_deploy) | YAML teams + sandbox deploy | Optional |
-| [multi_provider](#multi_provider) | Multiple providers side by side | Yes |
-| [azure](#azure) | Azure OpenAI | Yes |
+Every example that talks to a real LLM (`graph_with_llm`, `mcp_agent`, `coding_agent`, `team_deploy`, `multi_agent`, `multi_provider`) resolves its provider through a shared helper — `examples/internal/providers.Pick()` — which reads the environment and returns the first configured provider. **You never edit the example to switch clouds; you just export a different set of environment variables.**
 
-## Real LLM Examples
+| Provider | Environment variables |
+|----------|-----------------------|
+| **OpenAI** | `OPENAI_API_KEY` |
+| **Anthropic** | `ANTHROPIC_API_KEY` |
+| **Google Gemini** (AI Studio) | `GEMINI_API_KEY` |
+| **Azure OpenAI** | `AZURE_OPENAI_API_KEY` + `AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_DEPLOYMENT` (+ optional `AZURE_OPENAI_API_VERSION`) |
+| **Google Cloud Vertex AI** | `GOOGLE_CLOUD_PROJECT` + `GOOGLE_ACCESS_TOKEN` (+ optional `GOOGLE_CLOUD_LOCATION`, `VERTEX_MODEL`) |
+| **AWS Bedrock** | `AWS_REGION` + `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` (+ optional `BEDROCK_MODEL_ID`) |
+| **Mistral** | `MISTRAL_API_KEY` |
+| **Ollama** (local) | `OLLAMA_HOST` (+ optional `OLLAMA_MODEL`) |
+| **Any OpenAI-compatible** | `OPENAI_COMPATIBLE_BASE_URL` + `OPENAI_COMPATIBLE_MODEL` (+ optional `_API_KEY`, `_NAME`) — Together, Groq, DeepSeek, OpenRouter, Fireworks, Perplexity, Anyscale, vLLM, LiteLLM |
 
-These examples make actual LLM API calls. Set at least one API key to run them.
-
-### graph_with_llm
-
-**StateGraph with real LLM calls inside nodes.** This is the most important example for understanding how Chronos combines graph workflows with live LLM reasoning. A classifier node calls the LLM to categorize questions, then conditional edges route to a technical expert (with tools) or a general assistant.
+The four common cloud setups look like this — pick one, then run any real-LLM example:
 
 ```bash
-export OPENAI_API_KEY=sk-your-key
-go run ./examples/graph_with_llm/
-```
+# OpenAI
+export OPENAI_API_KEY=sk-...
 
-**Demonstrates:**
-- Wiring real LLM providers (OpenAI, Anthropic, Gemini, Ollama) into graph nodes
-- Conditional routing based on LLM classification output
-- Tool calling within graph nodes
-- Checkpointing with SQLite
-- The YAML equivalent (see `examples/yaml-configs/graph-agent.yaml`)
-
-See the [Building Real-World Agents](/guides/real-world-agents/) guide for a detailed walkthrough.
-
----
-
-## No API Keys Required
-
-These examples use mock providers — they compile and run instantly:
-
-### quickstart
-
-Minimal agent with SQLite storage and a 3-node StateGraph (greet → classify → respond).
-
-```bash
-go run ./examples/quickstart/
-```
-
-**Demonstrates:** Agent builder, SQLite storage, graph nodes, `Run()` method.
-
----
-
-### tools_and_guardrails
-
-Tool registry with three permission levels (allow, deny, require_approval) and input/output guardrails.
-
-```bash
-go run ./examples/tools_and_guardrails/
-```
-
-**Demonstrates:**
-- Registering tools with handlers and JSON Schema parameters
-- `tool.PermAllow` — auto-executed tools (calculator, weather)
-- `tool.PermDeny` — blocked tools (delete_database)
-- `tool.PermRequireApproval` — tools requiring human approval (send_email)
-- `BlocklistGuardrail` — blocks inputs containing prohibited terms
-- `MaxLengthGuardrail` — limits output length
-- Approval handler callback
-
----
-
-### hooks_observability
-
-All 6 hooks in action: metrics, cost tracking, rate limiting, caching, retry, and structured logging.
-
-```bash
-go run ./examples/hooks_observability/
-```
-
-**Demonstrates:**
-- `MetricsHook` — latency tracking, call counting, per-call metrics
-- `CostTracker` — per-model pricing, budget limits, token accounting
-- `CacheHook` — LLM response caching with TTL and max entries
-- `RateLimitHook` — token-bucket rate limiting
-- `RetryHook` — exponential backoff with retry callbacks
-- `LoggingHook` — structured event logging
-- Hook chain composition
-
----
-
-### graph_patterns
-
-StateGraph patterns: conditional edges, interrupt nodes (human-in-the-loop), stream events, and multi-path routing.
-
-```bash
-go run ./examples/graph_patterns/
-```
-
-**Demonstrates:**
-- `AddConditionalEdge` — dynamic routing based on state (e.g., order validation)
-- `AddInterruptNode` — pauses execution for human approval with checkpoint
-- `graph.NewRunner` + `runner.Stream()` — real-time execution events
-- Multi-path graphs with convergence (support ticket triage)
-- Checkpoint persistence for resume
-
----
-
-### memory_and_sessions
-
-Short-term and long-term memory APIs, plus multi-turn persistent sessions.
-
-```bash
-go run ./examples/memory_and_sessions/
-```
-
-**Demonstrates:**
-- `memory.NewStore` — short-term (session-scoped) and long-term (cross-session) memory
-- `SetShortTerm`, `SetLongTerm`, `Get`, `ListShortTerm`, `ListLongTerm`
-- `ChatWithSession` — persistent multi-turn conversations
-- Session lifecycle: creation, event ledger, listing
-- Multiple sessions per agent
-
----
-
-### streaming_sse
-
-Event broker for real-time observability: pub/sub, graph stream events, and SSE HTTP handler.
-
-```bash
-go run ./examples/streaming_sse/
-```
-
-**Demonstrates:**
-- `stream.NewBroker` — publish/subscribe event system
-- Multiple subscribers receiving the same events
-- Graph runner stream events (`node_start`, `node_end`, `edge_transition`, `completed`)
-- `SSEHandler` — HTTP endpoint for Server-Sent Events
-- Integration pattern for real-time dashboards
-
----
-
-### chat_with_tools
-
-Agent with tool definitions: direct tool execution and model-aware tool passing.
-
-```bash
-go run ./examples/chat_with_tools/
-```
-
-**Demonstrates:**
-- Calculator tool with expression parsing
-- Geography lookup tool
-- Direct tool execution via `agent.Tools.Execute()`
-- Tool definitions automatically passed to model in `Chat()` requests
-- JSON Schema tool parameter definitions
-
----
-
-### fallback_provider
-
-Automatic failover between model providers with configurable callbacks.
-
-```bash
-go run ./examples/fallback_provider/
-```
-
-**Demonstrates:**
-- `model.NewFallbackProvider(primary, secondary, local)` — provider chain
-- `OnFallback` callback for monitoring failures
-- Primary succeeds → no fallback needed
-- Primary fails → secondary used transparently
-- All providers fail → graceful error reporting
-- Streaming fallback
-- Zero providers → validation error
-
----
-
-### sandbox_execution
-
-Process sandbox for running untrusted commands with timeouts and output capture.
-
-```bash
-go run ./examples/sandbox_execution/
-```
-
-**Demonstrates:**
-- `sandbox.NewProcessSandbox(workDir)` — isolated execution environment
-- Stdout/stderr capture
-- Exit code handling
-- Timeout enforcement (10s command killed after 500ms)
-- File I/O within the sandbox working directory
-- Environment variable access
-
----
-
-## API Keys Required
-
-These examples connect to real LLM APIs (most fall back to a mock provider when no key is set):
-
-### mcp_agent
-
-**Model Context Protocol integration.** Connects to an MCP server over stdio, imports every tool it advertises into the agent's registry, and lets the model call them. Uses the official filesystem MCP server.
-
-```bash
-# Optional live tool server:
-npm install -g @modelcontextprotocol/server-filesystem
-OPENAI_API_KEY=sk-... go run ./examples/mcp_agent/
-```
-
-**Demonstrates:**
-- `AddMCPServer(mcp.ServerConfig{...})` — register an MCP server on the agent
-- `ConnectMCP(ctx)` — launch servers and import their tools
-- Inspecting imported tools via `agent.Tools.List()`
-- Graceful degradation when the server binary is absent
-
-See the [Model Context Protocol guide](/guides/mcp) for the full workflow.
-
----
-
-### coding_agent
-
-**Autonomous, Cursor/Aider-style coding agent.** Reads, writes, and searches files, runs shell commands (git, build, tests), and uses a vector store for semantic code search (RAG). Runs an autonomous multi-step loop.
-
-```bash
-OPENAI_API_KEY=sk-... go run ./examples/coding_agent/
-```
-
-**Demonstrates:**
-- Wiring built-in file tools + shell tools + custom tools onto one agent
-- `VectorKnowledge` with in-memory embeddings for code search (RAG)
-- An autonomous agent loop bounded by `MaxIterations`
-- Combining tools with system prompts for effective coding workflows
-- Mock fallback when no API key is set
-
----
-
-### team_deploy
-
-**Deploy multi-agent teams from YAML with sandbox isolation.** Loads a team deployment config, builds agents with YAML-defined tools, and runs them in a sandboxed process environment using sequential and coordinator strategies.
-
-```bash
-OPENAI_API_KEY=sk-... go run ./examples/team_deploy/
-
-# Or via the CLI:
-go run ./cli/main.go deploy examples/team_deploy/deploy.yaml "Add error handling to the API"
-```
-
-**Demonstrates:**
-- YAML-driven agent and team configuration
-- Sandbox-backed tool execution for safe agent autonomy
-- Sequential pipeline vs. coordinator strategies
-- Deploying a full coding team from a single config file
-
----
-
-### multi_agent
-
-All 4 team strategies (sequential, parallel, router, coordinator), direct channels, and bus delegation. Works with mock provider if no API key is set.
-
-```bash
-# With mock (no key)
-go run ./examples/multi_agent/
-
-# With real LLM
-OPENAI_API_KEY=sk-... go run ./examples/multi_agent/
-```
-
----
-
-### multi_provider
-
-Connects to multiple LLM providers side by side.
-
-```bash
-OPENAI_API_KEY=sk-... go run ./examples/multi_provider/
-```
-
----
-
-### azure
-
-Azure OpenAI provider with standard and streaming modes.
-
-```bash
+# Azure OpenAI
 export AZURE_OPENAI_API_KEY=...
 export AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
-export AZURE_OPENAI_DEPLOYMENT=gpt-5.5
+export AZURE_OPENAI_DEPLOYMENT=gpt-4o          # your deployment name
 export AZURE_OPENAI_API_VERSION=2024-12-01-preview
-go run ./examples/azure/
-go run ./examples/azure/ -stream
+
+# Google Cloud Vertex AI (OpenAI-compatible endpoint + gcloud token)
+export GOOGLE_CLOUD_PROJECT=my-gcp-project
+export GOOGLE_CLOUD_LOCATION=us-central1
+export VERTEX_MODEL=google/gemini-2.5-pro
+export GOOGLE_ACCESS_TOKEN=$(gcloud auth print-access-token)
+
+# AWS Bedrock
+export AWS_REGION=us-east-1
+export AWS_ACCESS_KEY_ID=...
+export AWS_SECRET_ACCESS_KEY=...
+export BEDROCK_MODEL_ID=anthropic.claude-3-5-sonnet-20241022-v2:0
 ```
 
----
+:::tip
+Precedence is fixed (OpenAI → Anthropic → Gemini → Azure → Vertex → Bedrock → Mistral → Ollama → compatible). To force a specific cloud when several key sets are present, unset the higher-precedence ones in that shell.
+:::
 
-## YAML Configs
+## Full Index
 
-Pre-built YAML configurations for common patterns:
+### Fundamentals — no API key
 
-| Config | Strategy | Description |
-|--------|----------|-------------|
-| `graph-agent.yaml` | Router | LLM-based classification routing (YAML equivalent of `graph_with_llm/`) |
-| `customer-support.yaml` | Router | Routes queries to billing, technical, or sales agents |
-| `content-pipeline.yaml` | Sequential | Research → Write → Edit article pipeline |
-| `coding-team.yaml` | Coordinator | Tech lead delegates to backend, frontend, reviewer |
-| `multi-provider.yaml` | Mixed | OpenAI, Anthropic, Gemini, Ollama, Groq, DeepSeek |
-| `sandbox-deploy.yaml` | Sequential / Coordinator | Multi-agent sandbox deployment |
+| Example | Feature area |
+|---------|-------------|
+| [quickstart](./examples/fundamentals.md#quickstart) | Agent builder, SQLite, StateGraph |
+| [chat_with_tools](./examples/fundamentals.md#chat_with_tools) | Tool calling loop |
+| [tools_and_guardrails](./examples/fundamentals.md#tools_and_guardrails) | Permissions, guardrails |
+| [graph_patterns](./examples/fundamentals.md#graph_patterns) | Conditional edges, interrupts, streaming |
+| [memory_and_sessions](./examples/fundamentals.md#memory_and_sessions) | Short/long-term memory, sessions |
+| [streaming_sse](./examples/fundamentals.md#streaming_sse) | Event broker, SSE |
 
-Use with the CLI:
+### LLM Agents — API key (mock fallback)
 
-```bash
-CHRONOS_CONFIG=examples/yaml-configs/customer-support.yaml go run ./cli/main.go repl
-```
+| Example | Feature area |
+|---------|-------------|
+| [graph_with_llm](./examples/llm-agents.md#graph_with_llm) | StateGraph + live LLM |
+| [mcp_agent](./examples/llm-agents.md#mcp_agent) | Model Context Protocol tools |
+| [coding_agent](./examples/llm-agents.md#coding_agent) | Autonomous coding agent + RAG |
+| [multi_agent](./examples/llm-agents.md#multi_agent) | 4 team strategies, bus delegation |
+| [team_deploy](./examples/llm-agents.md#team_deploy) | YAML teams + sandbox deploy |
+
+### Providers & Models
+
+| Example | Feature area |
+|---------|-------------|
+| [multi_provider](./examples/providers.md#multi_provider) | Multiple providers side by side |
+| [azure](./examples/providers.md#azure) | Azure OpenAI (chat + streaming) |
+| [vertex](./examples/providers.md#vertex) | Google Cloud Vertex AI |
+| [fallback_provider](./examples/providers.md#fallback_provider) | Provider failover |
+
+### Durability & Sandboxing — no API key
+
+| Example | Feature area |
+|---------|-------------|
+| [durable_queue](./examples/durability.md#durable_queue) | Leased workers, sleep, park/signal HITL, orphan recovery |
+| [durable_hitl](./examples/durability.md#durable_hitl) | Human-in-the-loop approval with checkpoint + resume |
+| [sandbox_execution](./examples/durability.md#sandbox_execution) | Process sandbox with timeouts and I/O capture |
+
+### Enterprise & Multi-Tenancy
+
+| Example | Feature area |
+|---------|-------------|
+| [enterprise_sso](./examples/enterprise.md#enterprise_sso) | ChronosOS behind OIDC/JWKS SSO |
+| [data_residency](./examples/enterprise.md#data_residency) | Per-tenant storage routing (EU vs US) |
+| [multitenant_memory](./examples/enterprise.md#multitenant_memory) | Per-tenant long-term memory isolation on one agent |
+
+### Observability & CLI
+
+| Example | Feature area |
+|---------|-------------|
+| [hooks_observability](./examples/observability-cli.md#hooks_observability) | Metrics, cost, cache, retry, rate limit |
+| [cli_agent](./examples/observability-cli.md#cli_agent) | Build, inspect, run an agent from YAML via the CLI |
+| [cli_ops](./examples/observability-cli.md#cli_ops) | Operate Chronos from the CLI (serve, monitor, db, sessions, pipe, deploy) |

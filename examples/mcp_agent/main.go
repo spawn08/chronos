@@ -21,11 +21,10 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 	"time"
 
 	"github.com/spawn08/chronos/engine/mcp"
-	"github.com/spawn08/chronos/engine/model"
+	"github.com/spawn08/chronos/examples/internal/providers"
 	"github.com/spawn08/chronos/sdk/agent"
 )
 
@@ -51,9 +50,12 @@ func main() {
 			Args:      []string{"-y", "@modelcontextprotocol/server-filesystem", "."},
 		})
 
-	// Attach a model only if credentials are available.
-	if key := os.Getenv("OPENAI_API_KEY"); key != "" {
-		builder = builder.WithModel(model.NewOpenAI(key))
+	// Attach a model only if credentials are available. Any supported
+	// provider works — see examples/internal/providers for the env matrix
+	// (OpenAI, Anthropic, Gemini, Azure OpenAI, Vertex AI, Bedrock, …).
+	if p, name := providers.Pick(); p != nil {
+		fmt.Printf("provider: %s\n", name)
+		builder = builder.WithModel(p)
 	}
 
 	a, err := builder.Build()
@@ -80,7 +82,8 @@ func main() {
 
 	// ── Optional: let the model use them ──
 	if a.Model == nil {
-		fmt.Println("\n(set OPENAI_API_KEY to have the model call these tools)")
+		fmt.Println("\n(configure a provider to have the model call these tools)")
+		fmt.Println(providers.EnvHint())
 		return
 	}
 

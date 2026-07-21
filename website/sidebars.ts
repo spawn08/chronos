@@ -50,7 +50,16 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Examples',
-      items: ['guides/examples', 'guides/yaml-examples'],
+      items: [
+        'guides/examples',
+        'guides/examples/fundamentals',
+        'guides/examples/llm-agents',
+        'guides/examples/providers',
+        'guides/examples/durability',
+        'guides/examples/enterprise',
+        'guides/examples/observability-cli',
+        'guides/yaml-examples',
+      ],
     },
     {
       type: 'category',

@@ -26,12 +26,12 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 	"strings"
 
 	"github.com/spawn08/chronos/engine/model"
 	"github.com/spawn08/chronos/engine/tool"
 	"github.com/spawn08/chronos/engine/tool/builtins"
+	"github.com/spawn08/chronos/examples/internal/providers"
 	"github.com/spawn08/chronos/sdk/agent"
 	"github.com/spawn08/chronos/sdk/knowledge"
 	"github.com/spawn08/chronos/storage"
@@ -271,17 +271,12 @@ func newSemanticSearchTool(kb knowledge.Knowledge) *tool.Definition {
 }
 
 func resolveProvider() model.Provider {
-	if key := os.Getenv("OPENAI_API_KEY"); key != "" {
-		return model.NewOpenAI(key)
+	if p, name := providers.Pick(); p != nil {
+		fmt.Printf("  provider: %s\n", name)
+		return p
 	}
-	if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
-		return model.NewAnthropic(key)
-	}
-	if key := os.Getenv("GEMINI_API_KEY"); key != "" {
-		return model.NewGemini(key)
-	}
-	fmt.Println("  ⚠ No API key found, using mock provider")
-	fmt.Println("    Set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GEMINI_API_KEY for real responses")
+	fmt.Println("  ⚠ No provider credentials found, using mock provider")
+	fmt.Println("    " + providers.EnvHint())
 	return &mockProvider{}
 }
 

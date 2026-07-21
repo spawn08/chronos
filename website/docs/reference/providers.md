@@ -111,6 +111,37 @@ p := model.NewAzureOpenAIWithConfig(model.AzureConfig{
 })
 ```
 
+### Google Cloud Vertex AI
+
+Vertex AI exposes an OpenAI-compatible endpoint. Use `NewOpenAICompatibleWithConfig` with a Bearer access token from `gcloud auth print-access-token` (or workload identity):
+
+```go
+project := os.Getenv("GOOGLE_CLOUD_PROJECT")
+location := "us-central1"
+baseURL := fmt.Sprintf(
+    "https://%s-aiplatform.googleapis.com/v1beta1/projects/%s/locations/%s/endpoints/openapi",
+    location, project, location,
+)
+
+p := model.NewOpenAICompatibleWithConfig("vertex", model.ProviderConfig{
+    APIKey:  os.Getenv("GOOGLE_ACCESS_TOKEN"),
+    BaseURL: baseURL,
+    Model:   "google/gemini-2.5-pro",
+})
+```
+
+### AWS Bedrock
+
+```go
+p := model.NewBedrock(region, accessKey, secretKey, "anthropic.claude-3-5-sonnet-20241022-v2:0")
+
+// With config
+p := model.NewBedrockWithConfig(region, model.ProviderConfig{
+    APIKey: accessKey,
+    Model:  "anthropic.claude-3-5-sonnet-20241022-v2:0",
+}, secretKey)
+```
+
 ### OpenAI-Compatible
 
 Works with any API that follows the OpenAI chat completions format:

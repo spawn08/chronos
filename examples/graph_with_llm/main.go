@@ -34,12 +34,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"strings"
 
 	"github.com/spawn08/chronos/engine/graph"
 	"github.com/spawn08/chronos/engine/model"
 	"github.com/spawn08/chronos/engine/tool"
+	"github.com/spawn08/chronos/examples/internal/providers"
 	"github.com/spawn08/chronos/sdk/agent"
 	"github.com/spawn08/chronos/storage/adapters/sqlite"
 )
@@ -329,17 +329,12 @@ func printResult(result *graph.RunState) {
 }
 
 func resolveProvider() (model.Provider, string) {
-	if key := os.Getenv("OPENAI_API_KEY"); key != "" {
-		return model.NewOpenAI(key), "OpenAI"
+	if p, name := providers.Pick(); p != nil {
+		return p, name
 	}
-	if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
-		return model.NewAnthropic(key), "Anthropic"
-	}
-	if key := os.Getenv("GEMINI_API_KEY"); key != "" {
-		return model.NewGemini(key), "Gemini"
-	}
-	fmt.Println("  No cloud API key found — using Ollama (localhost:11434)")
+	fmt.Println("  No cloud provider configured — falling back to Ollama (localhost:11434)")
 	fmt.Println("  Start Ollama: ollama serve && ollama pull llama3.2")
+	fmt.Println("  " + providers.EnvHint())
 	return model.NewOllama("http://localhost:11434", "llama3.2"), "Ollama (local)"
 }
 

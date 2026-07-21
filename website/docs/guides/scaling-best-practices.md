@@ -126,7 +126,7 @@ Additional resilience:
 
 When agents run generated code or shell commands, contain them:
 
-- Use the [process sandbox](/guides/examples#sandbox_execution) (`sandbox.NewProcessSandbox`) with a scoped working directory, timeouts, and captured output.
+- Use the [process sandbox](/guides/examples/durability#sandbox_execution) (`sandbox.NewProcessSandbox`) with a scoped working directory, timeouts, and captured output.
 - Gate dangerous tools behind approval: set `Permission: tool.PermRequireApproval` (or `PermDeny`) in the [tool registry](/guides/tools).
 - Apply [guardrails](/guides/guardrails) on inputs and outputs (blocklists, length limits, schema validation) to catch prompt injection and malformed output early.
 

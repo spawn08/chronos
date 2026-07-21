@@ -129,6 +129,6 @@ resp, _ := a.Chat(ctx, "Explain goroutines")
 
 ## Next Steps
 
-- [Examples Guide](../guides/examples.md) — All 12+ runnable examples
+- [Examples Guide](../guides/examples.md) — All 20+ runnable examples
 - [Model Providers](../reference/providers.md) — All supported LLM providers
 - [Architecture](../reference/architecture.md) — System design and layers

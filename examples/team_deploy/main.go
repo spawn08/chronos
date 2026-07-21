@@ -35,6 +35,7 @@ import (
 	"github.com/spawn08/chronos/engine/graph"
 	"github.com/spawn08/chronos/engine/model"
 	"github.com/spawn08/chronos/engine/tool/builtins"
+	"github.com/spawn08/chronos/examples/internal/providers"
 	"github.com/spawn08/chronos/sandbox"
 	"github.com/spawn08/chronos/sdk/agent"
 	"github.com/spawn08/chronos/sdk/team"
@@ -214,13 +215,12 @@ func buildCodingAgent(id, name, desc string, caps []string, provider model.Provi
 }
 
 func resolveProvider() model.Provider {
-	if key := os.Getenv("OPENAI_API_KEY"); key != "" {
-		return model.NewOpenAI(key)
+	if p, name := providers.Pick(); p != nil {
+		fmt.Printf("  provider: %s\n", name)
+		return p
 	}
-	if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
-		return model.NewAnthropic(key)
-	}
-	fmt.Println("  ⚠ No API key found, using mock provider")
+	fmt.Println("  ⚠ No provider configured — using mock provider")
+	fmt.Println("  " + providers.EnvHint())
 	return &mockProvider{}
 }
 
