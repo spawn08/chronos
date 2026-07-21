@@ -35,8 +35,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/spawn08/chronos/os/auth"
 	chronosos "github.com/spawn08/chronos/os"
+	"github.com/spawn08/chronos/os/auth"
 	"github.com/spawn08/chronos/storage/adapters/sqlite"
 )
 
