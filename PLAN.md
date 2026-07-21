@@ -5,6 +5,30 @@
 > Items are grouped into three phases. **Do P0 before shipping to any production user.**
 > Each item lists the problem, location, action, and acceptance criteria.
 
+## Build-out roadmap (complete)
+
+The original seven-tier build-out delivered all 101 tracked items:
+
+| Priority | Items | Status |
+|----------|-------|--------|
+| P0 — Critical bugs & wiring fixes | 16 | Complete |
+| P1 — Core feature gaps (parity)   | 28 | Complete |
+| P2 — Ecosystem & developer experience | 30 | Complete |
+| P3 — Ecosystem expansion          | 27 | Complete |
+
+**P0:** Redis list methods, RedisVector search, RetryHook retries, NumHistoryRuns,
+OutputSchema validation, Runner-SSE events, trace collector wiring, CLI commands, tests.
+**P1:** MCP (stdio), subgraphs, time travel, streaming, HITL, context management, auth,
+evaluation framework, in-memory adapter, health endpoints.
+**P2:** Built-in toolkits, doc loaders, multimodal, functional graph API, visualization,
+observability, scheduler, guardrails.
+**P3:** Bedrock/Cohere providers, pgvector/pinecone/weaviate/milvus/chromadb/lancedb
+vector stores, swarm/hierarchy multi-agent, reasoning strategies, sandbox backends,
+migration framework.
+
+Several items are functional but prototype-grade — correctness and scale gaps are
+captured below.
+
 ## How to use this file
 
 - Phases run in order: **P0 (correctness & safety) → P1 (scale foundations) → P2 (hardening & platform)**.

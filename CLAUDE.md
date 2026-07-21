@@ -133,7 +133,7 @@ ln -sf ../../scripts/pre-push-check.sh .git/hooks/pre-push
 
 ## Status & Planning
 
-The seven-tier build-out roadmap is complete (see [ROADMAP.md](ROADMAP.md) for the delivered-capabilities history). Forward-looking work — the production-hardening and high-scale plan, including known correctness bugs to fix — is tracked in **[PLAN.md](PLAN.md)**. Consult PLAN.md before starting new work.
+The seven-tier build-out roadmap (101 items) is complete. Forward-looking work — production-hardening and high-scale readiness — is tracked in **[PLAN.md](PLAN.md)**. Consult PLAN.md before starting new work.
 
 - **Slash commands** (in `.claude/commands/`): `add-tests` (table-driven tests for a package), `add-embedding-provider` / `add-cli-command` (scaffolding), `new-adapter` / `new-tool` / `new-node` / `new-hook` / `new-guardrail` / `new-skill`.
 
