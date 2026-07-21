@@ -8,6 +8,16 @@ const config: Config = {
   title: 'Chronos',
   tagline: 'A Go framework for building durable, scalable AI agents',
   favicon: 'img/favicon.ico',
+  headTags: [
+    {
+      tagName: 'link',
+      attributes: {
+        rel: 'icon',
+        type: 'image/svg+xml',
+        href: '/chronos/img/logo.svg',
+      },
+    },
+  ],
 
   // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
   future: {
