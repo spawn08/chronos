@@ -1,101 +1,131 @@
 package redisvector
 
 import (
+	"context"
+	"encoding/binary"
+	"math"
+	"os"
+	"reflect"
 	"testing"
+
+	goredis "github.com/redis/go-redis/v9"
 
 	"github.com/spawn08/chronos/storage"
 )
 
-func TestParseSearchResponse(t *testing.T) {
+func TestEncodeVector(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []float32
+	}{
+		{"empty", []float32{}},
+		{"single", []float32{1.5}},
+		{"multiple", []float32{0.1, 0.2, 0.3}},
+		{"negatives", []float32{-1, 0, 1.25}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := encodeVector(tt.in)
+			if len(got) != len(tt.in)*4 {
+				t.Fatalf("len = %d, want %d", len(got), len(tt.in)*4)
+			}
+			// Round-trip decode and compare.
+			for i, want := range tt.in {
+				bits := binary.LittleEndian.Uint32(got[i*4:])
+				if f := math.Float32frombits(bits); f != want {
+					t.Errorf("elem %d = %v, want %v", i, f, want)
+				}
+			}
+		})
+	}
+}
+
+func TestSearchArgs(t *testing.T) {
+	args := searchArgs("mycol", []float32{0.1, 0.2}, 5)
+	if args[0] != "FT.SEARCH" || args[1] != "mycol" {
+		t.Fatalf("unexpected head: %v %v", args[0], args[1])
+	}
+	// KNN query string with alias.
+	if got := args[2].(string); got != "*=>[KNN 5 @vector $BLOB AS __vector_score]" {
+		t.Errorf("query = %q", got)
+	}
+	// BLOB parameter must be the raw 8-byte (2 x float32) binary blob.
+	blob, ok := args[6].([]byte)
+	if !ok {
+		t.Fatalf("BLOB param type = %T, want []byte", args[6])
+	}
+	if len(blob) != 8 {
+		t.Errorf("BLOB len = %d, want 8", len(blob))
+	}
+	// DIALECT 2 required for KNN param syntax.
+	if args[len(args)-2] != "DIALECT" || args[len(args)-1] != "2" {
+		t.Errorf("missing DIALECT 2 tail: %v", args[len(args)-2:])
+	}
+}
+
+func TestParseSearchReply(t *testing.T) {
 	tests := []struct {
 		name       string
-		resp       string
+		reply      any
 		collection string
-		wantCount  int
 		wantIDs    []string
 		wantScores []float32
 	}{
 		{
+			name:       "nil reply",
+			reply:      nil,
+			collection: "c",
+			wantIDs:    nil,
+		},
+		{
+			name:       "no matches",
+			reply:      []any{int64(0)},
+			collection: "c",
+			wantIDs:    nil,
+		},
+		{
 			name: "two results with scores",
-			resp: "*5\r\n" +
-				":2\r\n" +
-				"$10\r\nmycol:doc1\r\n" +
-				"*6\r\n" +
-				"$7\r\ncontent\r\n" +
-				"$11\r\nhello world\r\n" +
-				"$8\r\nmetadata\r\n" +
-				"$2\r\n{}\r\n" +
-				"$16\r\n__vector_score\r\n" +
-				"$3\r\n0.1\r\n" +
-				"$10\r\nmycol:doc2\r\n" +
-				"*6\r\n" +
-				"$7\r\ncontent\r\n" +
-				"$9\r\nsome text\r\n" +
-				"$8\r\nmetadata\r\n" +
-				"$17\r\n{\"key\":\"value\"}\r\n" +
-				"$16\r\n__vector_score\r\n" +
-				"$3\r\n0.3\r\n",
+			reply: []any{
+				int64(2),
+				"mycol:doc1", []any{"content", "hello world", "metadata", "{}", scoreField, "0.1"},
+				"mycol:doc2", []any{"content", "second", "metadata", `{"k":"v"}`, scoreField, "0.3"},
+			},
 			collection: "mycol",
-			wantCount:  2,
 			wantIDs:    []string{"doc1", "doc2"},
 			wantScores: []float32{0.9, 0.7},
 		},
 		{
-			name:       "empty response",
-			resp:       "",
+			name: "skips wrong prefix",
+			reply: []any{
+				int64(1),
+				"othercol:x", []any{"content", "z"},
+			},
 			collection: "mycol",
-			wantCount:  0,
+			wantIDs:    nil,
 		},
 		{
-			name:       "no results",
-			resp:       "*1\r\n:0\r\n",
+			name: "byte-slice values",
+			reply: []any{
+				int64(1),
+				[]byte("mycol:doc1"), []any{[]byte("content"), []byte("hi")},
+			},
 			collection: "mycol",
-			wantCount:  0,
-		},
-		{
-			name: "single result without score",
-			resp: "*3\r\n" +
-				":1\r\n" +
-				"$10\r\nmycol:doc1\r\n" +
-				"*4\r\n" +
-				"$7\r\ncontent\r\n" +
-				"$5\r\nhello\r\n" +
-				"$8\r\nmetadata\r\n" +
-				"$2\r\n{}\r\n",
-			collection: "mycol",
-			wantCount:  1,
 			wantIDs:    []string{"doc1"},
 		},
-		{
-			name: "result with metadata",
-			resp: "*3\r\n" +
-				":1\r\n" +
-				"$11\r\ntestcol:id1\r\n" +
-				"*4\r\n" +
-				"$7\r\ncontent\r\n" +
-				"$4\r\ntest\r\n" +
-				"$8\r\nmetadata\r\n" +
-				"$20\r\n{\"source\":\"web.pdf\"}\r\n",
-			collection: "testcol",
-			wantCount:  1,
-			wantIDs:    []string{"id1"},
-		},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			results := ParseSearchResponse(tt.resp, tt.collection)
-			if len(results) != tt.wantCount {
-				t.Fatalf("got %d results, want %d", len(results), tt.wantCount)
+			got := parseSearchReply(tt.reply, tt.collection)
+			if len(got) != len(tt.wantIDs) {
+				t.Fatalf("got %d results, want %d", len(got), len(tt.wantIDs))
 			}
-			for i, r := range results {
-				if i < len(tt.wantIDs) && r.ID != tt.wantIDs[i] {
-					t.Errorf("result[%d].ID = %q, want %q", i, r.ID, tt.wantIDs[i])
+			for i, want := range tt.wantIDs {
+				if got[i].ID != want {
+					t.Errorf("result[%d].ID = %q, want %q", i, got[i].ID, want)
 				}
 				if i < len(tt.wantScores) {
-					diff := r.Score - tt.wantScores[i]
-					if diff < -0.05 || diff > 0.05 {
-						t.Errorf("result[%d].Score = %f, want ~%f", i, r.Score, tt.wantScores[i])
+					if d := got[i].Score - tt.wantScores[i]; d < -0.001 || d > 0.001 {
+						t.Errorf("result[%d].Score = %f, want %f", i, got[i].Score, tt.wantScores[i])
 					}
 				}
 			}
@@ -103,69 +133,83 @@ func TestParseSearchResponse(t *testing.T) {
 	}
 }
 
-func TestParseSearchResponseContent(t *testing.T) {
-	resp := "*3\r\n" +
-		":1\r\n" +
-		"$8\r\ncol:id1\r\n" +
-		"*4\r\n" +
-		"$7\r\ncontent\r\n" +
-		"$13\r\nHello, world!\r\n" +
-		"$8\r\nmetadata\r\n" +
-		"$2\r\n{}\r\n"
-
-	results := ParseSearchResponse(resp, "col")
-	if len(results) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(results))
+func TestParseSearchReply_ContentAndMetadata(t *testing.T) {
+	reply := []any{
+		int64(1),
+		"col:id1", []any{"content", "Hello, world!", "metadata", `{"source":"web.pdf"}`},
 	}
-	if results[0].Content != "Hello, world!" {
-		t.Errorf("content = %q, want %q", results[0].Content, "Hello, world!")
+	got := parseSearchReply(reply, "col")
+	if len(got) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(got))
 	}
-	if results[0].ID != "id1" {
-		t.Errorf("id = %q, want %q", results[0].ID, "id1")
+	if got[0].Content != "Hello, world!" {
+		t.Errorf("content = %q", got[0].Content)
+	}
+	if src, ok := got[0].Metadata["source"]; !ok || src != "web.pdf" {
+		t.Errorf("metadata = %v", got[0].Metadata)
 	}
 }
 
-func TestParseSearchResponseMetadata(t *testing.T) {
-	resp := "*3\r\n" +
-		":1\r\n" +
-		"$8\r\ncol:id1\r\n" +
-		"*4\r\n" +
-		"$7\r\ncontent\r\n" +
-		"$4\r\ntest\r\n" +
-		"$8\r\nmetadata\r\n" +
-		"$23\r\n{\"source\":\"document.pdf\"}\r\n"
-
-	results := ParseSearchResponse(resp, "col")
-	if len(results) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(results))
-	}
-	if src, ok := results[0].Metadata["source"]; !ok || src != "document.pdf" {
-		t.Errorf("metadata[source] = %v, want %q", results[0].Metadata, "document.pdf")
+func TestCloseNil(t *testing.T) {
+	var s Store
+	if err := s.Close(); err != nil {
+		t.Errorf("Close on zero Store: %v", err)
 	}
 }
 
-func TestFloatsToString(t *testing.T) {
-	tests := []struct {
-		name  string
-		input []float32
-		want  string
-	}{
-		{"empty", []float32{}, ""},
-		{"single", []float32{1.5}, "1.5"},
-		{"multiple", []float32{0.1, 0.2, 0.3}, "0.1,0.2,0.3"},
-		{"integers", []float32{1, 2, 3}, "1,2,3"},
+func TestNew_ConnectRefused(t *testing.T) {
+	if _, err := New("127.0.0.1:1"); err == nil {
+		t.Fatal("expected connection error")
 	}
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := floatsToString(tt.input)
-			if got != tt.want {
-				t.Errorf("floatsToString = %q, want %q", got, tt.want)
-			}
-		})
+func TestDelete_Empty(t *testing.T) {
+	s := NewWithClient(goredis.NewClient(&goredis.Options{Addr: "127.0.0.1:1"}))
+	// No ids: must be a no-op that never touches the network.
+	if err := s.Delete(context.Background(), "col", nil); err != nil {
+		t.Errorf("Delete(nil): %v", err)
 	}
 }
 
 func TestCompileTimeInterface(t *testing.T) {
 	var _ storage.VectorStore = (*Store)(nil)
+}
+
+// TestIntegration exercises the full round-trip against a live Redis Stack
+// (RediSearch). It is skipped unless REDISVECTOR_ADDR is set, since miniredis
+// cannot emulate FT.* commands.
+func TestIntegration(t *testing.T) {
+	addr := os.Getenv("REDISVECTOR_ADDR")
+	if addr == "" {
+		t.Skip("set REDISVECTOR_ADDR to run redisvector integration test")
+	}
+	s, err := New(addr)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+	col := "chronos_test_col"
+	_ = s.Delete(ctx, col, []string{"a", "b"})
+	if err = s.CreateCollection(ctx, col, 3); err != nil {
+		t.Fatalf("CreateCollection: %v", err)
+	}
+	embs := []storage.Embedding{
+		{ID: "a", Vector: []float32{1, 0, 0}, Content: "alpha", Metadata: map[string]any{"n": "a"}},
+		{ID: "b", Vector: []float32{0, 1, 0}, Content: "beta", Metadata: map[string]any{"n": "b"}},
+	}
+	if err = s.Upsert(ctx, col, embs); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	res, err := s.Search(ctx, col, []float32{1, 0, 0}, 1)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(res) == 0 || res[0].ID != "a" {
+		t.Fatalf("expected top hit 'a', got %+v", res)
+	}
+	if reflect.DeepEqual(res[0].Metadata["n"], "a") == false {
+		t.Errorf("metadata not round-tripped: %v", res[0].Metadata)
+	}
 }

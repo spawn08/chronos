@@ -2,358 +2,396 @@ package dynamo
 
 import (
 	"context"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
+	"sort"
+	"strconv"
 	"testing"
+	"time"
+
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
 	"github.com/spawn08/chronos/storage"
 )
 
-func TestNew(t *testing.T) {
-	s, err := New("http://localhost:8000", "chronos", "us-east-1", "key", "secret")
-	if err != nil {
-		t.Fatalf("New() error: %v", err)
-	}
-	if s == nil {
-		t.Fatal("New returned nil")
-		return
-	}
-	if s.endpoint != "http://localhost:8000" {
-		t.Errorf("endpoint = %q", s.endpoint)
-	}
-	if s.tableName != "chronos" {
-		t.Errorf("tableName = %q", s.tableName)
-	}
-	if s.region != "us-east-1" {
-		t.Errorf("region = %q", s.region)
-	}
+// fakeDynamo is an in-memory implementation of the DynamoDB api used by Store.
+// It faithfully reproduces the pieces of the query surface Store relies on:
+// GetItem/PutItem/DeleteItem by (pk), and Query over the owner-seq GSI with
+// optional seq range and equality FilterExpression.
+type fakeDynamo struct {
+	items    map[string]map[string]types.AttributeValue // pk -> item
+	created  bool
+	putErr   error
+	queryErr error
+	getErr   error
 }
 
-func TestClose(t *testing.T) {
-	s, _ := New("http://localhost:8000", "t", "r", "k", "sk")
-	if err := s.Close(); err != nil {
-		t.Errorf("Close() error: %v", err)
-	}
+func newFake() *fakeDynamo {
+	return &fakeDynamo{items: map[string]map[string]types.AttributeValue{}}
 }
 
-func TestMarshalItem(t *testing.T) {
+func s(v types.AttributeValue) string {
+	if av, ok := v.(*types.AttributeValueMemberS); ok {
+		return av.Value
+	}
+	return ""
+}
+
+func n(v types.AttributeValue) int64 {
+	if av, ok := v.(*types.AttributeValueMemberN); ok {
+		i, _ := strconv.ParseInt(av.Value, 10, 64)
+		return i
+	}
+	return 0
+}
+
+func (f *fakeDynamo) PutItem(_ context.Context, in *dynamodb.PutItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
+	if f.putErr != nil {
+		return nil, f.putErr
+	}
+	pk := s(in.Item["pk"])
+	f.items[pk] = in.Item
+	return &dynamodb.PutItemOutput{}, nil
+}
+
+func (f *fakeDynamo) GetItem(_ context.Context, in *dynamodb.GetItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
+	pk := s(in.Key["pk"])
+	item, ok := f.items[pk]
+	if !ok {
+		return &dynamodb.GetItemOutput{}, nil
+	}
+	return &dynamodb.GetItemOutput{Item: item}, nil
+}
+
+func (f *fakeDynamo) DeleteItem(_ context.Context, in *dynamodb.DeleteItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error) {
+	delete(f.items, s(in.Key["pk"]))
+	return &dynamodb.DeleteItemOutput{}, nil
+}
+
+func (f *fakeDynamo) Query(_ context.Context, in *dynamodb.QueryInput, _ ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
+	if f.queryErr != nil {
+		return nil, f.queryErr
+	}
+	owner := s(in.ExpressionAttributeValues[":o"])
+	var after *int64
+	if av, ok := in.ExpressionAttributeValues[":after"]; ok {
+		v := n(av)
+		after = &v
+	}
+
+	// Resolve a single-equality filter (kind or mkey) if present.
+	filterAttr, filterVal := "", ""
+	if in.FilterExpression != nil {
+		for placeholder, name := range in.ExpressionAttributeNames {
+			if placeholder == "#o" || placeholder == "#sq" {
+				continue
+			}
+			filterAttr = name
+			// matching value placeholder is ":" + name-ish; find the non key/after value
+			for vp, av := range in.ExpressionAttributeValues {
+				if vp == ":o" || vp == ":after" {
+					continue
+				}
+				filterVal = s(av)
+			}
+			_ = placeholder
+		}
+	}
+
+	matched := make([]map[string]types.AttributeValue, 0, len(f.items))
+	for _, item := range f.items {
+		if s(item["owner"]) != owner {
+			continue
+		}
+		if after != nil && n(item["seq"]) <= *after {
+			continue
+		}
+		if filterAttr != "" && s(item[filterAttr]) != filterVal {
+			continue
+		}
+		matched = append(matched, item)
+	}
+
+	forward := in.ScanIndexForward == nil || *in.ScanIndexForward
+	sort.Slice(matched, func(i, j int) bool {
+		if forward {
+			return n(matched[i]["seq"]) < n(matched[j]["seq"])
+		}
+		return n(matched[i]["seq"]) > n(matched[j]["seq"])
+	})
+	if in.Limit != nil && int(*in.Limit) < len(matched) {
+		matched = matched[:*in.Limit]
+	}
+	return &dynamodb.QueryOutput{Items: matched}, nil
+}
+
+func (f *fakeDynamo) CreateTable(_ context.Context, _ *dynamodb.CreateTableInput, _ ...func(*dynamodb.Options)) (*dynamodb.CreateTableOutput, error) {
+	if f.created {
+		return nil, &types.ResourceInUseException{}
+	}
+	f.created = true
+	return &dynamodb.CreateTableOutput{}, nil
+}
+
+func newTestStore(t *testing.T) (*Store, *fakeDynamo) {
+	t.Helper()
+	f := newFake()
+	return NewWithClient(f, "chronos"), f
+}
+
+func TestKeyBuilders(t *testing.T) {
 	tests := []struct {
 		name string
-		v    any
-		keys []string
+		got  string
+		want string
 	}{
-		{
-			name: "string fields",
-			v:    map[string]any{"id": "123", "name": "test"},
-			keys: []string{"id", "name"},
-		},
-		{
-			name: "numeric field",
-			v:    map[string]any{"count": float64(42)},
-			keys: []string{"count"},
-		},
+		{"sessionPK", sessionPK("s1"), "SESSION#s1"},
+		{"memoryPK", memoryPK("m1"), "MEMORY#m1"},
+		{"auditPK", auditPK("a1"), "AUDIT#a1"},
+		{"tracePK", tracePK("t1"), "TRACE#t1"},
+		{"eventPK", eventPK("e1"), "EVENT#e1"},
+		{"checkpointPK", checkpointPK("c1"), "CHECKPOINT#c1"},
+		{"sessionOwner", sessionOwner("a1"), "AGENT#a1"},
+		{"memoryOwner", memoryOwner("a1"), "MEM#a1"},
+		{"eventOwner", eventOwner("s1"), "EVENTS#s1"},
+		{"checkpointOwner", checkpointOwner("s1"), "CKPT#s1"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			item := marshalItem(tt.v)
-			for _, k := range tt.keys {
-				if _, ok := item[k]; !ok {
-					t.Errorf("marshalItem missing key %q", k)
-				}
+			if tt.got != tt.want {
+				t.Errorf("%s = %q, want %q", tt.name, tt.got, tt.want)
 			}
 		})
 	}
 }
 
-func TestMarshalItem_StringField(t *testing.T) {
-	item := marshalItem(map[string]any{"id": "abc"})
-	val, ok := item["id"]
-	if !ok {
-		t.Fatal("missing 'id' key")
+func TestApplyOffset(t *testing.T) {
+	in := []int{1, 2, 3, 4}
+	tests := []struct {
+		offset int
+		want   []int
+	}{
+		{0, []int{1, 2, 3, 4}},
+		{2, []int{3, 4}},
+		{4, []int{}},
+		{10, []int{}},
 	}
-	m, ok := val.(map[string]string)
-	if !ok {
-		t.Fatalf("expected map[string]string, got %T", val)
-	}
-	if m["S"] != "abc" {
-		t.Errorf("S = %q, want %q", m["S"], "abc")
-	}
-}
-
-func TestMarshalItem_NumericField(t *testing.T) {
-	item := marshalItem(map[string]any{"count": float64(42)})
-	val := item["count"]
-	m, ok := val.(map[string]string)
-	if !ok {
-		t.Fatalf("expected map[string]string, got %T", val)
-	}
-	if m["N"] != "42" {
-		t.Errorf("N = %q, want %q", m["N"], "42")
+	for _, tt := range tests {
+		got := applyOffset(in, tt.offset)
+		if len(got) != len(tt.want) {
+			t.Errorf("offset %d: len %d, want %d", tt.offset, len(got), len(tt.want))
+		}
 	}
 }
 
-func TestMarshalItem_ComplexField(t *testing.T) {
-	nested := map[string]any{"key": "value"}
-	item := marshalItem(map[string]any{"data": nested})
-	val := item["data"]
-	m, ok := val.(map[string]string)
-	if !ok {
-		t.Fatalf("expected map[string]string, got %T", val)
+func TestSessionRoundTrip(t *testing.T) {
+	store, _ := newTestStore(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	sess := &storage.Session{ID: "s1", AgentID: "a1", Status: "running", Metadata: map[string]any{"k": "v"}, CreatedAt: now, UpdatedAt: now}
+	if err := store.CreateSession(ctx, sess); err != nil {
+		t.Fatalf("CreateSession: %v", err)
 	}
-	// Complex types are JSON-encoded as S
-	var decoded map[string]any
-	if err := json.Unmarshal([]byte(m["S"]), &decoded); err != nil {
-		t.Errorf("failed to decode complex field: %v", err)
-	}
-}
-
-func TestDoRequest_HTTPError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"__type":"ValidationException","message":"bad input"}`))
-	}))
-	defer srv.Close()
-
-	s, _ := New(srv.URL, "table", "us-east-1", "key", "secret")
-	_, err := s.doRequest(context.Background(), "PutItem", map[string]any{"test": "data"})
-	if err == nil {
-		t.Fatal("expected error for HTTP 400, got nil")
-		return
-	}
-}
-
-func TestDoRequest_CorrectTarget(t *testing.T) {
-	var gotTarget string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotTarget = r.Header.Get("X-Amz-Target")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{}`))
-	}))
-	defer srv.Close()
-
-	s, _ := New(srv.URL, "table", "us-east-1", "key", "secret")
-	s.doRequest(context.Background(), "PutItem", map[string]any{})
-	if gotTarget != "DynamoDB_20120810.PutItem" {
-		t.Errorf("X-Amz-Target = %q, want %q", gotTarget, "DynamoDB_20120810.PutItem")
-	}
-}
-
-func TestGetLatestCheckpoint_Error(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Doesn't matter since GetLatestCheckpoint doesn't make HTTP calls
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{}`))
-	}))
-	defer srv.Close()
-
-	s, _ := New(srv.URL, "table", "us-east-1", "", "")
-	_, err := s.GetLatestCheckpoint(context.Background(), "session-123")
-	if err == nil {
-		t.Fatal("expected error, got nil")
-		return
-	}
-}
-
-func newOKServer(t *testing.T) (*httptest.Server, *Store) {
-	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{}`))
-	}))
-	t.Cleanup(srv.Close)
-	s, _ := New(srv.URL, "table", "us-east-1", "key", "secret")
-	return srv, s
-}
-
-func TestPutItem_Success(t *testing.T) {
-	_, s := newOKServer(t)
-	if err := s.putItem(context.Background(), map[string]any{"id": "1"}); err != nil {
-		t.Errorf("putItem: %v", err)
-	}
-}
-
-func TestCreateSession_Success(t *testing.T) {
-	_, s := newOKServer(t)
-	if err := s.CreateSession(context.Background(), &storage.Session{ID: "s1"}); err != nil {
-		t.Errorf("CreateSession: %v", err)
-	}
-}
-
-func TestGetSession_Success(t *testing.T) {
-	_, s := newOKServer(t)
-	sess, err := s.GetSession(context.Background(), "s1")
+	got, err := store.GetSession(ctx, "s1")
 	if err != nil {
-		t.Errorf("GetSession: %v", err)
+		t.Fatalf("GetSession: %v", err)
 	}
-	if sess == nil {
-		t.Error("expected non-nil session")
+	if got.ID != "s1" || got.AgentID != "a1" || got.Status != "running" {
+		t.Errorf("got %+v", got)
+	}
+	if got.Metadata["k"] != "v" {
+		t.Errorf("metadata not round-tripped: %+v", got.Metadata)
+	}
+
+	sess.Status = "done"
+	if err := store.UpdateSession(ctx, sess); err != nil {
+		t.Fatalf("UpdateSession: %v", err)
+	}
+	got2, _ := store.GetSession(ctx, "s1")
+	if got2.Status != "done" {
+		t.Errorf("status = %q, want done", got2.Status)
 	}
 }
 
-func TestUpdateSession_Success(t *testing.T) {
-	_, s := newOKServer(t)
-	if err := s.UpdateSession(context.Background(), &storage.Session{ID: "s1"}); err != nil {
-		t.Errorf("UpdateSession: %v", err)
+func TestGetSession_NotFound(t *testing.T) {
+	store, _ := newTestStore(t)
+	if _, err := store.GetSession(context.Background(), "missing"); err == nil {
+		t.Fatal("expected not-found error")
 	}
 }
 
-func TestListSessions_Success(t *testing.T) {
-	_, s := newOKServer(t)
-	sessions, err := s.ListSessions(context.Background(), "agent1", 10, 0)
+func TestListSessions_OrderAndPagination(t *testing.T) {
+	store, _ := newTestStore(t)
+	ctx := context.Background()
+	base := time.Now()
+	for i := 0; i < 3; i++ {
+		s := &storage.Session{ID: string(rune('a' + i)), AgentID: "a1", CreatedAt: base.Add(time.Duration(i) * time.Minute)}
+		if err := store.CreateSession(ctx, s); err != nil {
+			t.Fatalf("CreateSession: %v", err)
+		}
+	}
+	all, err := store.ListSessions(ctx, "a1", 10, 0)
 	if err != nil {
-		t.Errorf("ListSessions: %v", err)
+		t.Fatalf("ListSessions: %v", err)
 	}
-	if sessions == nil {
-		t.Error("expected non-nil slice")
+	if len(all) != 3 || all[0].ID != "c" {
+		t.Fatalf("expected newest-first 3 sessions, got %+v", all)
 	}
-}
-
-func TestPutMemory_Success(t *testing.T) {
-	_, s := newOKServer(t)
-	if err := s.PutMemory(context.Background(), &storage.MemoryRecord{AgentID: "a1", Key: "k"}); err != nil {
-		t.Errorf("PutMemory: %v", err)
-	}
-}
-
-func TestGetMemory_Success(t *testing.T) {
-	_, s := newOKServer(t)
-	m, err := s.GetMemory(context.Background(), "a1", "key")
+	page, err := store.ListSessions(ctx, "a1", 1, 1)
 	if err != nil {
-		t.Errorf("GetMemory: %v", err)
+		t.Fatalf("ListSessions page: %v", err)
 	}
-	if m == nil {
-		t.Error("expected non-nil")
+	if len(page) != 1 || page[0].ID != "b" {
+		t.Errorf("page = %+v, want [b]", page)
 	}
 }
 
-func TestListMemory_Success(t *testing.T) {
-	_, s := newOKServer(t)
-	records, err := s.ListMemory(context.Background(), "a1", "episodic")
+func TestMemory_GetAndList(t *testing.T) {
+	store, _ := newTestStore(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	m1 := &storage.MemoryRecord{ID: "m1", AgentID: "a1", Kind: "long_term", Key: "name", Value: "Alice", CreatedAt: now}
+	m2 := &storage.MemoryRecord{ID: "m2", AgentID: "a1", Kind: "short_term", Key: "mood", Value: "happy", CreatedAt: now.Add(time.Second)}
+	for _, m := range []*storage.MemoryRecord{m1, m2} {
+		if err := store.PutMemory(ctx, m); err != nil {
+			t.Fatalf("PutMemory: %v", err)
+		}
+	}
+
+	got, err := store.GetMemory(ctx, "a1", "name")
 	if err != nil {
-		t.Errorf("ListMemory: %v", err)
+		t.Fatalf("GetMemory: %v", err)
 	}
-	if records == nil {
-		t.Error("expected non-nil slice")
+	if got.Value != "Alice" {
+		t.Errorf("value = %v, want Alice", got.Value)
 	}
-}
 
-func TestDeleteMemory_Success(t *testing.T) {
-	_, s := newOKServer(t)
-	if err := s.DeleteMemory(context.Background(), "m1"); err != nil {
-		t.Errorf("DeleteMemory: %v", err)
-	}
-}
-
-func TestAppendAuditLog_Success(t *testing.T) {
-	_, s := newOKServer(t)
-	if err := s.AppendAuditLog(context.Background(), &storage.AuditLog{ID: "l1"}); err != nil {
-		t.Errorf("AppendAuditLog: %v", err)
-	}
-}
-
-func TestListAuditLogs_Success(t *testing.T) {
-	_, s := newOKServer(t)
-	logs, err := s.ListAuditLogs(context.Background(), "sess", 10, 0)
+	lt, err := store.ListMemory(ctx, "a1", "long_term")
 	if err != nil {
-		t.Errorf("ListAuditLogs: %v", err)
+		t.Fatalf("ListMemory: %v", err)
 	}
-	if logs == nil {
-		t.Error("expected non-nil slice")
+	if len(lt) != 1 || lt[0].ID != "m1" {
+		t.Errorf("long_term list = %+v", lt)
+	}
+
+	if err := store.DeleteMemory(ctx, "m1"); err != nil {
+		t.Fatalf("DeleteMemory: %v", err)
+	}
+	if _, err := store.GetMemory(ctx, "a1", "name"); err == nil {
+		t.Error("expected not-found after delete")
 	}
 }
 
-func TestInsertTrace_Success(t *testing.T) {
-	_, s := newOKServer(t)
-	if err := s.InsertTrace(context.Background(), &storage.Trace{ID: "t1"}); err != nil {
-		t.Errorf("InsertTrace: %v", err)
+func TestAuditTraceRoundTrip(t *testing.T) {
+	store, _ := newTestStore(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	if err := store.AppendAuditLog(ctx, &storage.AuditLog{ID: "l1", SessionID: "s1", Action: "chat", CreatedAt: now}); err != nil {
+		t.Fatalf("AppendAuditLog: %v", err)
+	}
+	logs, err := store.ListAuditLogs(ctx, "s1", 10, 0)
+	if err != nil || len(logs) != 1 {
+		t.Fatalf("ListAuditLogs: %v, %+v", err, logs)
+	}
+
+	if err = store.InsertTrace(ctx, &storage.Trace{ID: "t1", SessionID: "s1", Name: "n", StartedAt: now}); err != nil {
+		t.Fatalf("InsertTrace: %v", err)
+	}
+	tr, err := store.GetTrace(ctx, "t1")
+	if err != nil || tr.ID != "t1" {
+		t.Fatalf("GetTrace: %v, %+v", err, tr)
+	}
+	traces, err := store.ListTraces(ctx, "s1")
+	if err != nil || len(traces) != 1 {
+		t.Fatalf("ListTraces: %v, %+v", err, traces)
 	}
 }
 
-func TestGetTrace_Success(t *testing.T) {
-	_, s := newOKServer(t)
-	tr, err := s.GetTrace(context.Background(), "t1")
+func TestEvents_OrderAndFilter(t *testing.T) {
+	store, _ := newTestStore(t)
+	ctx := context.Background()
+	for i := 1; i <= 3; i++ {
+		e := &storage.Event{ID: string(rune('a' + i)), SessionID: "s1", SeqNum: int64(i), Type: "t"}
+		if err := store.AppendEvent(ctx, e); err != nil {
+			t.Fatalf("AppendEvent: %v", err)
+		}
+	}
+	all, err := store.ListEvents(ctx, "s1", 0)
 	if err != nil {
-		t.Errorf("GetTrace: %v", err)
+		t.Fatalf("ListEvents: %v", err)
 	}
-	if tr == nil {
-		t.Error("expected non-nil trace")
+	if len(all) != 3 || all[0].SeqNum != 1 || all[2].SeqNum != 3 {
+		t.Fatalf("events not ascending: %+v", all)
+	}
+	after, _ := store.ListEvents(ctx, "s1", 1)
+	if len(after) != 2 {
+		t.Errorf("expected 2 events after seq 1, got %d", len(after))
 	}
 }
 
-func TestListTraces_Success(t *testing.T) {
-	_, s := newOKServer(t)
-	traces, err := s.ListTraces(context.Background(), "sess")
+func TestCheckpoints(t *testing.T) {
+	store, _ := newTestStore(t)
+	ctx := context.Background()
+	for i := 1; i <= 2; i++ {
+		cp := &storage.Checkpoint{ID: string(rune('a' + i)), SessionID: "s1", SeqNum: int64(i), State: map[string]any{"n": i}}
+		if err := store.SaveCheckpoint(ctx, cp); err != nil {
+			t.Fatalf("SaveCheckpoint: %v", err)
+		}
+	}
+	got, err := store.GetCheckpoint(ctx, "b")
+	if err != nil || got.ID != "b" {
+		t.Fatalf("GetCheckpoint: %v, %+v", err, got)
+	}
+	list, err := store.ListCheckpoints(ctx, "s1")
+	if err != nil || len(list) != 2 {
+		t.Fatalf("ListCheckpoints: %v, %+v", err, list)
+	}
+	latest, err := store.GetLatestCheckpoint(ctx, "s1")
 	if err != nil {
-		t.Errorf("ListTraces: %v", err)
+		t.Fatalf("GetLatestCheckpoint: %v", err)
 	}
-	if traces == nil {
-		t.Error("expected non-nil slice")
-	}
-}
-
-func TestAppendEvent_Success(t *testing.T) {
-	_, s := newOKServer(t)
-	if err := s.AppendEvent(context.Background(), &storage.Event{ID: "e1"}); err != nil {
-		t.Errorf("AppendEvent: %v", err)
+	if latest.SeqNum != 2 {
+		t.Errorf("latest seq = %d, want 2", latest.SeqNum)
 	}
 }
 
-func TestListEvents_Success(t *testing.T) {
-	_, s := newOKServer(t)
-	events, err := s.ListEvents(context.Background(), "sess", 0)
+func TestGetLatestCheckpoint_NotFound(t *testing.T) {
+	store, _ := newTestStore(t)
+	if _, err := store.GetLatestCheckpoint(context.Background(), "none"); err == nil {
+		t.Fatal("expected error for missing checkpoint")
+	}
+}
+
+func TestMigrateIdempotent(t *testing.T) {
+	store, _ := newTestStore(t)
+	ctx := context.Background()
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	// Second call must swallow ResourceInUseException.
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate (idempotent): %v", err)
+	}
+}
+
+func TestCloseAndConstructor(t *testing.T) {
+	store, err := New("http://localhost:8000", "chronos", "us-east-1", "key", "secret")
 	if err != nil {
-		t.Errorf("ListEvents: %v", err)
+		t.Fatalf("New: %v", err)
 	}
-	if events == nil {
-		t.Error("expected non-nil slice")
+	if store.tableName != "chronos" {
+		t.Errorf("tableName = %q", store.tableName)
 	}
-}
-
-func TestSaveCheckpoint_Success(t *testing.T) {
-	_, s := newOKServer(t)
-	if err := s.SaveCheckpoint(context.Background(), &storage.Checkpoint{ID: "cp1"}); err != nil {
-		t.Errorf("SaveCheckpoint: %v", err)
+	if err := store.Close(); err != nil {
+		t.Errorf("Close: %v", err)
 	}
 }
 
-func TestGetCheckpoint_Success(t *testing.T) {
-	_, s := newOKServer(t)
-	cp, err := s.GetCheckpoint(context.Background(), "cp1")
-	if err != nil {
-		t.Errorf("GetCheckpoint: %v", err)
-	}
-	if cp == nil {
-		t.Error("expected non-nil checkpoint")
-	}
-}
-
-func TestListCheckpoints_Success(t *testing.T) {
-	_, s := newOKServer(t)
-	cps, err := s.ListCheckpoints(context.Background(), "sess")
-	if err != nil {
-		t.Errorf("ListCheckpoints: %v", err)
-	}
-	if cps == nil {
-		t.Error("expected non-nil slice")
-	}
-}
-
-func TestMigrate_Success(t *testing.T) {
-	_, s := newOKServer(t)
-	if err := s.Migrate(context.Background()); err != nil {
-		t.Errorf("Migrate: %v", err)
-	}
-}
-
-func TestMigrate_Error(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error":"already exists"}`))
-	}))
-	defer srv.Close()
-	s, _ := New(srv.URL, "table", "us-east-1", "", "")
-	if err := s.Migrate(context.Background()); err == nil {
-		t.Error("expected error from Migrate on HTTP 400")
-	}
+func TestCompileTimeInterface(t *testing.T) {
+	var _ storage.Storage = (*Store)(nil)
 }
