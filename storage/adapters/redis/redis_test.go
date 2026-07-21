@@ -1,191 +1,320 @@
 package redis
 
 import (
+	"context"
 	"testing"
+	"time"
+
+	"github.com/alicebob/miniredis/v2"
+	goredis "github.com/redis/go-redis/v9"
 
 	"github.com/spawn08/chronos/storage"
 )
 
-func TestExtractJSON(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{
-			name:  "bulk string with JSON object",
-			input: "$42\r\n{\"id\":\"s1\",\"agent_id\":\"a1\",\"status\":\"running\"}\r\n",
-			want:  `{"id":"s1","agent_id":"a1","status":"running"}`,
-		},
-		{
-			name:  "bulk string with JSON array",
-			input: "$10\r\n[1,2,3]\r\n",
-			want:  "[1,2,3]",
-		},
-		{
-			name:  "nested JSON object",
-			input: "$20\r\n{\"a\":{\"b\":\"c\"}}\r\n",
-			want:  `{"a":{"b":"c"}}`,
-		},
-		{
-			name:  "empty response",
-			input: "",
-			want:  "",
-		},
-		{
-			name:  "nil response (no JSON)",
-			input: "$-1\r\n",
-			want:  "",
-		},
-		{
-			name:  "error response",
-			input: "-ERR something\r\n",
-			want:  "",
-		},
-		{
-			name:  "nested arrays",
-			input: "$20\r\n{\"items\":[1,[2,3]]}\r\n",
-			want:  `{"items":[1,[2,3]]}`,
-		},
-	}
+// newTestStore spins up an in-process miniredis and returns a Store bound to it.
+func newTestStore(t *testing.T) (*Store, *miniredis.Miniredis) {
+	t.Helper()
+	mr := miniredis.RunT(t)
+	client := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
+	store := NewWithClient(client)
+	t.Cleanup(func() { _ = store.Close() })
+	return store, mr
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := extractJSON(tt.input)
-			if got != tt.want {
-				t.Errorf("extractJSON(%q) = %q, want %q", tt.input, got, tt.want)
-			}
-		})
+func TestNew_ConnectRefused(t *testing.T) {
+	// Port 1 is reserved and will refuse the TCP connection.
+	if _, err := New("127.0.0.1:1", "", 0); err == nil {
+		t.Fatal("expected connection error, got nil")
 	}
 }
 
-func TestParseScanResponse(t *testing.T) {
-	tests := []struct {
-		name       string
-		input      string
-		wantCursor string
-		wantKeys   []string
-	}{
-		{
-			name:       "single key with cursor 0",
-			input:      "*2\r\n$1\r\n0\r\n*1\r\n$20\r\nchronos:session:s1\r\n",
-			wantCursor: "0",
-			wantKeys:   []string{"chronos:session:s1"},
-		},
-		{
-			name:       "multiple keys with non-zero cursor",
-			input:      "*2\r\n$2\r\n15\r\n*2\r\n$20\r\nchronos:session:s1\r\n$20\r\nchronos:session:s2\r\n",
-			wantCursor: "15",
-			wantKeys:   []string{"chronos:session:s1", "chronos:session:s2"},
-		},
-		{
-			name:       "no keys found",
-			input:      "*2\r\n$1\r\n0\r\n*0\r\n",
-			wantCursor: "0",
-			wantKeys:   nil,
-		},
+func TestNew_PingSucceeds(t *testing.T) {
+	mr := miniredis.RunT(t)
+	s, err := New(mr.Addr(), "", 0)
+	if err != nil {
+		t.Fatalf("New: %v", err)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cursor, keys := parseScanResponse(tt.input)
-			if cursor != tt.wantCursor {
-				t.Errorf("cursor = %q, want %q", cursor, tt.wantCursor)
-			}
-			if len(keys) != len(tt.wantKeys) {
-				t.Errorf("keys count = %d, want %d", len(keys), len(tt.wantKeys))
-				return
-			}
-			for i, k := range keys {
-				if k != tt.wantKeys[i] {
-					t.Errorf("keys[%d] = %q, want %q", i, k, tt.wantKeys[i])
-				}
-			}
-		})
-	}
-}
-
-func TestParseArrayResponse(t *testing.T) {
-	tests := []struct {
-		name string
-		resp string
-		want []string
-	}{
-		{
-			name: "two elements",
-			resp: "*2\r\n$2\r\ns1\r\n$2\r\ns2\r\n",
-			want: []string{"s1", "s2"},
-		},
-		{
-			name: "empty array",
-			resp: "*0\r\n",
-			want: nil,
-		},
-		{
-			name: "single element",
-			resp: "*1\r\n$3\r\nabc\r\n",
-			want: []string{"abc"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := parseArrayResponse(tt.resp)
-			if len(got) != len(tt.want) {
-				t.Fatalf("len = %d, want %d", len(got), len(tt.want))
-			}
-			for i, v := range got {
-				if v != tt.want[i] {
-					t.Errorf("result[%d] = %q, want %q", i, v, tt.want[i])
-				}
-			}
-		})
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
 	}
 }
 
 func TestKeyFunctions(t *testing.T) {
 	tests := []struct {
 		name string
-		fn   func(string) string
-		id   string
+		got  string
 		want string
 	}{
-		{"sessionKey", sessionKey, "s1", "chronos:session:s1"},
-		{"memoryKey", memoryKey, "m1", "chronos:memory:m1"},
-		{"auditKey", auditKey, "a1", "chronos:audit:a1"},
-		{"traceKey", traceKey, "t1", "chronos:trace:t1"},
-		{"eventKey", eventKey, "e1", "chronos:event:e1"},
-		{"checkpointKey", checkpointKey, "cp1", "chronos:checkpoint:cp1"},
+		{"sessionKey", sessionKey("s1"), "chronos:session:s1"},
+		{"memoryKey", memoryKey("m1"), "chronos:memory:m1"},
+		{"auditKey", auditKey("a1"), "chronos:audit:a1"},
+		{"traceKey", traceKey("t1"), "chronos:trace:t1"},
+		{"eventKey", eventKey("e1"), "chronos:event:e1"},
+		{"checkpointKey", checkpointKey("cp1"), "chronos:checkpoint:cp1"},
+		{"sessionIndexKey", sessionIndexKey("a1"), "chronos:idx:sessions:a1"},
+		{"auditIndexKey", auditIndexKey("s1"), "chronos:idx:audits:s1"},
+		{"traceIndexKey", traceIndexKey("s1"), "chronos:idx:traces:s1"},
+		{"eventIndexKey", eventIndexKey("s1"), "chronos:idx:events:s1"},
+		{"checkpointIndexKey", checkpointIndexKey("s1"), "chronos:idx:checkpoints:s1"},
+		{"memoryIndexKey", memoryIndexKey("a1", "long_term"), "chronos:idx:memory:a1:long_term"},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := tt.fn(tt.id)
-			if got != tt.want {
-				t.Errorf("%s(%q) = %q, want %q", tt.name, tt.id, got, tt.want)
+			if tt.got != tt.want {
+				t.Errorf("%s = %q, want %q", tt.name, tt.got, tt.want)
 			}
 		})
 	}
 }
 
-func TestIndexKeyFunctions(t *testing.T) {
-	if got := sessionIndexKey("agent1"); got != "chronos:idx:sessions:agent1" {
-		t.Errorf("sessionIndexKey = %q", got)
+func TestSessionCRUD(t *testing.T) {
+	store, _ := newTestStore(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	sess := &storage.Session{ID: "s1", AgentID: "agent-1", Status: "running", CreatedAt: now, UpdatedAt: now}
+	if err := store.CreateSession(ctx, sess); err != nil {
+		t.Fatalf("CreateSession: %v", err)
 	}
-	if got := auditIndexKey("sess1"); got != "chronos:idx:audits:sess1" {
-		t.Errorf("auditIndexKey = %q", got)
+
+	got, err := store.GetSession(ctx, "s1")
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
 	}
-	if got := traceIndexKey("sess1"); got != "chronos:idx:traces:sess1" {
-		t.Errorf("traceIndexKey = %q", got)
+	if got.ID != "s1" || got.AgentID != "agent-1" {
+		t.Errorf("got %+v", got)
 	}
-	if got := eventIndexKey("sess1"); got != "chronos:idx:events:sess1" {
-		t.Errorf("eventIndexKey = %q", got)
+
+	sess.Status = "completed"
+	if err := store.UpdateSession(ctx, sess); err != nil {
+		t.Fatalf("UpdateSession: %v", err)
 	}
-	if got := checkpointIndexKey("sess1"); got != "chronos:idx:checkpoints:sess1" {
-		t.Errorf("checkpointIndexKey = %q", got)
+	got2, _ := store.GetSession(ctx, "s1")
+	if got2.Status != "completed" {
+		t.Errorf("Status = %q, want completed", got2.Status)
 	}
-	if got := memoryIndexKey("agent1", "long_term"); got != "chronos:idx:memory:agent1:long_term" {
-		t.Errorf("memoryIndexKey = %q", got)
+}
+
+func TestGetSession_NotFound(t *testing.T) {
+	store, _ := newTestStore(t)
+	if _, err := store.GetSession(context.Background(), "missing"); err == nil {
+		t.Fatal("expected not-found error")
+	}
+}
+
+func TestListSessions_OrderAndPagination(t *testing.T) {
+	store, _ := newTestStore(t)
+	ctx := context.Background()
+	base := time.Now()
+
+	for i := 0; i < 3; i++ {
+		s := &storage.Session{
+			ID:        string(rune('a' + i)),
+			AgentID:   "agent-1",
+			Status:    "running",
+			CreatedAt: base.Add(time.Duration(i) * time.Minute),
+		}
+		if err := store.CreateSession(ctx, s); err != nil {
+			t.Fatalf("CreateSession: %v", err)
+		}
+	}
+
+	all, err := store.ListSessions(ctx, "agent-1", 10, 0)
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("expected 3 sessions, got %d", len(all))
+	}
+	// Newest first (highest CreatedAt score).
+	if all[0].ID != "c" {
+		t.Errorf("first session = %q, want c (newest)", all[0].ID)
+	}
+
+	page, err := store.ListSessions(ctx, "agent-1", 1, 1)
+	if err != nil {
+		t.Fatalf("ListSessions page: %v", err)
+	}
+	if len(page) != 1 || page[0].ID != "b" {
+		t.Errorf("page = %+v, want single session b", page)
+	}
+}
+
+func TestListSessions_DefaultLimit(t *testing.T) {
+	store, _ := newTestStore(t)
+	got, err := store.ListSessions(context.Background(), "none", 0, 0)
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	if got == nil {
+		t.Error("expected non-nil slice")
+	}
+}
+
+func TestMemoryCRUD(t *testing.T) {
+	store, _ := newTestStore(t)
+	ctx := context.Background()
+
+	// GetMemory derives id as mem_<agent>_lt_<key>; store under that id.
+	id := "mem_agent-1_lt_fact"
+	mem := &storage.MemoryRecord{ID: id, AgentID: "agent-1", Kind: "long_term", Key: "fact", Value: "Alice", CreatedAt: time.Now()}
+	if err := store.PutMemory(ctx, mem); err != nil {
+		t.Fatalf("PutMemory: %v", err)
+	}
+
+	got, err := store.GetMemory(ctx, "agent-1", "fact")
+	if err != nil {
+		t.Fatalf("GetMemory: %v", err)
+	}
+	if got.Value != "Alice" {
+		t.Errorf("Value = %v, want Alice", got.Value)
+	}
+
+	list, err := store.ListMemory(ctx, "agent-1", "long_term")
+	if err != nil {
+		t.Fatalf("ListMemory: %v", err)
+	}
+	if len(list) != 1 {
+		t.Errorf("expected 1 record, got %d", len(list))
+	}
+
+	if err := store.DeleteMemory(ctx, id); err != nil {
+		t.Fatalf("DeleteMemory: %v", err)
+	}
+	if _, err := store.GetMemory(ctx, "agent-1", "fact"); err == nil {
+		t.Error("expected not-found after delete")
+	}
+}
+
+func TestAuditLogs(t *testing.T) {
+	store, _ := newTestStore(t)
+	ctx := context.Background()
+	log := &storage.AuditLog{ID: "a1", SessionID: "sess-1", Actor: "user", Action: "chat", Resource: "agent", CreatedAt: time.Now()}
+	if err := store.AppendAuditLog(ctx, log); err != nil {
+		t.Fatalf("AppendAuditLog: %v", err)
+	}
+	logs, err := store.ListAuditLogs(ctx, "sess-1", 10, 0)
+	if err != nil {
+		t.Fatalf("ListAuditLogs: %v", err)
+	}
+	if len(logs) != 1 {
+		t.Errorf("expected 1 audit log, got %d", len(logs))
+	}
+}
+
+func TestTraceCRUD(t *testing.T) {
+	store, _ := newTestStore(t)
+	ctx := context.Background()
+	tr := &storage.Trace{ID: "t1", SessionID: "sess-1", Name: "chat", Kind: "agent", StartedAt: time.Now()}
+	if err := store.InsertTrace(ctx, tr); err != nil {
+		t.Fatalf("InsertTrace: %v", err)
+	}
+	got, err := store.GetTrace(ctx, "t1")
+	if err != nil {
+		t.Fatalf("GetTrace: %v", err)
+	}
+	if got.ID != "t1" {
+		t.Errorf("ID = %q, want t1", got.ID)
+	}
+	if _, err = store.GetTrace(ctx, "missing"); err == nil {
+		t.Error("expected not-found for missing trace")
+	}
+	traces, err := store.ListTraces(ctx, "sess-1")
+	if err != nil {
+		t.Fatalf("ListTraces: %v", err)
+	}
+	if len(traces) != 1 {
+		t.Errorf("expected 1 trace, got %d", len(traces))
+	}
+}
+
+func TestEvents_OrderAndFilter(t *testing.T) {
+	store, _ := newTestStore(t)
+	ctx := context.Background()
+
+	for i := 1; i <= 3; i++ {
+		e := &storage.Event{ID: string(rune('a' + i)), SessionID: "sess-1", SeqNum: int64(i), Type: "t", Payload: map[string]any{"n": i}}
+		if err := store.AppendEvent(ctx, e); err != nil {
+			t.Fatalf("AppendEvent: %v", err)
+		}
+	}
+
+	all, err := store.ListEvents(ctx, "sess-1", 0)
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("expected 3 events, got %d", len(all))
+	}
+	if all[0].SeqNum != 1 || all[2].SeqNum != 3 {
+		t.Errorf("events not sorted ascending by seq: %+v", all)
+	}
+
+	after, _ := store.ListEvents(ctx, "sess-1", 1)
+	if len(after) != 2 {
+		t.Errorf("expected 2 events after seq=1, got %d", len(after))
+	}
+}
+
+func TestCheckpointCRUD(t *testing.T) {
+	store, _ := newTestStore(t)
+	ctx := context.Background()
+
+	for i := 1; i <= 2; i++ {
+		cp := &storage.Checkpoint{ID: string(rune('a' + i)), SessionID: "sess-1", RunID: "r1", NodeID: "n1", State: map[string]any{"k": i}, SeqNum: int64(i), CreatedAt: time.Now()}
+		if err := store.SaveCheckpoint(ctx, cp); err != nil {
+			t.Fatalf("SaveCheckpoint: %v", err)
+		}
+	}
+
+	got, err := store.GetCheckpoint(ctx, "b")
+	if err != nil {
+		t.Fatalf("GetCheckpoint: %v", err)
+	}
+	if got.ID != "b" {
+		t.Errorf("ID = %q, want b", got.ID)
+	}
+
+	list, err := store.ListCheckpoints(ctx, "sess-1")
+	if err != nil {
+		t.Fatalf("ListCheckpoints: %v", err)
+	}
+	if len(list) != 2 {
+		t.Errorf("expected 2 checkpoints, got %d", len(list))
+	}
+
+	latest, err := store.GetLatestCheckpoint(ctx, "sess-1")
+	if err != nil {
+		t.Fatalf("GetLatestCheckpoint: %v", err)
+	}
+	if latest.SeqNum != 2 {
+		t.Errorf("latest SeqNum = %d, want 2", latest.SeqNum)
+	}
+}
+
+func TestGetLatestCheckpoint_NotFound(t *testing.T) {
+	store, _ := newTestStore(t)
+	if _, err := store.GetLatestCheckpoint(context.Background(), "missing"); err == nil {
+		t.Fatal("expected error for missing checkpoint")
+	}
+}
+
+func TestMigrateAndCloseNil(t *testing.T) {
+	store, _ := newTestStore(t)
+	if err := store.Migrate(context.Background()); err != nil {
+		t.Errorf("Migrate: %v", err)
+	}
+	var empty Store
+	if err := empty.Close(); err != nil {
+		t.Errorf("Close on zero-value Store: %v", err)
+	}
+}
+
+func TestMarshalError(t *testing.T) {
+	store, _ := newTestStore(t)
+	// channels cannot be JSON-marshaled.
+	if err := store.set(context.Background(), "k", make(chan int)); err == nil {
+		t.Fatal("expected marshal error")
 	}
 }
 
