@@ -45,7 +45,7 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Infrastructure',
-      items: ['guides/storage', 'guides/streaming', 'guides/durable-execution'],
+      items: ['guides/storage', 'guides/multi-tenancy', 'guides/streaming', 'guides/durable-execution'],
     },
     {
       type: 'category',

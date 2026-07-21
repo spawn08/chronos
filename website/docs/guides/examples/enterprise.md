@@ -55,6 +55,24 @@ go run ./examples/data_residency/
 
 ---
 
+## multitenancy
+
+**Storage-level tenant isolation with `storage.WithTenant`.** Two tenants share one logical agent and one SQLite store, yet neither can see the other's sessions — even when reading by an exact, known id (the IDOR the control plane closes). Fully offline, no API keys.
+
+```bash
+go run ./examples/multitenancy/
+```
+
+**Demonstrates:**
+- Scoping every read/write with `storage.WithTenant(ctx, tenantID)`
+- `ListSessions` returning only the calling tenant's rows
+- A cross-tenant `GetSession` by id returning not-found
+- `DefaultTenant` behavior for callers that never opt in
+
+See the [Multi-Tenancy guide](../multi-tenancy.md) for the full model. Source: [examples/multitenancy](https://github.com/spawn08/chronos/tree/main/examples/multitenancy)
+
+---
+
 ## multitenant_memory
 
 **Per-tenant long-term memory isolation on one logical agent.** Two users served by the same agent, whose memories never leak across tenants — the deterministic core needs no API key.

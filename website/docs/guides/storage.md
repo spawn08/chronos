@@ -52,14 +52,30 @@ type Storage interface {
 |---------|------|---------|--------|
 | SQLite | Storage | `storage/adapters/sqlite` | Production-ready |
 | PostgreSQL | Storage | `storage/adapters/postgres` | Production-ready |
-| Redis | Storage | `storage/adapters/redis` | Available |
-| MongoDB | Storage | `storage/adapters/mongo` | Available |
-| DynamoDB | Storage | `storage/adapters/dynamo` | Available |
+| Redis | Storage | `storage/adapters/redis` | Available (go-redis/v9) |
+| MongoDB | Storage | `storage/adapters/mongo` | Available (official driver) |
+| DynamoDB | Storage | `storage/adapters/dynamo` | Available (aws-sdk-go-v2) |
 | Qdrant | VectorStore | `storage/adapters/qdrant` | Production-ready |
 | Pinecone | VectorStore | `storage/adapters/pinecone` | Available |
 | Weaviate | VectorStore | `storage/adapters/weaviate` | Available |
 | Milvus | VectorStore | `storage/adapters/milvus` | Available |
-| Redis Vector | VectorStore | `storage/adapters/redisvector` | Available |
+| Redis Vector | VectorStore | `storage/adapters/redisvector` | Available (go-redis/v9) |
+
+The Redis, MongoDB, DynamoDB, and Redis Vector adapters are built on their
+respective **official Go SDKs** (`redis/go-redis/v9`, `go.mongodb.org/mongo-driver`,
+`aws-sdk-go-v2`) for correct wire-protocol handling, connection pooling, retries,
+and auth (DynamoDB uses SigV4).
+
+:::note Breaking change
+The MongoDB constructor is now `mongo.New(uri, database)` (previously it took the
+deprecated Atlas Data API base URL, API key, database, and data source). Use a
+standard MongoDB connection string, e.g. `mongo.New("mongodb://localhost:27017", "chronos")`.
+:::
+
+:::tip Multi-tenancy
+All records carry a `tenant_id`, and reads/writes can be scoped per tenant with
+`storage.WithTenant(ctx, id)`. See the [Multi-Tenancy guide](./multi-tenancy.md).
+:::
 
 ## SQLite (Development)
 
