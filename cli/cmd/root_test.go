@@ -224,6 +224,7 @@ func TestExecuteUnknownCommand(t *testing.T) {
 	err := Execute()
 	if err == nil {
 		t.Fatal("expected error for unknown command")
+		return
 	}
 	if !strings.Contains(err.Error(), "unknown command") {
 		t.Errorf("expected 'unknown command' in error, got: %v", err)
@@ -347,6 +348,7 @@ func TestParseStrategy(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error")
+					return
 				}
 				return
 			}
@@ -379,6 +381,7 @@ func TestParseErrorStrategy(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error")
+					return
 				}
 				return
 			}
@@ -577,6 +580,7 @@ func TestExecuteConfigSetMissingArgs(t *testing.T) {
 	err := Execute()
 	if err == nil {
 		t.Fatal("expected error for missing value in config set")
+		return
 	}
 	if !strings.Contains(err.Error(), "usage") {
 		t.Errorf("expected usage message, got: %v", err)
@@ -626,6 +630,7 @@ func TestExecuteConfigUnknownSubcommand(t *testing.T) {
 	err := Execute()
 	if err == nil {
 		t.Fatal("expected error for unknown config subcommand")
+		return
 	}
 	if !strings.Contains(err.Error(), "unknown config subcommand") {
 		t.Errorf("expected 'unknown config subcommand' in error, got: %v", err)
@@ -661,6 +666,7 @@ func TestSessionsResume_SessionNotFound(t *testing.T) {
 	err := sessionsResume(ctx, store, "nonexistent")
 	if err == nil {
 		t.Fatal("expected error for non-existent session")
+		return
 	}
 	if !strings.Contains(err.Error(), "not found") {
 		t.Errorf("error should mention 'not found', got: %v", err)
@@ -680,6 +686,7 @@ func TestSessionsResume_NoCheckpoint(t *testing.T) {
 	err := sessionsResume(ctx, store, "paused-no-cp")
 	if err == nil {
 		t.Fatal("expected error when no checkpoint exists")
+		return
 	}
 	if !strings.Contains(err.Error(), "checkpoint") {
 		t.Errorf("error should mention 'checkpoint', got: %v", err)
@@ -695,6 +702,7 @@ func TestExecuteTeamCommand(t *testing.T) {
 		err := Execute()
 		if err == nil {
 			t.Fatal("expected error for unknown team subcommand")
+			return
 		}
 		if !strings.Contains(err.Error(), "unknown team subcommand") {
 			t.Errorf("expected 'unknown team subcommand' in error, got: %v", err)
@@ -706,6 +714,7 @@ func TestExecuteTeamCommand(t *testing.T) {
 		err := Execute()
 		if err == nil {
 			t.Fatal("expected error for missing team ID")
+			return
 		}
 		if !strings.Contains(err.Error(), "usage") {
 			t.Errorf("expected 'usage' in error, got: %v", err)
@@ -717,6 +726,7 @@ func TestExecuteTeamCommand(t *testing.T) {
 		err := Execute()
 		if err == nil {
 			t.Fatal("expected error for missing team run args")
+			return
 		}
 		if !strings.Contains(err.Error(), "usage") {
 			t.Errorf("expected 'usage' in error, got: %v", err)

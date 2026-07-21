@@ -11,6 +11,7 @@ func TestCalculator_LogNonPositive(t *testing.T) {
 	_, err := calc.Handler(context.Background(), map[string]any{"expression": "log(0)"})
 	if err == nil {
 		t.Fatal("expected error for log(0)")
+		return
 	}
 }
 
@@ -43,5 +44,6 @@ func TestCalculator_MissingParenAfterFunction(t *testing.T) {
 	_, err := calc.Handler(context.Background(), map[string]any{"expression": "sqrt 9"})
 	if err == nil {
 		t.Fatal("expected error for malformed function call")
+		return
 	}
 }

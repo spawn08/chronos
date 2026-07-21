@@ -90,6 +90,7 @@ func TestChatWithSession_NoModel(t *testing.T) {
 	_, err := a.ChatWithSession(context.Background(), "sess", "hello")
 	if err == nil {
 		t.Fatal("expected error for no model")
+		return
 	}
 }
 
@@ -101,6 +102,7 @@ func TestChatWithSession_NoStorage(t *testing.T) {
 	_, err := a.ChatWithSession(context.Background(), "sess", "hello")
 	if err == nil {
 		t.Fatal("expected error for no storage")
+		return
 	}
 }
 
@@ -138,6 +140,7 @@ func TestChatWithSession_ExistingSession(t *testing.T) {
 	}
 	if resp == nil {
 		t.Fatal("expected non-nil response")
+		return
 	}
 }
 
@@ -149,6 +152,7 @@ func TestChatWithSession_ModelError(t *testing.T) {
 	_, err := a.ChatWithSession(context.Background(), "sess", "hello")
 	if err == nil {
 		t.Fatal("expected error from model failure")
+		return
 	}
 }
 
@@ -171,6 +175,7 @@ func TestChatWithSession_WithSummary(t *testing.T) {
 	}
 	if resp == nil {
 		t.Fatal("expected non-nil response")
+		return
 	}
 }
 

@@ -10,6 +10,7 @@ func TestNewCostTracker(t *testing.T) {
 	ct := NewCostTracker(nil)
 	if ct == nil {
 		t.Fatal("NewCostTracker returned nil")
+		return
 	}
 	report := ct.GetGlobalCost()
 	if report.Currency != "USD" {
@@ -139,6 +140,7 @@ func TestCostTrackerBudgetEnforcement(t *testing.T) {
 	err := ct.Before(ctx, &Event{Type: EventModelCallBefore, Name: "gpt-4o"})
 	if err == nil {
 		t.Fatal("expected budget exceeded error")
+		return
 	}
 }
 

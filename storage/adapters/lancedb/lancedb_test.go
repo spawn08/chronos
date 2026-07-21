@@ -14,6 +14,7 @@ func TestNew(t *testing.T) {
 	s := New("http://localhost:8080", "my-key", "my-db")
 	if s == nil {
 		t.Fatal("New returned nil")
+		return
 	}
 	if s.baseURL != "http://localhost:8080" {
 		t.Errorf("baseURL = %q, want %q", s.baseURL, "http://localhost:8080")
@@ -168,6 +169,7 @@ func TestSearch_HTTPError(t *testing.T) {
 	_, err := s.Search(context.Background(), "col", []float32{0.1}, 5)
 	if err == nil {
 		t.Fatal("expected error, got nil")
+		return
 	}
 }
 

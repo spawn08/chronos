@@ -50,6 +50,7 @@ func TestSessionsResume_NotFound(t *testing.T) {
 	err := sessionsResume(ctx, store, "nonexistent-session")
 	if err == nil {
 		t.Fatal("expected error for nonexistent session")
+		return
 	}
 	if !strings.Contains(err.Error(), "not found") {
 		t.Errorf("expected 'not found', got: %v", err)
@@ -77,6 +78,7 @@ func TestSessionsResume_RunningNoCheckpoint(t *testing.T) {
 	err := sessionsResume(ctx, store, "sess-running2")
 	if err == nil {
 		t.Fatal("expected error for session with no checkpoint")
+		return
 	}
 	// Error can be about checkpoint or agent loading
 	_ = err
@@ -94,6 +96,7 @@ func TestTeamRun_MissingArgs(t *testing.T) {
 	err := teamRun()
 	if err == nil {
 		t.Fatal("expected error for missing args")
+		return
 	}
 	if !strings.Contains(err.Error(), "usage") {
 		t.Errorf("expected 'usage', got: %v", err)
@@ -118,6 +121,7 @@ func TestTeamRun_ConfigLoadFailure(t *testing.T) {
 	err := teamRun()
 	if err == nil {
 		t.Fatal("expected error for missing config")
+		return
 	}
 }
 
@@ -149,6 +153,7 @@ func TestRunAgentCmd_UnknownSubcommand(t *testing.T) {
 	err := runAgentCmd()
 	if err == nil {
 		t.Fatal("expected error for unknown subcommand")
+		return
 	}
 }
 
@@ -170,6 +175,7 @@ func TestAgentShowInternal_MissingID(t *testing.T) {
 	err := agentShow("nonexistent-agent-id")
 	if err == nil {
 		t.Fatal("expected error for missing agent")
+		return
 	}
 }
 
@@ -187,6 +193,7 @@ func TestAgentListInternal_ConfigFailure(t *testing.T) {
 	err := agentList()
 	if err == nil {
 		t.Fatal("expected error for missing config")
+		return
 	}
 }
 
@@ -204,6 +211,7 @@ func TestTeamListInternal_ConfigFailure(t *testing.T) {
 	err := teamList()
 	if err == nil {
 		t.Fatal("expected error for missing config")
+		return
 	}
 }
 
@@ -225,6 +233,7 @@ func TestTeamShowInternal_MissingID(t *testing.T) {
 	err := teamShow("nonexistent-team-id")
 	if err == nil {
 		t.Fatal("expected error for missing team")
+		return
 	}
 }
 
@@ -244,6 +253,7 @@ func TestRunSessionsInternal_Unknown(t *testing.T) {
 	err := runSessions()
 	if err == nil {
 		t.Fatal("expected error for unknown subcommand")
+		return
 	}
 }
 
@@ -315,6 +325,7 @@ func TestParseStrategy_Invalid(t *testing.T) {
 	_, err := parseStrategy("bogus")
 	if err == nil {
 		t.Fatal("expected error for unknown strategy")
+		return
 	}
 }
 
@@ -348,6 +359,7 @@ func TestParseErrorStrategy_Invalid(t *testing.T) {
 	_, err := parseErrorStrategy("unknown")
 	if err == nil {
 		t.Fatal("expected error for unknown error strategy")
+		return
 	}
 }
 
@@ -384,6 +396,7 @@ func TestTeamRun_TeamNotFound(t *testing.T) {
 	err := teamRun()
 	if err == nil {
 		t.Fatal("expected error for nonexistent team")
+		return
 	}
 }
 
@@ -466,6 +479,7 @@ func TestTeamRun_UnknownStrategy(t *testing.T) {
 	err := teamRun()
 	if err == nil {
 		t.Fatal("expected error for unknown strategy")
+		return
 	}
 	if !strings.Contains(err.Error(), "unknown strategy") {
 		t.Errorf("expected 'unknown strategy', got: %v", err)
@@ -593,6 +607,7 @@ func TestLoadAgentByID_AgentNotFound(t *testing.T) {
 	_, err := loadAgentByID("nonexistent")
 	if err == nil {
 		t.Fatal("expected error for nonexistent agent")
+		return
 	}
 }
 
@@ -614,6 +629,7 @@ func TestLoadDefaultAgent_Success(t *testing.T) {
 	}
 	if a == nil {
 		t.Fatal("expected non-nil agent")
+		return
 	}
 }
 
@@ -632,6 +648,7 @@ func TestLoadDefaultAgent_NoAgents(t *testing.T) {
 	_, err := loadDefaultAgent()
 	if err == nil {
 		t.Fatal("expected error for empty agents")
+		return
 	}
 	if !strings.Contains(err.Error(), "no agents") {
 		t.Errorf("expected 'no agents', got: %v", err)

@@ -15,6 +15,7 @@ func TestRollback_NoMigrationsApplied_Deep(t *testing.T) {
 	err := m.Rollback(context.Background())
 	if err == nil {
 		t.Fatal("expected rollback error when nothing applied")
+		return
 	}
 }
 
@@ -40,6 +41,7 @@ func TestRollback_MigrationNotInRegistry_Deep(t *testing.T) {
 	err = m.Rollback(context.Background())
 	if err == nil {
 		t.Fatal("expected migration not found error")
+		return
 	}
 }
 
@@ -55,5 +57,6 @@ func TestRollback_NoDownSQL_Deep(t *testing.T) {
 	err := m.Rollback(context.Background())
 	if err == nil {
 		t.Fatal("expected no rollback SQL error")
+		return
 	}
 }

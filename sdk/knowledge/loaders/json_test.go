@@ -45,6 +45,7 @@ func TestJSONLoader_InvalidJSON(t *testing.T) {
 	_, err := loader.Load()
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
+		return
 	}
 }
 
@@ -53,5 +54,6 @@ func TestJSONLoader_MissingFile(t *testing.T) {
 	_, err := loader.Load()
 	if err == nil {
 		t.Fatal("expected error for missing file")
+		return
 	}
 }

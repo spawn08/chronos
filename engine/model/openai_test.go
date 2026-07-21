@@ -78,6 +78,7 @@ func TestOpenAI_Chat_Error(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for 401")
+		return
 	}
 	if !strings.Contains(err.Error(), "openai chat") {
 		t.Errorf("error should mention openai chat: %v", err)
@@ -165,6 +166,7 @@ func TestOpenAI_StreamChat_Error(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for 403")
+		return
 	}
 }
 
@@ -336,6 +338,7 @@ func TestOpenAI_Chat_InvalidJSON(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for invalid JSON response")
+		return
 	}
 }
 

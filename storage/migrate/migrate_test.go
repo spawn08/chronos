@@ -87,6 +87,7 @@ func TestMigrate_Rollback(t *testing.T) {
 	_, err := db.Exec("INSERT INTO t (id) VALUES (1)")
 	if err == nil {
 		t.Fatal("expected error after rollback")
+		return
 	}
 }
 
@@ -128,6 +129,7 @@ func TestMigrate_RollbackEmpty(t *testing.T) {
 	err := m.Rollback(context.Background())
 	if err == nil {
 		t.Fatal("expected error for empty rollback")
+		return
 	}
 }
 
@@ -164,6 +166,7 @@ func TestMigrate_Rollback_NoDownSQL(t *testing.T) {
 	err := m.Rollback(context.Background())
 	if err == nil {
 		t.Fatal("expected error for missing Down SQL")
+		return
 	}
 }
 
@@ -181,6 +184,7 @@ func TestMigrate_Rollback_MigrationNotInRegistry(t *testing.T) {
 	err := m2.Rollback(context.Background())
 	if err == nil {
 		t.Fatal("expected error for migration not in registry")
+		return
 	}
 }
 
@@ -192,6 +196,7 @@ func TestMigrate_Apply_BadSQL(t *testing.T) {
 	err := m.Migrate(context.Background())
 	if err == nil {
 		t.Fatal("expected error for invalid SQL")
+		return
 	}
 }
 

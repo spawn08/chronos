@@ -21,6 +21,7 @@ func TestCostTracker_Before_BudgetExactlyReached(t *testing.T) {
 	err := ct.Before(ctx, &Event{Type: EventModelCallBefore, Name: "m"})
 	if err == nil {
 		t.Fatal("expected budget error when spend equals budget")
+		return
 	}
 }
 

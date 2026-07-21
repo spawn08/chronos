@@ -11,6 +11,7 @@ func TestLoadFile_ExplicitMissing_Deep(t *testing.T) {
 	_, err := LoadFile("/this/path/does/not/exist/chronos_agents_404.yaml")
 	if err == nil {
 		t.Fatal("expected not found error")
+		return
 	}
 }
 
@@ -23,6 +24,7 @@ func TestLoadFile_InvalidYAML_Deep(t *testing.T) {
 	_, err := LoadFile(p)
 	if err == nil {
 		t.Fatal("expected parse error")
+		return
 	}
 }
 
@@ -31,6 +33,7 @@ func TestFileConfig_FindTeam_NotFound_Deep(t *testing.T) {
 	_, err := fc.FindTeam("missing")
 	if err == nil {
 		t.Fatal("expected find team error")
+		return
 	}
 }
 
@@ -46,6 +49,7 @@ func TestBuildAgent_UnknownStorageBackend_Deep(t *testing.T) {
 	_, err := BuildAgent(context.Background(), cfg)
 	if err == nil {
 		t.Fatal("expected storage backend error")
+		return
 	}
 }
 
@@ -61,6 +65,7 @@ func TestBuildAgent_PostgresDSNMissing_Deep(t *testing.T) {
 	_, err := BuildAgent(context.Background(), cfg)
 	if err == nil {
 		t.Fatal("expected postgres dsn error")
+		return
 	}
 }
 
@@ -73,5 +78,6 @@ func TestBuildAll_SubAgentMissing_Deep(t *testing.T) {
 	_, err := BuildAll(context.Background(), fc)
 	if err == nil {
 		t.Fatal("expected sub-agent missing error")
+		return
 	}
 }

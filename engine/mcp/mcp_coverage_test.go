@@ -93,6 +93,7 @@ func TestListResources_RPCError(t *testing.T) {
 	_, err = client.ListResources(context.Background())
 	if err == nil {
 		t.Fatal("expected error from resources/list default handler")
+		return
 	}
 }
 
@@ -128,6 +129,7 @@ func TestReadResource_ParseError(t *testing.T) {
 	_, err = client.ReadResource(context.Background(), "file:///x")
 	if err == nil {
 		t.Fatal("expected parse error")
+		return
 	}
 	_ = clientW.Close()
 	_ = clientR.Close()

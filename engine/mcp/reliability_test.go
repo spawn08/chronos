@@ -133,6 +133,7 @@ func TestCallContextHonored(t *testing.T) {
 			case err := <-done:
 				if err == nil {
 					t.Fatal("expected error from canceled/timed-out call")
+					return
 				}
 				if elapsed := time.Since(start); elapsed > 2*time.Second {
 					t.Fatalf("call took too long to honor ctx: %v", elapsed)
@@ -189,6 +190,7 @@ func TestCloseTearsDownHungServer(t *testing.T) {
 	case err := <-callDone:
 		if err == nil {
 			t.Fatal("expected in-flight call to fail after Close")
+			return
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("in-flight call not unblocked by Close")
@@ -223,6 +225,7 @@ func TestReadMessageBounded(t *testing.T) {
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("expected error for oversized message")
+					return
 				}
 				if !strings.Contains(err.Error(), "byte limit") {
 					t.Fatalf("expected limit error, got: %v", err)
@@ -264,6 +267,7 @@ func TestNewClientTransportValidation(t *testing.T) {
 			}
 			if err == nil {
 				t.Fatalf("expected error containing %q", tc.wantErr)
+				return
 			}
 			if !strings.Contains(err.Error(), tc.wantErr) {
 				t.Fatalf("error %q does not contain %q", err.Error(), tc.wantErr)

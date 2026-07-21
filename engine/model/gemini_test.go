@@ -75,6 +75,7 @@ func TestGemini_Chat_Error(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for 400")
+		return
 	}
 	if !strings.Contains(err.Error(), "gemini chat") {
 		t.Errorf("error should mention gemini chat: %v", err)
@@ -182,6 +183,7 @@ func TestGemini_Chat_InvalidJSON(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
+		return
 	}
 }
 
@@ -197,6 +199,7 @@ func TestGemini_BuildRequestBody_SystemInstruction(t *testing.T) {
 	si, _ := body["systemInstruction"].(map[string]any)
 	if si == nil {
 		t.Fatal("expected systemInstruction")
+		return
 	}
 	parts, _ := si["parts"].([]map[string]string)
 	if len(parts) != 1 || parts[0]["text"] != "Be concise." {
@@ -252,6 +255,7 @@ func TestGemini_BuildRequestBody_GenConfig(t *testing.T) {
 	genConfig, _ := body["generationConfig"].(map[string]any)
 	if genConfig == nil {
 		t.Fatal("expected generationConfig")
+		return
 	}
 	if genConfig["maxOutputTokens"] != 256 {
 		t.Errorf("maxOutputTokens=%v, want 256", genConfig["maxOutputTokens"])
@@ -340,6 +344,7 @@ func TestGemini_StreamChat_Error(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for 429")
+		return
 	}
 }
 

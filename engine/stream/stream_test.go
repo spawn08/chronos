@@ -14,6 +14,7 @@ func TestNewBroker(t *testing.T) {
 	b := NewBroker()
 	if b == nil {
 		t.Fatal("NewBroker returned nil")
+		return
 	}
 	if b.fanout == nil {
 		t.Fatal("fanout should be initialized")

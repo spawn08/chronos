@@ -23,6 +23,7 @@ func TestMultipleFinishPoints(t *testing.T) {
 	}
 	if compiled == nil {
 		t.Fatal("expected compiled graph")
+		return
 	}
 }
 
@@ -112,6 +113,7 @@ func TestStateGraph_EdgeFromMissingNode(t *testing.T) {
 	_, err := g.Compile()
 	if err == nil {
 		t.Fatal("expected error for edge to missing node")
+		return
 	}
 }
 
@@ -133,6 +135,7 @@ func TestStateGraph_InterruptAndNormalMix(t *testing.T) {
 	approvalNode := compiled.Nodes["approval"]
 	if approvalNode == nil {
 		t.Fatal("approval node not found")
+		return
 	}
 	if !approvalNode.Interrupt {
 		t.Error("approval node should be interrupt")
@@ -191,6 +194,7 @@ func TestNodeFunc_PropagatesError(t *testing.T) {
 	_, err = fn(context.Background(), State{})
 	if err == nil {
 		t.Fatal("expected error from failing node func")
+		return
 	}
 	if err.Error() != "failure" {
 		t.Errorf("error=%q, want failure", err.Error())

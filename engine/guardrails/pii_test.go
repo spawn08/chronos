@@ -10,6 +10,7 @@ func TestPIIGuardrail_DetectsEmail(t *testing.T) {
 	result := g.Check(nil, "Contact me at user@example.com")
 	if result == nil {
 		t.Fatal("expected PII detection for email")
+		return
 	}
 	if !strings.Contains(result.Reason, "email") {
 		t.Errorf("reason should mention email: %s", result.Reason)
@@ -21,6 +22,7 @@ func TestPIIGuardrail_DetectsSSN(t *testing.T) {
 	result := g.Check(nil, "My SSN is 123-45-6789")
 	if result == nil {
 		t.Fatal("expected PII detection for SSN")
+		return
 	}
 }
 
@@ -29,6 +31,7 @@ func TestPIIGuardrail_DetectsPhone(t *testing.T) {
 	result := g.Check(nil, "Call me at 555-123-4567")
 	if result == nil {
 		t.Fatal("expected PII detection for phone")
+		return
 	}
 }
 
@@ -37,6 +40,7 @@ func TestPIIGuardrail_DetectsIP(t *testing.T) {
 	result := g.Check(nil, "Server at 192.168.1.1")
 	if result == nil {
 		t.Fatal("expected PII detection for IP address")
+		return
 	}
 }
 
@@ -53,6 +57,7 @@ func TestPIIGuardrail_AllTypesDefault(t *testing.T) {
 	result := g.Check(nil, "Email: test@example.com, SSN: 123-45-6789")
 	if result == nil {
 		t.Fatal("expected PII detection")
+		return
 	}
 }
 
@@ -98,6 +103,7 @@ func TestPIIGuardrail_DetectsCreditCard(t *testing.T) {
 	result := g.Check(nil, "Card number: 4111111111111111")
 	if result == nil {
 		t.Fatal("expected PII detection for credit card")
+		return
 	}
 }
 

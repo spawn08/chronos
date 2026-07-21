@@ -132,6 +132,7 @@ func TestRouter_NoAgents(t *testing.T) {
 	_, err := tm.Run(context.Background(), graph.State{"message": "hello"})
 	if err == nil {
 		t.Fatal("expected error when router selects nonexistent agent")
+		return
 	}
 }
 
@@ -312,6 +313,7 @@ func TestCapabilityMatch_WithMatchingState(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 }
 
@@ -332,6 +334,7 @@ func TestCapabilityMatch_StringValueMatch(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 }
 
@@ -341,6 +344,7 @@ func TestTeamRun_UnknownStrategy(t *testing.T) {
 	_, err := tm.Run(context.Background(), graph.State{"message": "test"})
 	if err == nil {
 		t.Fatal("expected error for unknown strategy")
+		return
 	}
 }
 

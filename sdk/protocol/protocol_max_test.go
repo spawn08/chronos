@@ -32,6 +32,7 @@ func TestDirectChannelBetween_ConcurrentFirstCreate(t *testing.T) {
 	dc := b.DirectChannelBetween("y", "x", 2)
 	if dc == nil {
 		t.Fatal("nil channel for reverse key order")
+		return
 	}
 }
 
@@ -43,5 +44,6 @@ func TestBroadcast_SendAfterClose(t *testing.T) {
 	err := b.Send(context.Background(), &Envelope{Type: TypeBroadcast, From: "a", To: "*", Body: []byte("{}")})
 	if err == nil {
 		t.Fatal("expected error broadcasting on closed bus")
+		return
 	}
 }

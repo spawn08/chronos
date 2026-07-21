@@ -28,6 +28,7 @@ func TestNewOpenAIAudioWithConfig_OrgID(t *testing.T) {
 	})
 	if a == nil {
 		t.Fatal("expected non-nil")
+		return
 	}
 }
 
@@ -65,6 +66,7 @@ func TestOpenAIAudio_Transcribe_EmptyData(t *testing.T) {
 	_, err := a.Transcribe(context.Background(), AudioContent{})
 	if err == nil {
 		t.Fatal("expected error for empty data")
+		return
 	}
 }
 
@@ -102,6 +104,7 @@ func TestOpenAIAudio_Transcribe_HTTPError(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for 401")
+		return
 	}
 }
 
@@ -134,6 +137,7 @@ func TestOpenAIAudio_Synthesize_HTTPError(t *testing.T) {
 	_, err := a.Synthesize(context.Background(), "test", "invalid-voice")
 	if err == nil {
 		t.Fatal("expected error for 400")
+		return
 	}
 }
 

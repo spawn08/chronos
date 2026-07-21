@@ -17,6 +17,7 @@ func TestNew(t *testing.T) {
 	}
 	if s == nil {
 		t.Fatal("New returned nil")
+		return
 	}
 	if s.endpoint != "http://localhost:8000" {
 		t.Errorf("endpoint = %q", s.endpoint)
@@ -118,6 +119,7 @@ func TestDoRequest_HTTPError(t *testing.T) {
 	_, err := s.doRequest(context.Background(), "PutItem", map[string]any{"test": "data"})
 	if err == nil {
 		t.Fatal("expected error for HTTP 400, got nil")
+		return
 	}
 }
 
@@ -149,6 +151,7 @@ func TestGetLatestCheckpoint_Error(t *testing.T) {
 	_, err := s.GetLatestCheckpoint(context.Background(), "session-123")
 	if err == nil {
 		t.Fatal("expected error, got nil")
+		return
 	}
 }
 

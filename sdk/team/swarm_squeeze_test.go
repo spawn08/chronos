@@ -15,6 +15,7 @@ func TestNewSwarm_TooFewAgents_Squeeze(t *testing.T) {
 	_, err = NewSwarm(SwarmConfig{Agents: []*agent.Agent{only}})
 	if err == nil {
 		t.Fatal("expected error for single agent")
+		return
 	}
 }
 
@@ -35,6 +36,7 @@ func TestNewSwarm_InitialAgentMissing_Squeeze(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for unknown initial agent")
+		return
 	}
 }
 
@@ -54,5 +56,6 @@ func TestNewSwarm_DefaultMaxHandoffs_Squeeze(t *testing.T) {
 	}
 	if tm == nil {
 		t.Fatal("nil team")
+		return
 	}
 }

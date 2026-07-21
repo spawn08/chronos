@@ -394,6 +394,7 @@ func TestChat_OutputSchemaValidation_MissingRequired(t *testing.T) {
 	_, err := agent.Chat(context.Background(), "Who are you?")
 	if err == nil {
 		t.Fatal("expected validation error for missing required field 'age'")
+		return
 	}
 	if !contains(err.Error(), "required field") {
 		t.Errorf("error should mention 'required field', got: %v", err)
@@ -419,6 +420,7 @@ func TestChat_OutputSchemaValidation_WrongType(t *testing.T) {
 	_, err := agent.Chat(context.Background(), "Who are you?")
 	if err == nil {
 		t.Fatal("expected validation error for wrong type")
+		return
 	}
 	if !contains(err.Error(), "expected number") {
 		t.Errorf("error should mention type mismatch, got: %v", err)
@@ -441,6 +443,7 @@ func TestChat_OutputSchemaValidation_InvalidJSON(t *testing.T) {
 	_, err := agent.Chat(context.Background(), "hello")
 	if err == nil {
 		t.Fatal("expected validation error for invalid JSON")
+		return
 	}
 	if !contains(err.Error(), "not valid JSON") {
 		t.Errorf("error should mention invalid JSON, got: %v", err)
@@ -672,6 +675,7 @@ func TestValidateAgainstSchema(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
+					return
 				}
 				if tt.errMsg != "" && !contains(err.Error(), tt.errMsg) {
 					t.Errorf("error %q should contain %q", err.Error(), tt.errMsg)
@@ -744,6 +748,7 @@ func TestChat_NoModel(t *testing.T) {
 	_, err := agent.Chat(context.Background(), "hello")
 	if err == nil {
 		t.Fatal("expected error for agent without model")
+		return
 	}
 	if !contains(err.Error(), "no model") {
 		t.Errorf("error should mention 'no model', got: %v", err)
@@ -789,6 +794,7 @@ func TestChat_RetryHookIntegration(t *testing.T) {
 	_, err := agent.Chat(context.Background(), "hello")
 	if err == nil {
 		t.Fatal("expected error when provider always fails")
+		return
 	}
 }
 
@@ -810,6 +816,7 @@ func TestChat_InputGuardrailBlocks(t *testing.T) {
 	_, err := agent.Chat(context.Background(), "this is forbidden content")
 	if err == nil {
 		t.Fatal("expected guardrail to block input")
+		return
 	}
 	if !contains(err.Error(), "guardrail") {
 		t.Errorf("error should mention guardrail: %v", err)
@@ -918,6 +925,7 @@ func TestChat_PublishesErrorToBroker(t *testing.T) {
 	_, err := agent.Chat(context.Background(), "hi")
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 
 	var events []stream.Event
@@ -984,6 +992,7 @@ func TestChat_TracesModelError(t *testing.T) {
 	_, err := agent.Chat(context.Background(), "fail me")
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 
 	foundErrorSpan := false
@@ -1213,6 +1222,7 @@ func TestExecute_NoModel(t *testing.T) {
 	_, err := agent.Execute(context.Background(), "task")
 	if err == nil {
 		t.Fatal("expected error for agent without model")
+		return
 	}
 }
 
@@ -1223,6 +1233,7 @@ func TestExecute_ModelError(t *testing.T) {
 	_, err := agent.Execute(context.Background(), "task")
 	if err == nil {
 		t.Fatal("expected error when model fails")
+		return
 	}
 }
 
@@ -1264,6 +1275,7 @@ func TestRun_NoGraphNoModel(t *testing.T) {
 	_, err := agent.Run(context.Background(), map[string]any{})
 	if err == nil {
 		t.Fatal("expected error when no graph or model")
+		return
 	}
 }
 
@@ -1310,6 +1322,7 @@ func TestRun_WithGraph_NoStorage(t *testing.T) {
 	_, err := agent.Run(context.Background(), map[string]any{})
 	if err == nil {
 		t.Fatal("expected error when graph but no storage")
+		return
 	}
 }
 
@@ -1339,6 +1352,7 @@ func TestRun_InputGuardrailBlocks(t *testing.T) {
 	_, err := agent.Run(context.Background(), map[string]any{"message": "this is banned"})
 	if err == nil {
 		t.Fatal("expected guardrail to block")
+		return
 	}
 }
 
@@ -1360,6 +1374,7 @@ func TestChat_OutputGuardrailBlocks(t *testing.T) {
 	_, err := agent.Chat(context.Background(), "tell me secrets")
 	if err == nil {
 		t.Fatal("expected output guardrail to block")
+		return
 	}
 }
 
@@ -1487,6 +1502,7 @@ func TestBuilder_InvalidGraph(t *testing.T) {
 	_, err := New("bad", "Bad Agent").WithGraph(g).Build()
 	if err == nil {
 		t.Fatal("expected error for graph without entry point")
+		return
 	}
 }
 
@@ -1506,6 +1522,7 @@ func TestResume_NoGraphOrStorage(t *testing.T) {
 	_, err := agent.Resume(context.Background(), "session-1")
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -1591,6 +1608,7 @@ func TestChat_WithExamples(t *testing.T) {
 	}
 	if resp == nil {
 		t.Fatal("expected non-nil response")
+		return
 	}
 	// Examples should have been included in the request
 	if provider.lastReq == nil {

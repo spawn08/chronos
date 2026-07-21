@@ -167,6 +167,7 @@ func TestSummarize_ProviderError(t *testing.T) {
 	_, err := s.Summarize(context.Background(), "", msgs)
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 

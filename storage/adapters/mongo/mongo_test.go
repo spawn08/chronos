@@ -17,6 +17,7 @@ func TestNew(t *testing.T) {
 	}
 	if s == nil {
 		t.Fatal("New returned nil")
+		return
 	}
 	if s.baseURL != "http://localhost" {
 		t.Errorf("baseURL = %q", s.baseURL)
@@ -105,6 +106,7 @@ func TestGetSession_InvalidJSON(t *testing.T) {
 	_, err := s.GetSession(context.Background(), "nonexistent")
 	if err == nil {
 		t.Fatal("expected error for invalid JSON response, got nil")
+		return
 	}
 }
 

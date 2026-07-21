@@ -174,6 +174,7 @@ func TestRetryHook_ContextCancelled(t *testing.T) {
 	err := hook.After(ctx, evt)
 	if err == nil {
 		t.Fatal("expected context cancellation error")
+		return
 	}
 }
 

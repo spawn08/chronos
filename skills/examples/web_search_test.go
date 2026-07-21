@@ -8,6 +8,7 @@ func TestWebSearchSkill_Fields(t *testing.T) {
 	s := WebSearchSkill
 	if s == nil {
 		t.Fatal("WebSearchSkill is nil")
+		return
 	}
 
 	tests := []struct {

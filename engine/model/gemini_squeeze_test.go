@@ -11,6 +11,7 @@ func TestNewGeminiWithConfig_DefaultBaseURLAndModel_Squeeze(t *testing.T) {
 	})
 	if g == nil {
 		t.Fatal("nil provider")
+		return
 	}
 	if g.config.BaseURL != "https://generativelanguage.googleapis.com/v1beta" {
 		t.Errorf("BaseURL=%q", g.config.BaseURL)

@@ -81,6 +81,7 @@ func TestMigrate_ExecFailure_Deep(t *testing.T) {
 	err = s.Migrate(context.Background())
 	if err == nil {
 		t.Fatal("expected migrate error")
+		return
 	}
 }
 
@@ -131,6 +132,7 @@ func TestGetMemory_NoRow_Deep(t *testing.T) {
 	_, err = s.GetMemory(context.Background(), "agent-1", "missing")
 	if err == nil {
 		t.Fatal("expected ErrNoRows")
+		return
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("want ErrNoRows, got %v", err)
@@ -205,6 +207,7 @@ func TestListSessions_IterationError_Deep(t *testing.T) {
 	_, err = s.ListSessions(context.Background(), "agent-1", 10, 0)
 	if err == nil {
 		t.Fatal("expected rows error")
+		return
 	}
 }
 
@@ -253,6 +256,7 @@ func TestListMemory_QueryError_Deep(t *testing.T) {
 	_, err = s.ListMemory(context.Background(), "agent-1", "long_term")
 	if err == nil {
 		t.Fatal("expected query error")
+		return
 	}
 }
 
@@ -304,5 +308,6 @@ func TestAppendEvent_ExecError_Deep(t *testing.T) {
 	err = s.AppendEvent(context.Background(), e)
 	if err == nil {
 		t.Fatal("expected append event error")
+		return
 	}
 }

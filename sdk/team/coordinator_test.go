@@ -84,6 +84,7 @@ func TestRunCoordinator_NoAgents(t *testing.T) {
 	_, err := tm.Run(context.Background(), graph.State{"message": "do something"})
 	if err == nil {
 		t.Fatal("expected error with no agents")
+		return
 	}
 }
 
@@ -94,6 +95,7 @@ func TestRunCoordinator_NoCoordinator_OneAgent(t *testing.T) {
 	_, err := tm.Run(context.Background(), graph.State{"message": "do something"})
 	if err == nil {
 		t.Fatal("expected error with 1 agent and no coordinator")
+		return
 	}
 }
 
@@ -113,6 +115,7 @@ func TestRunCoordinator_WithPlanDone(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 }
 
@@ -134,6 +137,7 @@ func TestRunCoordinator_WithTask(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 }
 
@@ -160,6 +164,7 @@ func TestRunCoordinator_ExecutesPlan(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 }
 
@@ -175,6 +180,7 @@ func TestCoordinatorPlan_ModelError(t *testing.T) {
 	_, err := tm.Run(context.Background(), graph.State{"message": "do something"})
 	if err == nil {
 		t.Fatal("expected error from model failure")
+		return
 	}
 }
 
@@ -200,6 +206,7 @@ func TestRunCoordinator_WithDependentTask(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 }
 

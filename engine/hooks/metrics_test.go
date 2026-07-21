@@ -10,6 +10,7 @@ func TestNewMetricsHook(t *testing.T) {
 	h := NewMetricsHook()
 	if h == nil {
 		t.Fatal("NewMetricsHook returned nil")
+		return
 	}
 }
 

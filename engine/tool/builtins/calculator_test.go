@@ -56,6 +56,7 @@ func TestCalculator_DivisionByZero(t *testing.T) {
 	_, err := calc.Handler(context.Background(), map[string]any{"expression": "1/0"})
 	if err == nil {
 		t.Fatal("expected division by zero error")
+		return
 	}
 }
 
@@ -64,6 +65,7 @@ func TestCalculator_InvalidExpression(t *testing.T) {
 	_, err := calc.Handler(context.Background(), map[string]any{"expression": "abc"})
 	if err == nil {
 		t.Fatal("expected error for invalid expression")
+		return
 	}
 }
 
@@ -72,6 +74,7 @@ func TestCalculator_EmptyExpression(t *testing.T) {
 	_, err := calc.Handler(context.Background(), map[string]any{"expression": ""})
 	if err == nil {
 		t.Fatal("expected error for empty expression")
+		return
 	}
 }
 
@@ -80,6 +83,7 @@ func TestCalculator_MissingArg(t *testing.T) {
 	_, err := calc.Handler(context.Background(), map[string]any{"expression": 42.0})
 	if err == nil {
 		t.Fatal("expected error for non-string expression")
+		return
 	}
 }
 
@@ -128,6 +132,7 @@ func TestCalculator_MissingClosingParen(t *testing.T) {
 	_, err := calc.Handler(context.Background(), map[string]any{"expression": "(2 + 3"})
 	if err == nil {
 		t.Fatal("expected error for missing closing paren")
+		return
 	}
 }
 

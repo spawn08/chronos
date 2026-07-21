@@ -88,6 +88,7 @@ func TestUninstallNotFound(t *testing.T) {
 	err := r.Uninstall("ghost")
 	if err == nil {
 		t.Fatal("expected error uninstalling nonexistent skill")
+		return
 	}
 }
 

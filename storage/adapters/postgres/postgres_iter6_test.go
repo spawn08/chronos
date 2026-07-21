@@ -73,6 +73,7 @@ func TestMigrate_ExecError_ITER6(t *testing.T) {
 	err := s.Migrate(context.Background())
 	if err == nil {
 		t.Fatal("expected Migrate error")
+		return
 	}
 }
 
@@ -86,6 +87,7 @@ func TestGetSession_NoRows_ITER6(t *testing.T) {
 	_, err = s.GetSession(context.Background(), "missing")
 	if err == nil {
 		t.Fatal("expected ErrNoRows")
+		return
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("expected sql.ErrNoRows, got %v", err)
@@ -101,6 +103,7 @@ func TestCreateSession_ExecError_ITER6(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -114,6 +117,7 @@ func TestListSessions_QueryError_ITER6(t *testing.T) {
 	_, err = s.ListSessions(context.Background(), "a1", 10, 0)
 	if err == nil {
 		t.Fatal("expected query error")
+		return
 	}
 }
 

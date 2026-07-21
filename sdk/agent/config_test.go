@@ -139,6 +139,7 @@ func TestFindAgent(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error")
+					return
 				}
 				return
 			}

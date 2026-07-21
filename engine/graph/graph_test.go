@@ -92,6 +92,7 @@ func TestCompile_NoEntryPoint(t *testing.T) {
 	_, err := g.Compile()
 	if err == nil {
 		t.Fatal("expected error for missing entry point")
+		return
 	}
 }
 
@@ -102,6 +103,7 @@ func TestCompile_EntryNodeNotFound(t *testing.T) {
 	_, err := g.Compile()
 	if err == nil {
 		t.Fatal("expected error for missing entry node")
+		return
 	}
 }
 
@@ -114,6 +116,7 @@ func TestCompile_EdgeTargetNotFound(t *testing.T) {
 	_, err := g.Compile()
 	if err == nil {
 		t.Fatal("expected error for missing edge target")
+		return
 	}
 }
 

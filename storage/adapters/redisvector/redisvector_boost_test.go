@@ -58,6 +58,7 @@ func TestStore_Search_WriteFails_Boost(t *testing.T) {
 	_, err := s.Search(context.Background(), "col", []float32{0.1, 0.2}, 2)
 	if err == nil {
 		t.Fatal("expected error when connection is broken")
+		return
 	}
 }
 

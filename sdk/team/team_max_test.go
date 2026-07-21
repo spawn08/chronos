@@ -11,6 +11,7 @@ func TestHandoffResult_UnmarshalTypeError(t *testing.T) {
 	_, _, err := HandoffResult(map[string]any{"agent_id": 42, "response": "x"})
 	if err == nil {
 		t.Fatal("expected unmarshal error when agent_id is numeric in JSON")
+		return
 	}
 }
 

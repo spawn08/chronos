@@ -22,6 +22,7 @@ func TestFindOne_DocumentNotFound_ITER6(t *testing.T) {
 	_, err := s.GetSession(context.Background(), "missing")
 	if err == nil {
 		t.Fatal("expected document not found error")
+		return
 	}
 }
 
@@ -37,6 +38,7 @@ func TestDo_InvalidJSONBody_ITER6(t *testing.T) {
 	_, err := s.do(context.Background(), "findOne", "sessions", map[string]any{"filter": map[string]any{}})
 	if err == nil {
 		t.Fatal("expected decode error from do")
+		return
 	}
 }
 
@@ -54,6 +56,7 @@ func TestFind_WrapperUnmarshalError_ITER6(t *testing.T) {
 	_, err := s.find(context.Background(), "sessions", map[string]any{"agent_id": "a1"}, map[string]any{"created_at": -1}, 10)
 	if err == nil {
 		t.Fatal("expected find wrapper unmarshal error")
+		return
 	}
 }
 
@@ -70,6 +73,7 @@ func TestFindOne_WrapperUnmarshalError_ITER6(t *testing.T) {
 	err := s.findOne(context.Background(), "sessions", map[string]any{"id": "x"}, &sess)
 	if err == nil {
 		t.Fatal("expected unmarshal into session to fail")
+		return
 	}
 }
 
@@ -78,5 +82,6 @@ func TestDo_ClientRoundTripError_ITER6(t *testing.T) {
 	_, err := s.do(context.Background(), "insertOne", "sessions", map[string]any{"document": map[string]any{}})
 	if err == nil {
 		t.Fatal("expected network error")
+		return
 	}
 }

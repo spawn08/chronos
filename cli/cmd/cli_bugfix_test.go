@@ -22,6 +22,7 @@ func TestRunAgent_TrailingAgentFlagErrors(t *testing.T) {
 		err := Execute()
 		if err == nil {
 			t.Fatalf("%s with no value: expected error, got nil", flag)
+			return
 		}
 		if !strings.Contains(err.Error(), "requires an agent id") {
 			t.Fatalf("%s: unexpected error: %v", flag, err)
@@ -36,6 +37,7 @@ func TestRunMonitor_InvalidInterval(t *testing.T) {
 		err := Execute()
 		if err == nil {
 			t.Fatalf("--interval %q: expected error, got nil", val)
+			return
 		}
 		if !strings.Contains(err.Error(), "invalid --interval") {
 			t.Fatalf("--interval %q: unexpected error: %v", val, err)
@@ -50,6 +52,7 @@ func TestRunMonitor_UnknownFlag(t *testing.T) {
 	err := Execute()
 	if err == nil {
 		t.Fatal("unknown flag: expected error, got nil")
+		return
 	}
 	if !strings.Contains(err.Error(), "unknown monitor flag") {
 		t.Fatalf("unexpected error: %v", err)

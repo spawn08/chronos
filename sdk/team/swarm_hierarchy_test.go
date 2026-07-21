@@ -19,6 +19,7 @@ func TestNewSwarm_TooFewAgents(t *testing.T) {
 	_, err := NewSwarm(SwarmConfig{Agents: []*agent.Agent{a1}})
 	if err == nil {
 		t.Fatal("expected error with <2 agents")
+		return
 	}
 }
 
@@ -34,6 +35,7 @@ func TestNewSwarm_Success(t *testing.T) {
 	}
 	if team == nil {
 		t.Fatal("expected non-nil team")
+		return
 	}
 }
 
@@ -48,6 +50,7 @@ func TestNewSwarm_DefaultInitialAgent(t *testing.T) {
 	}
 	if team == nil {
 		t.Fatal("expected non-nil team")
+		return
 	}
 }
 
@@ -60,6 +63,7 @@ func TestNewSwarm_InvalidInitialAgent(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for invalid initial agent")
+		return
 	}
 }
 
@@ -76,6 +80,7 @@ func TestNewSwarm_AgentHasHandoffTools(t *testing.T) {
 	}
 	if tm == nil {
 		t.Fatal("expected non-nil team")
+		return
 	}
 	// Each agent should have handoff tools for other agents (n-1 tools)
 	a1Tools := a1.Tools.List()
@@ -96,6 +101,7 @@ func TestNewSwarm_DefaultMaxHandoffs(t *testing.T) {
 	}
 	if team == nil {
 		t.Fatal("expected non-nil team")
+		return
 	}
 }
 
@@ -103,6 +109,7 @@ func TestSwarmHandoffTool(t *testing.T) {
 	def := SwarmHandoffTool("analyst", "Analyst Agent", "Hand off to analyst for data analysis")
 	if def == nil {
 		t.Fatal("expected non-nil definition")
+		return
 	}
 	if def.Name != "transfer_to_analyst" {
 		t.Errorf("Name=%q", def.Name)
@@ -135,6 +142,7 @@ func TestNewHierarchy_NilRoot(t *testing.T) {
 	_, err := NewHierarchy(HierarchyConfig{Root: nil})
 	if err == nil {
 		t.Fatal("expected error for nil root")
+		return
 	}
 }
 
@@ -142,6 +150,7 @@ func TestNewHierarchy_NilRootSupervisor(t *testing.T) {
 	_, err := NewHierarchy(HierarchyConfig{Root: &SupervisorNode{Supervisor: nil}})
 	if err == nil {
 		t.Fatal("expected error for nil supervisor")
+		return
 	}
 }
 
@@ -161,6 +170,7 @@ func TestNewHierarchy_SingleLevel(t *testing.T) {
 	}
 	if team == nil {
 		t.Fatal("expected non-nil team")
+		return
 	}
 }
 
@@ -185,6 +195,7 @@ func TestNewHierarchy_TwoLevels(t *testing.T) {
 	}
 	if team == nil {
 		t.Fatal("expected non-nil team")
+		return
 	}
 }
 
@@ -224,6 +235,7 @@ func TestHandleAgentMessage_TaskRequest(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 	if !result.Success {
 		t.Errorf("expected success, got error: %s", result.Error)
@@ -247,6 +259,7 @@ func TestHandleAgentMessage_TaskRequest_NilInput(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 }
 
@@ -290,6 +303,7 @@ func TestExecuteAgent_WithoutMessage(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 }
 
@@ -302,6 +316,7 @@ func TestHandoffConfig_Validation(t *testing.T) {
 	def := NewHandoffTool(cfg)
 	if def == nil {
 		t.Fatal("expected non-nil handoff tool")
+		return
 	}
 }
 

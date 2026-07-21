@@ -28,6 +28,7 @@ func TestFileReadTool_Missing(t *testing.T) {
 	_, err := tool.Handler(context.Background(), map[string]any{"path": "nope.txt"})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -117,6 +118,7 @@ func TestFileWriteTool_NoPath(t *testing.T) {
 	_, err := tool.Handler(context.Background(), map[string]any{"content": "data"})
 	if err == nil {
 		t.Fatal("expected error for missing path")
+		return
 	}
 }
 
@@ -137,6 +139,7 @@ func TestFileGlobTool_NoPattern(t *testing.T) {
 	_, err := tool.Handler(context.Background(), map[string]any{})
 	if err == nil {
 		t.Fatal("expected error for missing pattern")
+		return
 	}
 }
 
@@ -153,6 +156,7 @@ func TestFileListTool_InvalidDir(t *testing.T) {
 	_, err := tool.Handler(context.Background(), map[string]any{"path": "."})
 	if err == nil {
 		t.Fatal("expected error for invalid base path")
+		return
 	}
 }
 

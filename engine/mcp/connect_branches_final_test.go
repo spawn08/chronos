@@ -19,6 +19,7 @@ func TestConnect_StartFailsForMissingBinary(t *testing.T) {
 	cerr := cli.Connect(context.Background())
 	if cerr == nil {
 		t.Fatal("expected start error")
+		return
 	}
 	if !strings.Contains(cerr.Error(), "start") {
 		t.Fatalf("unexpected: %v", cerr)

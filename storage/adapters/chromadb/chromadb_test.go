@@ -14,6 +14,7 @@ func TestNew(t *testing.T) {
 	s := New("http://localhost:8000")
 	if s == nil {
 		t.Fatal("New returned nil")
+		return
 	}
 	if s.baseURL != "http://localhost:8000" {
 		t.Errorf("baseURL = %q, want %q", s.baseURL, "http://localhost:8000")
@@ -76,6 +77,7 @@ func TestCreateCollection_Error(t *testing.T) {
 	err := s.CreateCollection(ctx, "test", 128)
 	if err == nil {
 		t.Fatal("expected error, got nil")
+		return
 	}
 }
 
@@ -234,5 +236,6 @@ func TestGetCollectionID_HTTPError(t *testing.T) {
 	_, err := s.getCollectionID(context.Background(), "missing-col")
 	if err == nil {
 		t.Fatal("expected error for 404, got nil")
+		return
 	}
 }

@@ -162,6 +162,7 @@ func TestChat_MaxIterationsExceededError(t *testing.T) {
 			resp, err := a.Chat(context.Background(), "go")
 			if err == nil {
 				t.Fatalf("expected error, got resp=%+v", resp)
+				return
 			}
 			if resp != nil {
 				t.Fatalf("expected nil response on error, got %+v", resp)

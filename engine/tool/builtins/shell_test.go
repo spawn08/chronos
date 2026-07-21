@@ -61,6 +61,7 @@ func TestShellTool_AllowedCommands(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("disallowed command should fail")
+		return
 	}
 }
 
@@ -69,6 +70,7 @@ func TestShellTool_MissingCommand(t *testing.T) {
 	_, err := sh.Handler(context.Background(), map[string]any{})
 	if err == nil {
 		t.Fatal("expected error for missing command")
+		return
 	}
 }
 

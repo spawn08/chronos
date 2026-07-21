@@ -49,5 +49,6 @@ func TestNew_ConnectRefused_ITER6(t *testing.T) {
 	_, err := New("127.0.0.1:1", "", 0)
 	if err == nil {
 		t.Fatal("expected connect error")
+		return
 	}
 }

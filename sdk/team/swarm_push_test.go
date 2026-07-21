@@ -48,5 +48,6 @@ func TestNewSwarm_DuplicateAgentIDs_Push(t *testing.T) {
 	}
 	if tm == nil {
 		t.Fatal("expected non-nil team")
+		return
 	}
 }

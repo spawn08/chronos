@@ -53,6 +53,7 @@ func TestExecutePanicRecovery(t *testing.T) {
 			result, err := r.Execute(context.Background(), "panicky", nil)
 			if err == nil {
 				t.Fatal("expected error from panicking tool, got nil")
+				return
 			}
 			if result != nil {
 				t.Fatalf("expected nil result, got %v", result)

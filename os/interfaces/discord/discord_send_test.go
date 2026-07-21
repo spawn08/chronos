@@ -62,6 +62,7 @@ func TestSendMessage_HTTPErrorWithMockTransport(t *testing.T) {
 	err := b.SendMessage(context.Background(), "c", "x")
 	if err == nil {
 		t.Fatal("expected error for 4xx")
+		return
 	}
 	if !strings.Contains(err.Error(), "400") {
 		t.Errorf("err=%v", err)
@@ -79,6 +80,7 @@ func TestSendMessage_NetworkErrorWithMockTransport(t *testing.T) {
 	err := b.SendMessage(context.Background(), "c", "x")
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 

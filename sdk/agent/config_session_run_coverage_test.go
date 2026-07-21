@@ -24,6 +24,7 @@ func TestChatWithSession_HookBeforeModelError(t *testing.T) {
 	_, err := a.ChatWithSession(context.Background(), "sess-hook", "hello")
 	if err == nil {
 		t.Fatal("expected hook error")
+		return
 	}
 	if !strings.Contains(err.Error(), "hook before model call") {
 		t.Fatalf("unexpected err: %v", err)
@@ -53,6 +54,7 @@ func TestChatWithSession_PersistUserMessageError(t *testing.T) {
 	_, err := a.ChatWithSession(context.Background(), "sess-user-persist", "hello")
 	if err == nil {
 		t.Fatal("expected persist user message error")
+		return
 	}
 	if !errors.Is(err, errAppendBoom) {
 		t.Fatalf("unexpected err: %v", err)
@@ -94,6 +96,7 @@ func TestBuildAgent_EmptyModelProvider_Table(t *testing.T) {
 			})
 			if err == nil {
 				t.Fatal("expected model provider error")
+				return
 			}
 		})
 	}
@@ -116,6 +119,7 @@ func TestRun_ModelExecuteError_Table(t *testing.T) {
 			_, err := a.Run(context.Background(), tt.input)
 			if err == nil {
 				t.Fatal("expected Execute/Run error")
+				return
 			}
 		})
 	}
@@ -149,6 +153,7 @@ func TestRun_HookAfterRunError(t *testing.T) {
 	_, err = a.Run(context.Background(), map[string]any{"message": "hi"})
 	if err == nil {
 		t.Fatal("expected hook After error")
+		return
 	}
 	if !errors.Is(err, errHookAfter) {
 		t.Fatalf("got %v", err)

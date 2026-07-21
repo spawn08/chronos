@@ -256,6 +256,7 @@ func TestClient_CallAfterClose(t *testing.T) {
 	_, err = client.ListTools(context.Background())
 	if err == nil {
 		t.Fatal("expected error when calling after close")
+		return
 	}
 }
 
@@ -341,6 +342,7 @@ func TestClient_ToolCallError(t *testing.T) {
 	_, err = client.CallTool(context.Background(), "fail_tool", nil)
 	if err == nil {
 		t.Fatal("expected error for tool isError=true")
+		return
 	}
 	if !strings.Contains(err.Error(), "tool failed") {
 		t.Errorf("unexpected error: %v", err)
@@ -364,6 +366,7 @@ func TestClient_ListToolsServerError(t *testing.T) {
 	_, err = client.ListTools(context.Background())
 	if err == nil {
 		t.Fatal("expected error from server error response")
+		return
 	}
 }
 
@@ -502,6 +505,7 @@ func TestCallLocked_ClientClosed(t *testing.T) {
 	_, err = client.callLocked(context.Background(), "test/method", nil)
 	if err == nil {
 		t.Fatal("expected error when calling closed client")
+		return
 	}
 	if !strings.Contains(err.Error(), "closed") {
 		t.Errorf("error should mention closed: %v", err)
@@ -604,6 +608,7 @@ func TestCallLocked_ServerError(t *testing.T) {
 	_, err = client.callLocked(context.Background(), "bad/method", nil)
 	if err == nil {
 		t.Fatal("expected error for server error response")
+		return
 	}
 	if !strings.Contains(err.Error(), "invalid request") {
 		t.Errorf("error should contain server message: %v", err)
@@ -694,6 +699,7 @@ func TestCallLocked_ReadError(t *testing.T) {
 	_, err = client.callLocked(context.Background(), "test", nil)
 	if err == nil {
 		t.Fatal("expected error when reader is exhausted")
+		return
 	}
 	if !strings.Contains(err.Error(), "read") {
 		t.Errorf("error should mention read: %v", err)
@@ -787,6 +793,7 @@ func TestCallTool_ErrorWithNoContent(t *testing.T) {
 	_, err := client.CallTool(context.Background(), "broken", nil)
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 	if !strings.Contains(err.Error(), "unknown") {
 		t.Errorf("expected 'unknown' in error, got: %v", err)

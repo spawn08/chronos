@@ -69,5 +69,6 @@ func TestMemoryTools_Recall_ListError_Max(t *testing.T) {
 	_, err := recall.Handler(context.Background(), nil)
 	if err == nil {
 		t.Fatal("expected list error")
+		return
 	}
 }

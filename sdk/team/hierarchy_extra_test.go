@@ -26,6 +26,7 @@ func TestBuildHierarchyGraph_LeafSupervisor(t *testing.T) {
 	}
 	if team == nil {
 		t.Fatal("expected non-nil team")
+		return
 	}
 	if team.Strategy != "hierarchy" {
 		t.Errorf("Strategy = %q, want hierarchy", team.Strategy)
@@ -55,6 +56,7 @@ func TestBuildHierarchyGraph_OnlySubTeams(t *testing.T) {
 	}
 	if team == nil {
 		t.Fatal("expected non-nil team")
+		return
 	}
 }
 
@@ -78,6 +80,7 @@ func TestBuildHierarchyGraph_MultipleWorkers(t *testing.T) {
 	}
 	if team == nil {
 		t.Fatal("expected non-nil team")
+		return
 	}
 	// All agents should be in the map
 	if len(team.Agents) != 4 { // 1 supervisor + 3 workers
@@ -98,6 +101,7 @@ func TestCollectAgents_NilSupervisorInSubTeam(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for nil supervisor in sub-team")
+		return
 	}
 }
 
@@ -114,6 +118,7 @@ func TestNewSwarm_MaxHandoffs(t *testing.T) {
 	}
 	if team == nil {
 		t.Fatal("expected non-nil team")
+		return
 	}
 }
 
@@ -153,6 +158,7 @@ func TestSwarmHandoffTool_NoContext(t *testing.T) {
 	def := SwarmHandoffTool("coder", "Coder Agent", "Hand off coding tasks")
 	if def == nil {
 		t.Fatal("expected non-nil definition")
+		return
 	}
 
 	result, err := def.Handler(context.Background(), map[string]any{

@@ -17,6 +17,7 @@ func TestNewClient_UnsupportedTransport_Deep(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected unsupported transport error")
+		return
 	}
 }
 
@@ -28,6 +29,7 @@ func TestNewClient_MissingCommand_Deep(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected missing command error")
+		return
 	}
 }
 
@@ -38,6 +40,7 @@ func TestNewClient_DefaultTransport_Deep(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for empty command with default stdio")
+		return
 	}
 }
 
@@ -72,6 +75,7 @@ func TestRegisterTools_ListToolsError_Deep(t *testing.T) {
 	_, err = RegisterTools(context.Background(), c, reg)
 	if err == nil {
 		t.Fatal("expected register tools error")
+		return
 	}
 	_ = clientR.Close()
 }

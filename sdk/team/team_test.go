@@ -76,6 +76,7 @@ func TestParallel(t *testing.T) {
 
 	if result == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 }
 
@@ -121,6 +122,7 @@ func TestUnknownStrategy(t *testing.T) {
 	_, err := tm.Run(context.Background(), graph.State{})
 	if err == nil {
 		t.Fatal("expected error for unknown strategy")
+		return
 	}
 }
 

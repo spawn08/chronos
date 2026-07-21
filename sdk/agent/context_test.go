@@ -32,6 +32,7 @@ func TestEvictLargeResult_LargeResult(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("large result should be evicted")
+		return
 	}
 	if result.StorageKey == "" {
 		t.Error("storage key should not be empty")
@@ -138,6 +139,7 @@ func TestReadStoredResult_NonStringValue(t *testing.T) {
 	}
 	if evicted == nil {
 		t.Fatal("expected eviction for large data")
+		return
 	}
 	result, err := ReadStoredResult(ctx, store, "sess2", evicted.StorageKey)
 	if err != nil {

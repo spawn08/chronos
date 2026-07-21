@@ -73,6 +73,7 @@ func TestSQL_InsertBlocked(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for blocked INSERT")
+		return
 	}
 }
 
@@ -99,6 +100,7 @@ func TestSQL_EmptyQuery(t *testing.T) {
 	_, err := sqlTool.Handler(context.Background(), map[string]any{"query": ""})
 	if err == nil {
 		t.Fatal("expected error for empty query")
+		return
 	}
 }
 
@@ -109,6 +111,7 @@ func TestSQL_MissingQuery(t *testing.T) {
 	_, err := sqlTool.Handler(context.Background(), map[string]any{})
 	if err == nil {
 		t.Fatal("expected error for missing query")
+		return
 	}
 }
 

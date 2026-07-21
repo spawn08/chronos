@@ -27,6 +27,7 @@ func TestClient_CreateTask_HTTPError(t *testing.T) {
 	_, err := c.CreateTask(context.Background(), "in", nil)
 	if err == nil {
 		t.Fatal("expected error on HTTP 500")
+		return
 	}
 	if !strings.Contains(err.Error(), "500") {
 		t.Errorf("error should mention status: %v", err)
@@ -45,6 +46,7 @@ func TestClient_GetTask_InvalidJSON(t *testing.T) {
 	_, err := c.GetTask(context.Background(), "task_1")
 	if err == nil {
 		t.Fatal("expected decode error")
+		return
 	}
 }
 

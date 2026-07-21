@@ -10,6 +10,7 @@ func TestNewCacheHook(t *testing.T) {
 	h := NewCacheHook(time.Minute)
 	if h == nil {
 		t.Fatal("NewCacheHook returned nil")
+		return
 	}
 	if h.TTL != time.Minute {
 		t.Errorf("expected TTL 1m, got %v", h.TTL)

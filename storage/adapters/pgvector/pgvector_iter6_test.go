@@ -116,6 +116,7 @@ func TestCreateCollection_ExecError_ITER6(t *testing.T) {
 	err = st.CreateCollection(context.Background(), "c", 3)
 	if err == nil {
 		t.Fatal("expected CreateCollection error")
+		return
 	}
 }
 
@@ -129,6 +130,7 @@ func TestSearch_QueryError_ITER6(t *testing.T) {
 	_, err = st.Search(context.Background(), "c", []float32{1, 2}, 5)
 	if err == nil {
 		t.Fatal("expected Search error")
+		return
 	}
 }
 
@@ -142,6 +144,7 @@ func TestSearch_ScanError_ITER6(t *testing.T) {
 	_, err = st.Search(context.Background(), "c", []float32{1}, 5)
 	if err == nil {
 		t.Fatal("expected Search scan error")
+		return
 	}
 }
 
@@ -171,5 +174,6 @@ func TestDelete_ExecError_ITER6(t *testing.T) {
 	err = st.Delete(context.Background(), "c", []string{"a", "b"})
 	if err == nil {
 		t.Fatal("expected Delete error")
+		return
 	}
 }

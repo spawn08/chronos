@@ -132,6 +132,7 @@ func TestCheckpoints_UniqueSessionSeq(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatal("expected UNIQUE(session_id, seq_num) violation, got nil")
+		return
 	}
 }
 

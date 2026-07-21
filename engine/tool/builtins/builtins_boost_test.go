@@ -64,6 +64,7 @@ func TestSQLTool_OperationDenied_Boost(t *testing.T) {
 	_, err := h(context.Background(), map[string]any{"query": "DELETE FROM x"})
 	if err == nil {
 		t.Fatal("expected op denied")
+		return
 	}
 }
 
@@ -77,6 +78,7 @@ func TestSQLTool_DefaultAllowsSelectOnly_Boost(t *testing.T) {
 	_, err := def.Handler(context.Background(), map[string]any{"query": "INSERT INTO x VALUES (1)"})
 	if err == nil {
 		t.Fatal("expected insert denied with default ops")
+		return
 	}
 }
 
@@ -115,5 +117,6 @@ func TestFileWriteTool_MkdirAllFails_Boost(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected mkdir error when path component is a file")
+		return
 	}
 }

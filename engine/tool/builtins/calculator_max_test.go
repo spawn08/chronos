@@ -51,6 +51,7 @@ func TestCalculatorTool_ExpressionsMax(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error")
+					return
 				}
 				if tt.errContain != "" && !strings.Contains(err.Error(), tt.errContain) {
 					t.Fatalf("err %q should contain %q", err.Error(), tt.errContain)
@@ -69,5 +70,6 @@ func TestCalculatorTool_NonStringExpression(t *testing.T) {
 	_, err := tool.Handler(context.Background(), map[string]any{"expression": 42})
 	if err == nil {
 		t.Fatal("expected error for non-string expression")
+		return
 	}
 }

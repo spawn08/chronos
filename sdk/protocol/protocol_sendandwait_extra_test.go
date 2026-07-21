@@ -29,6 +29,7 @@ func TestSendAndWait_SenderNotRegistered(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error: sender not registered")
+		return
 	}
 }
 
@@ -49,5 +50,6 @@ func TestSendAndWait_SendFailsWhenBusClosed(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error when bus is closed")
+		return
 	}
 }

@@ -107,6 +107,7 @@ func TestEngine_CheckOutput(t *testing.T) {
 	r := e.CheckOutput(ctx, "contains PII data")
 	if r == nil {
 		t.Fatal("expected block")
+		return
 	}
 	if !strings.Contains(r.Reason, "output") {
 		t.Errorf("reason should indicate output position: %s", r.Reason)
@@ -152,6 +153,7 @@ func TestEngine_MultipleRules_FirstFailure(t *testing.T) {
 	r := e.CheckInput(context.Background(), "contains alpha and beta")
 	if r == nil {
 		t.Fatal("expected block")
+		return
 	}
 	if !strings.Contains(r.Reason, "first") {
 		t.Errorf("should report first failing rule, got: %s", r.Reason)

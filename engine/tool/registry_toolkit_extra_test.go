@@ -30,6 +30,7 @@ func TestExecute_RequiresConfirmation_NoHandler(t *testing.T) {
 	_, err := r.Execute(context.Background(), "c", nil)
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -46,6 +47,7 @@ func TestExecute_RequiresConfirmation_Denied(t *testing.T) {
 	_, err := r.Execute(context.Background(), "c", nil)
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -62,6 +64,7 @@ func TestExecute_RequiresConfirmation_Error(t *testing.T) {
 	_, err := r.Execute(context.Background(), "c", nil)
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -78,6 +81,7 @@ func TestExecute_RequiresUserInput_NoHandler(t *testing.T) {
 	_, err := r.Execute(context.Background(), "u", map[string]any{})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -94,6 +98,7 @@ func TestExecute_RequiresUserInput_HandlerError(t *testing.T) {
 	_, err := r.Execute(context.Background(), "u", nil)
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 

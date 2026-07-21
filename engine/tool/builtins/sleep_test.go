@@ -48,6 +48,7 @@ func TestSleepTool_NegativeSeconds(t *testing.T) {
 	_, err := tool.Handler(context.Background(), map[string]any{"seconds": -1.0})
 	if err == nil {
 		t.Fatal("expected error for negative seconds")
+		return
 	}
 }
 
@@ -56,6 +57,7 @@ func TestSleepTool_InvalidArg(t *testing.T) {
 	_, err := tool.Handler(context.Background(), map[string]any{"seconds": "not a number"})
 	if err == nil {
 		t.Fatal("expected error for string seconds")
+		return
 	}
 }
 
@@ -71,6 +73,7 @@ func TestSleepTool_ContextCancel(t *testing.T) {
 	_, err := tool.Handler(ctx, map[string]any{"seconds": 10.0})
 	if err == nil {
 		t.Fatal("expected context cancellation error")
+		return
 	}
 }
 

@@ -289,6 +289,7 @@ func TestChat_MaxIterationsStopsToolLoop(t *testing.T) {
 	resp, err := a.Chat(context.Background(), "go")
 	if err == nil {
 		t.Fatalf("expected error when max iterations exceeded, got resp=%+v", resp)
+		return
 	}
 	if resp != nil {
 		t.Fatalf("expected nil response on max-iteration error, got %+v", resp)
@@ -309,6 +310,7 @@ func TestChat_BrokerAndTracerOnError(t *testing.T) {
 	_, err := a.Chat(context.Background(), "x")
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 

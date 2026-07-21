@@ -51,6 +51,7 @@ func TestDockerAPI_MockRoundTripper_DoError(t *testing.T) {
 	_, err := sb.dockerAPI(context.Background(), http.MethodGet, "/v1.41/containers/json", nil)
 	if err == nil {
 		t.Fatal("expected error from client.Do")
+		return
 	}
 }
 

@@ -25,6 +25,7 @@ func TestNewPool_NilFactory(t *testing.T) {
 	_, err := NewPool(PoolConfig{Factory: nil})
 	if err == nil {
 		t.Fatal("expected error for nil factory")
+		return
 	}
 }
 
@@ -146,6 +147,7 @@ func TestContainerPool_Acquire_Closed(t *testing.T) {
 	_, err = p.Acquire()
 	if err == nil {
 		t.Fatal("expected error acquiring from closed pool")
+		return
 	}
 }
 

@@ -274,6 +274,7 @@ func TestHTTPGet_Failure(t *testing.T) {
 	_, err := httpGet(t.Context(), client, "http://127.0.0.1:19999")
 	if err == nil {
 		t.Fatal("expected error for unreachable server")
+		return
 	}
 }
 
@@ -283,6 +284,7 @@ func TestHTTPGet_InvalidURL(t *testing.T) {
 	_, err := httpGet(t.Context(), client, "://invalid-url")
 	if err == nil {
 		t.Fatal("expected error for invalid URL")
+		return
 	}
 }
 

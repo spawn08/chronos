@@ -76,6 +76,7 @@ func TestWebLoader_404(t *testing.T) {
 	_, err := loader.Load()
 	if err == nil {
 		t.Fatal("expected error for 404")
+		return
 	}
 }
 

@@ -28,6 +28,7 @@ func TestRegisterEntrypoint_EmptyName(t *testing.T) {
 	_, err := RegisterEntrypoint("", func(ctx context.Context, input any) (any, error) { return nil, nil })
 	if err == nil {
 		t.Fatal("expected error for empty name")
+		return
 	}
 }
 
@@ -35,6 +36,7 @@ func TestRegisterEntrypoint_NilFunc(t *testing.T) {
 	_, err := RegisterEntrypoint("test", nil)
 	if err == nil {
 		t.Fatal("expected error for nil function")
+		return
 	}
 }
 
@@ -100,6 +102,7 @@ func TestRegisterTask_NilFunc(t *testing.T) {
 	_, err := taskFn(context.Background(), State{})
 	if err == nil {
 		t.Fatal("expected error for nil function")
+		return
 	}
 }
 
@@ -112,6 +115,7 @@ func TestRegisterTask_Error(t *testing.T) {
 	_, err := taskFn(context.Background(), State{"input": "x"})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -135,5 +139,6 @@ func TestTaskGraph_Empty(t *testing.T) {
 	_, err := TaskGraph("empty", map[string]TaskFunc{})
 	if err == nil {
 		t.Fatal("expected error for empty task graph")
+		return
 	}
 }

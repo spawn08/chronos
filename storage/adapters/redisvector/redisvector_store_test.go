@@ -228,6 +228,7 @@ func TestNew_ConnectionFailed(t *testing.T) {
 	_, err := New("127.0.0.1:19998")
 	if err == nil {
 		t.Fatal("expected connection error")
+		return
 	}
 }
 

@@ -29,6 +29,7 @@ func TestFindTeam(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error")
+					return
 				}
 				return
 			}
@@ -75,6 +76,7 @@ func TestBuildProvider_AllProviders(t *testing.T) {
 			}
 			if p == nil {
 				t.Fatal("expected non-nil provider")
+				return
 			}
 			if p.Name() != tt.wantName {
 				t.Errorf("expected name %q, got %q", tt.wantName, p.Name())
@@ -87,6 +89,7 @@ func TestBuildProvider_UnknownProvider(t *testing.T) {
 	_, err := buildProvider(ModelConfig{Provider: "unknown-xyz"})
 	if err == nil {
 		t.Fatal("expected error for unknown provider")
+		return
 	}
 }
 
@@ -110,6 +113,7 @@ func TestBuildStorage_Backends(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error")
+					return
 				}
 				return
 			}
@@ -184,6 +188,7 @@ func TestBuildAgent_AllProviders(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error")
+					return
 				}
 				return
 			}
@@ -210,6 +215,7 @@ func TestReadConfigFile_NonExistentPath(t *testing.T) {
 	_, _, err := readConfigFile("/nonexistent/path/agents.yaml")
 	if err == nil {
 		t.Fatal("expected error for nonexistent path")
+		return
 	}
 }
 

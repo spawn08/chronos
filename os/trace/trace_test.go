@@ -113,6 +113,7 @@ func TestNewCollector(t *testing.T) {
 	c := NewCollector(store)
 	if c == nil {
 		t.Fatal("NewCollector returned nil")
+		return
 	}
 }
 
@@ -128,6 +129,7 @@ func TestStartSpan(t *testing.T) {
 
 	if span == nil {
 		t.Fatal("StartSpan returned nil span")
+		return
 	}
 	if span.SessionID != "session-1" {
 		t.Errorf("SessionID = %q, want %q", span.SessionID, "session-1")
@@ -267,6 +269,7 @@ func TestStartSpan_StorageFailure(t *testing.T) {
 	_, err := c.StartSpan(context.Background(), "s", "name", "kind")
 	if err == nil {
 		t.Fatal("expected error when storage fails")
+		return
 	}
 }
 
@@ -284,6 +287,7 @@ func TestEndSpan_StorageFailure(t *testing.T) {
 	err := c.EndSpan(ctx, span, nil, "")
 	if err == nil {
 		t.Fatal("expected error when storage fails on EndSpan")
+		return
 	}
 }
 
@@ -295,6 +299,7 @@ func TestAudit_StorageFailure(t *testing.T) {
 	err := c.Audit(context.Background(), "s", "actor", "action", "resource")
 	if err == nil {
 		t.Fatal("expected error when storage fails on Audit")
+		return
 	}
 }
 

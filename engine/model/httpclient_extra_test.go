@@ -44,6 +44,7 @@ func TestHTTPClient_post_RequestError(t *testing.T) {
 	_, err := h.post(context.Background(), "/", map[string]string{"a": "b"})
 	if err == nil {
 		t.Fatal("expected error when server is not accepting connections")
+		return
 	}
 }
 

@@ -17,6 +17,7 @@ func TestStore_New_AuthFailure_Push(t *testing.T) {
 	_, err := New(addr, "secret", 0)
 	if err == nil {
 		t.Fatal("expected auth error (miniRedis does not implement AUTH)")
+		return
 	}
 	if !strings.Contains(err.Error(), "auth") && !strings.Contains(err.Error(), "redis error") {
 		t.Fatalf("unexpected error: %v", err)
@@ -30,6 +31,7 @@ func TestStore_New_SelectDBFailure_Push(t *testing.T) {
 	_, err := New(addr, "", 1)
 	if err == nil {
 		t.Fatal("expected error when SELECT db is sent to miniRedis")
+		return
 	}
 }
 

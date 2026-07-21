@@ -94,6 +94,7 @@ func TestMigrate_Apply_BeginTxFails_Push(t *testing.T) {
 	err = m.Migrate(context.Background())
 	if err == nil {
 		t.Fatal("expected Migrate error when BeginTx fails")
+		return
 	}
 	if !strings.Contains(err.Error(), "begin tx") && !strings.Contains(err.Error(), "migrate v1") {
 		t.Fatalf("unexpected error: %v", err)
@@ -148,6 +149,7 @@ func TestMigrate_CurrentVersion_QueryError_Push(t *testing.T) {
 	err = m.Migrate(context.Background())
 	if err == nil {
 		t.Fatal("expected error from currentVersion")
+		return
 	}
 	if !strings.Contains(err.Error(), "current version") {
 		t.Fatalf("unexpected error: %v", err)

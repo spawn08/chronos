@@ -53,6 +53,7 @@ func TestProviderFromString_NoFactory(t *testing.T) {
 	_, err := ProviderFromString("unknown:model")
 	if err == nil {
 		t.Fatal("expected error for unregistered provider")
+		return
 	}
 }
 
@@ -67,6 +68,7 @@ func TestRegisterProviderFactory(t *testing.T) {
 	}
 	if p == nil {
 		t.Fatal("expected non-nil provider")
+		return
 	}
 }
 
@@ -74,5 +76,6 @@ func TestProviderFromString_UnknownProvider(t *testing.T) {
 	_, err := ProviderFromString("totally-unknown-xyz:model")
 	if err == nil {
 		t.Fatal("expected error for unknown provider")
+		return
 	}
 }

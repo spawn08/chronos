@@ -15,6 +15,7 @@ func TestSQL_SelectSyntaxError_Deep(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected query error")
+		return
 	}
 }
 
@@ -26,6 +27,7 @@ func TestSQL_ExecSyntaxError_Deep(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected exec error")
+		return
 	}
 }
 
@@ -63,5 +65,6 @@ func TestSQL_DisallowedUpdate_Deep(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected operation not allowed")
+		return
 	}
 }

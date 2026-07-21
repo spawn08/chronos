@@ -45,6 +45,7 @@ func TestStart_InvalidListenAddr_ReturnsError_Push(t *testing.T) {
 	err := s.Start(ctx)
 	if err == nil {
 		t.Fatal("expected Start to return ListenAndServe error for invalid address")
+		return
 	}
 }
 

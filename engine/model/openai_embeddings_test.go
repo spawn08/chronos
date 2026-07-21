@@ -81,5 +81,6 @@ func TestOpenAIEmbeddings_Error(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for 401 response")
+		return
 	}
 }

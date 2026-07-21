@@ -272,6 +272,7 @@ func TestStore_GetSession_NotFound(t *testing.T) {
 	_, err = store.GetSession(context.Background(), "nonexistent")
 	if err == nil {
 		t.Fatal("expected error for missing key")
+		return
 	}
 }
 
@@ -531,6 +532,7 @@ func TestStore_GetLatestCheckpoint_NotFound(t *testing.T) {
 	_, err := store.GetLatestCheckpoint(context.Background(), "nonexistent-session")
 	if err == nil {
 		t.Fatal("expected error for missing checkpoint")
+		return
 	}
 }
 
@@ -551,5 +553,6 @@ func TestNew_ConnectionFailed(t *testing.T) {
 	_, err := New("127.0.0.1:19999", "", 0)
 	if err == nil {
 		t.Fatal("expected error for unresponsive server")
+		return
 	}
 }

@@ -350,6 +350,7 @@ func TestRunner_EmitsErrorOnNodeFailure(t *testing.T) {
 	_, err := runner.Run(context.Background(), "s-fail", State{})
 	if err == nil {
 		t.Fatal("expected error from failing node")
+		return
 	}
 
 	// Check local stream
@@ -501,6 +502,7 @@ func TestRunner_TracesNodeFailure(t *testing.T) {
 	_, err := runner.Run(context.Background(), "s-fail-trace", State{})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 
 	store.mu.Lock()

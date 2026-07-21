@@ -50,5 +50,6 @@ func TestDelegateTask_InvalidResultJSON(t *testing.T) {
 	_, err := b.DelegateTask(ctx, "mgr", "worker", "job", TaskPayload{Description: "x"})
 	if err == nil {
 		t.Fatal("expected decode error")
+		return
 	}
 }

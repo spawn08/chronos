@@ -472,6 +472,7 @@ func TestExecute_Pipe_NoConfig_Squeeze(t *testing.T) {
 	err := Execute()
 	if err == nil {
 		t.Fatal("expected error loading agent for pipe")
+		return
 	}
 }
 
@@ -501,6 +502,7 @@ func TestOpenStore_InvalidPath_Squeeze(t *testing.T) {
 	_, err := openStore()
 	if err == nil {
 		t.Fatal("expected error when db path is a directory")
+		return
 	}
 }
 
@@ -626,6 +628,7 @@ func TestSessionsExport_GetSessionError_Squeeze(t *testing.T) {
 	err := sessionsExport(ctx, store, "does-not-exist")
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -640,6 +643,7 @@ func TestMemoryList_StoreClosed_Squeeze(t *testing.T) {
 	err = memoryList(context.Background(), store, "any")
 	if err == nil {
 		t.Fatal("expected error from closed store")
+		return
 	}
 }
 

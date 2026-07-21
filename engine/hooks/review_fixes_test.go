@@ -44,6 +44,7 @@ func TestRetryHook_DefaultSleepAbortsOnContextCancel(t *testing.T) {
 	}
 	if err == nil {
 		t.Fatal("expected a cancellation error, got nil")
+		return
 	}
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)

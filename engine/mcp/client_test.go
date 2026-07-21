@@ -19,6 +19,7 @@ func TestNewClient_StdioTransport(t *testing.T) {
 	}
 	if client == nil {
 		t.Fatal("expected non-nil client")
+		return
 	}
 	if client.config.Name != "test-server" {
 		t.Errorf("config.Name = %q", client.config.Name)
@@ -50,6 +51,7 @@ func TestNewClient_UnsupportedTransport(t *testing.T) {
 	_, err := NewClient(cfg)
 	if err == nil {
 		t.Fatal("expected error for SSE transport")
+		return
 	}
 }
 
@@ -62,6 +64,7 @@ func TestNewClient_NoCommand(t *testing.T) {
 	_, err := NewClient(cfg)
 	if err == nil {
 		t.Fatal("expected error for missing command")
+		return
 	}
 }
 

@@ -136,6 +136,7 @@ func TestAgentShow_MissingID(t *testing.T) {
 	err := Execute()
 	if err == nil {
 		t.Fatal("expected error for missing agent ID")
+		return
 	}
 	if !strings.Contains(err.Error(), "usage") {
 		t.Errorf("expected usage message, got: %v", err)
@@ -157,6 +158,7 @@ func TestAgentShowUnknown(t *testing.T) {
 	err := Execute()
 	if err == nil {
 		t.Fatal("expected error for nonexistent agent")
+		return
 	}
 }
 
@@ -168,6 +170,7 @@ func TestAgentCmd_UnknownSubcommand(t *testing.T) {
 	err := Execute()
 	if err == nil {
 		t.Fatal("expected error for unknown agent subcommand")
+		return
 	}
 	if !strings.Contains(err.Error(), "unknown agent subcommand") {
 		t.Errorf("expected 'unknown agent subcommand' in error, got: %v", err)
@@ -262,6 +265,7 @@ func TestTeamShow_Unknown(t *testing.T) {
 	err := Execute()
 	if err == nil {
 		t.Fatal("expected error for nonexistent team")
+		return
 	}
 }
 
@@ -298,6 +302,7 @@ func TestEvalRun_FileNotFound(t *testing.T) {
 	err := Execute()
 	if err == nil {
 		t.Fatal("expected error for nonexistent file")
+		return
 	}
 }
 
@@ -328,6 +333,7 @@ func TestEvalCmd_UnknownSubcommand(t *testing.T) {
 	err := Execute()
 	if err == nil {
 		t.Fatal("expected error for unknown eval subcommand")
+		return
 	}
 	if !strings.Contains(err.Error(), "unknown eval subcommand") {
 		t.Errorf("expected 'unknown eval subcommand', got: %v", err)
@@ -342,6 +348,7 @@ func TestEvalCmd_RunMissingPath(t *testing.T) {
 	err := Execute()
 	if err == nil {
 		t.Fatal("expected error for missing eval suite path")
+		return
 	}
 }
 
@@ -362,6 +369,7 @@ func TestExecuteSessions_UnknownSubcommand(t *testing.T) {
 	err := Execute()
 	if err == nil {
 		t.Fatal("expected error for unknown sessions subcommand")
+		return
 	}
 	if !strings.Contains(err.Error(), "unknown sessions subcommand") {
 		t.Errorf("expected 'unknown sessions subcommand', got: %v", err)
@@ -380,6 +388,7 @@ func TestExecuteSessions_ResumeMissingID(t *testing.T) {
 	err := Execute()
 	if err == nil {
 		t.Fatal("expected error for missing session ID")
+		return
 	}
 	if !strings.Contains(err.Error(), "usage") {
 		t.Errorf("expected 'usage', got: %v", err)
@@ -398,6 +407,7 @@ func TestExecuteSessions_ExportMissingID(t *testing.T) {
 	err := Execute()
 	if err == nil {
 		t.Fatal("expected error for missing export ID")
+		return
 	}
 	if !strings.Contains(err.Error(), "usage") {
 		t.Errorf("expected 'usage', got: %v", err)
@@ -420,6 +430,7 @@ func TestExecuteMemory_UnknownSubcommand(t *testing.T) {
 	err := Execute()
 	if err == nil {
 		t.Fatal("expected error for unknown memory subcommand")
+		return
 	}
 	if !strings.Contains(err.Error(), "unknown memory subcommand") {
 		t.Errorf("expected 'unknown memory subcommand', got: %v", err)
@@ -438,6 +449,7 @@ func TestExecuteMemory_ListMissingAgent(t *testing.T) {
 	err := Execute()
 	if err == nil {
 		t.Fatal("expected error for missing agent ID")
+		return
 	}
 	if !strings.Contains(err.Error(), "usage") {
 		t.Errorf("expected 'usage', got: %v", err)
@@ -456,6 +468,7 @@ func TestExecuteMemory_ForgetMissingID(t *testing.T) {
 	err := Execute()
 	if err == nil {
 		t.Fatal("expected error for missing memory ID")
+		return
 	}
 	if !strings.Contains(err.Error(), "usage") {
 		t.Errorf("expected 'usage', got: %v", err)
@@ -474,6 +487,7 @@ func TestExecuteMemory_ClearMissingAgent(t *testing.T) {
 	err := Execute()
 	if err == nil {
 		t.Fatal("expected error for missing agent ID")
+		return
 	}
 	if !strings.Contains(err.Error(), "usage") {
 		t.Errorf("expected 'usage', got: %v", err)
@@ -559,6 +573,7 @@ func TestExecuteDB_UnknownSubcommand(t *testing.T) {
 	err := Execute()
 	if err == nil {
 		t.Fatal("expected error for unknown db subcommand")
+		return
 	}
 	if !strings.Contains(err.Error(), "unknown db subcommand") {
 		t.Errorf("expected 'unknown db subcommand', got: %v", err)

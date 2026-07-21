@@ -42,6 +42,7 @@ func TestFileConfig_FindAgent_NotFoundMessage(t *testing.T) {
 	_, err := fc.FindAgent("missing")
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 	if !strings.Contains(err.Error(), "missing") {
 		t.Errorf("error: %v", err)
@@ -57,6 +58,7 @@ func TestBuildStorage_PostgresqlWired(t *testing.T) {
 	}
 	if st == nil {
 		t.Fatal("expected non-nil store")
+		return
 	}
 	_ = st.Close()
 }

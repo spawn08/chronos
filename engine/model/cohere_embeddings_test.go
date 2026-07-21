@@ -12,6 +12,7 @@ func TestNewCohereEmbeddings_Defaults(t *testing.T) {
 	e := NewCohereEmbeddings("key", "")
 	if e == nil {
 		t.Fatal("expected non-nil")
+		return
 	}
 	if e.config.Model == "" {
 		t.Error("expected default model")
@@ -66,6 +67,7 @@ func TestCohereEmbeddings_Embed_HTTPError(t *testing.T) {
 	_, err := e.Embed(context.Background(), &EmbeddingRequest{Input: []string{"test"}})
 	if err == nil {
 		t.Fatal("expected error for 401")
+		return
 	}
 }
 

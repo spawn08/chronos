@@ -43,6 +43,7 @@ func TestSendAndWait_Success(t *testing.T) {
 	}
 	if reply == nil {
 		t.Fatal("expected non-nil reply")
+		return
 	}
 }
 
@@ -64,6 +65,7 @@ func TestSendAndWait_ContextCanceled(t *testing.T) {
 	_, err := b.SendAndWait(ctx, env)
 	if err == nil {
 		t.Fatal("expected error due to context timeout")
+		return
 	}
 }
 

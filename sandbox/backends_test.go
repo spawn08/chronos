@@ -13,6 +13,7 @@ func TestNewFromConfig_Process(t *testing.T) {
 	}
 	if sb == nil {
 		t.Fatal("expected non-nil sandbox")
+		return
 	}
 }
 
@@ -24,6 +25,7 @@ func TestNewFromConfig_ProcessDefault(t *testing.T) {
 	}
 	if sb == nil {
 		t.Fatal("expected non-nil sandbox")
+		return
 	}
 }
 
@@ -34,6 +36,7 @@ func TestNewFromConfig_Container(t *testing.T) {
 	}
 	if sb == nil {
 		t.Fatal("expected non-nil sandbox")
+		return
 	}
 }
 
@@ -41,6 +44,7 @@ func TestNewFromConfig_WASM_NoPath(t *testing.T) {
 	_, err := NewFromConfig(Config{Backend: BackendWASM})
 	if err == nil {
 		t.Fatal("expected error for wasm without path")
+		return
 	}
 }
 
@@ -49,6 +53,7 @@ func TestNewFromConfig_WASM_WithPath(t *testing.T) {
 	_, err := NewFromConfig(Config{Backend: BackendWASM, WASMPath: "/path/to/module.wasm"})
 	if err == nil {
 		t.Fatal("expected not-implemented error for wasm backend")
+		return
 	}
 	if !strings.Contains(err.Error(), "not implemented") {
 		t.Errorf("error = %v, want not-implemented", err)
@@ -59,6 +64,7 @@ func TestNewFromConfig_K8s_NoImage(t *testing.T) {
 	_, err := NewFromConfig(Config{Backend: BackendK8sJob})
 	if err == nil {
 		t.Fatal("expected error for k8s without image")
+		return
 	}
 }
 
@@ -67,6 +73,7 @@ func TestNewFromConfig_K8s_WithImage(t *testing.T) {
 	_, err := NewFromConfig(Config{Backend: BackendK8sJob, Image: "alpine:latest", Namespace: "default"})
 	if err == nil {
 		t.Fatal("expected not-implemented error for k8s backend")
+		return
 	}
 	if !strings.Contains(err.Error(), "not implemented") {
 		t.Errorf("error = %v, want not-implemented", err)
@@ -77,6 +84,7 @@ func TestNewFromConfig_Unknown(t *testing.T) {
 	_, err := NewFromConfig(Config{Backend: "unknown-backend"})
 	if err == nil {
 		t.Fatal("expected error for unknown backend")
+		return
 	}
 }
 
@@ -110,6 +118,7 @@ func TestWASMSandbox_NewFailsAtConstruction(t *testing.T) {
 	sb, err := NewWASMSandbox("/path/to/mod.wasm")
 	if err == nil {
 		t.Fatal("expected not-implemented error at construction")
+		return
 	}
 	if sb != nil {
 		t.Errorf("expected nil sandbox, got %v", sb)
@@ -137,6 +146,7 @@ func TestK8sJobSandbox_NewFailsAtConstruction(t *testing.T) {
 			sb, err := NewK8sJobSandbox(tc.cfg)
 			if err == nil {
 				t.Fatal("expected not-implemented error at construction")
+				return
 			}
 			if sb != nil {
 				t.Errorf("expected nil sandbox, got %v", sb)
@@ -192,6 +202,7 @@ func TestNewFromConfig_K8sWithServiceAccount(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected not-implemented error for k8s backend")
+		return
 	}
 	if !strings.Contains(err.Error(), "not implemented") {
 		t.Errorf("error = %v, want not-implemented", err)

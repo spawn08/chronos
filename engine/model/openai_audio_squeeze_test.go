@@ -19,6 +19,7 @@ func TestOpenAIAudio_Transcribe_DecodeError_Squeeze(t *testing.T) {
 	_, err := a.Transcribe(context.Background(), AudioContent{Data: []byte("x"), Format: "wav"})
 	if err == nil {
 		t.Fatal("expected decode error")
+		return
 	}
 }
 
@@ -27,6 +28,7 @@ func TestOpenAIAudio_Synthesize_EmptyText_Squeeze(t *testing.T) {
 	_, err := a.Synthesize(context.Background(), "   ", "alloy")
 	if err == nil {
 		t.Fatal("expected error for whitespace-only text")
+		return
 	}
 }
 

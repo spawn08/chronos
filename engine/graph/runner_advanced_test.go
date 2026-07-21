@@ -17,6 +17,7 @@ func TestRunner_Resume_NotFound(t *testing.T) {
 	_, err := runner.Resume(context.Background(), "nonexistent-session")
 	if err == nil {
 		t.Fatal("expected error for nonexistent session checkpoint")
+		return
 	}
 }
 
@@ -33,6 +34,7 @@ func TestRunner_Resume_Success(t *testing.T) {
 	}
 	if result1 == nil {
 		t.Fatal("expected result")
+		return
 	}
 
 	// Resume from latest checkpoint
@@ -43,6 +45,7 @@ func TestRunner_Resume_Success(t *testing.T) {
 	}
 	if result2 == nil {
 		t.Fatal("expected non-nil resume result")
+		return
 	}
 }
 
@@ -79,6 +82,7 @@ func TestRunner_ResumeFromCheckpoint(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 }
 
@@ -91,6 +95,7 @@ func TestRunner_ResumeFromCheckpoint_NotFound(t *testing.T) {
 	_, err := runner.ResumeFromCheckpoint(context.Background(), "nonexistent-cp-id")
 	if err == nil {
 		t.Fatal("expected error for nonexistent checkpoint")
+		return
 	}
 }
 
@@ -126,6 +131,7 @@ func TestRunner_ForkFrom(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("expected non-nil fork result")
+		return
 	}
 }
 
@@ -138,6 +144,7 @@ func TestRunner_ForkFrom_NotFound(t *testing.T) {
 	_, err := runner.ForkFrom(context.Background(), "nonexistent-cp", map[string]any{"x": 1})
 	if err == nil {
 		t.Fatal("expected error for nonexistent checkpoint")
+		return
 	}
 }
 
@@ -171,6 +178,7 @@ func TestRunner_ReplayFrom(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("expected non-nil replay result")
+		return
 	}
 }
 
@@ -183,6 +191,7 @@ func TestRunner_ReplayFrom_NotFound(t *testing.T) {
 	_, err := runner.ReplayFrom(context.Background(), "nonexistent-checkpoint")
 	if err == nil {
 		t.Fatal("expected error for nonexistent checkpoint")
+		return
 	}
 }
 
@@ -212,6 +221,7 @@ func TestRunner_ForkFrom_SessionCreationError(t *testing.T) {
 	_, err = runner2.ForkFrom(context.Background(), cps[0].ID, map[string]any{})
 	if err == nil {
 		t.Fatal("expected error when session creation fails")
+		return
 	}
 }
 

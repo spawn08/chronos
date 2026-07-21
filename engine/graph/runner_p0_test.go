@@ -163,6 +163,7 @@ func TestRunner_ResumeFromCheckpoint_NoReExecution(t *testing.T) {
 	store.mu.Unlock()
 	if afterN1 == nil {
 		t.Fatal("expected a checkpoint pointing at n2 (next node after n1)")
+		return
 	}
 
 	// Resume from that checkpoint: n1 must NOT run again; n2 and n3 run once more.
@@ -283,6 +284,7 @@ func TestRunner_ReuseReturnsError(t *testing.T) {
 	_, err := runner.Run(context.Background(), "s2", State{"visited": ""})
 	if err == nil {
 		t.Fatal("expected error on Runner reuse, got nil")
+		return
 	}
 	if !strings.Contains(err.Error(), "already used") {
 		t.Errorf("error = %q, want it to mention reuse", err)
@@ -331,6 +333,7 @@ func TestRunner_MaxStepsGuard(t *testing.T) {
 	rs, err := runner.Run(context.Background(), "s", State{})
 	if err == nil {
 		t.Fatal("expected max-steps error for cyclic graph")
+		return
 	}
 	if !strings.Contains(err.Error(), "max steps") {
 		t.Errorf("error = %q, want it to mention max steps", err)
@@ -359,6 +362,7 @@ func TestRunner_NodeTimeout(t *testing.T) {
 	rs, err := runner.Run(context.Background(), "s", State{})
 	if err == nil {
 		t.Fatal("expected node timeout error")
+		return
 	}
 	if rs.Status != RunStatusFailed {
 		t.Errorf("status = %q, want failed", rs.Status)
@@ -382,6 +386,7 @@ func TestRunner_PanicRecovery(t *testing.T) {
 	rs, err := runner.Run(context.Background(), "s", State{})
 	if err == nil {
 		t.Fatal("expected error from panicking node")
+		return
 	}
 	if !strings.Contains(err.Error(), "panicked") {
 		t.Errorf("error = %q, want it to mention the panic", err)
@@ -420,6 +425,7 @@ func TestRunner_AppendEventErrorSurfaced(t *testing.T) {
 	_, err := runner.Run(context.Background(), "s", State{"visited": ""})
 	if err == nil {
 		t.Fatal("expected the run to fail when AppendEvent errors")
+		return
 	}
 }
 

@@ -9,6 +9,7 @@ func TestNewRateLimitHook(t *testing.T) {
 	h := NewRateLimitHook(10, 1000)
 	if h == nil {
 		t.Fatal("NewRateLimitHook returned nil")
+		return
 	}
 	if h.RequestsPerMinute != 10 {
 		t.Errorf("expected 10 rpm, got %d", h.RequestsPerMinute)
@@ -60,6 +61,7 @@ func TestRateLimitHookExceedLimitNoWait(t *testing.T) {
 	err = h.Before(ctx, &Event{Type: EventModelCallBefore, Name: "gpt-4o"})
 	if err == nil {
 		t.Fatal("expected rate limit error on second request")
+		return
 	}
 }
 
@@ -113,6 +115,7 @@ func TestRateLimitHookContextCancelled(t *testing.T) {
 	err := h.Before(ctx, &Event{Type: EventModelCallBefore, Name: "m"})
 	if err == nil {
 		t.Fatal("expected context cancellation error")
+		return
 	}
 }
 

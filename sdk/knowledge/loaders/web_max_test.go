@@ -17,6 +17,7 @@ func TestWebLoader_fetchAndExtract_HTTPError(t *testing.T) {
 	_, err := l.Load()
 	if err == nil {
 		t.Fatal("expected error for HTTP 404")
+		return
 	}
 	if !strings.Contains(err.Error(), "404") {
 		t.Fatalf("expected 404 in error, got %v", err)
@@ -35,6 +36,7 @@ func TestWebLoader_fetchAndExtract_NoText(t *testing.T) {
 	_, err := l.Load()
 	if err == nil {
 		t.Fatal("expected error when no extractable text")
+		return
 	}
 }
 

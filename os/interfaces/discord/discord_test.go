@@ -21,6 +21,7 @@ func TestNew(t *testing.T) {
 	b := buildBot()
 	if b == nil {
 		t.Fatal("New returned nil")
+		return
 	}
 	if b.token != "test-discord-token" {
 		t.Errorf("token: got %q", b.token)

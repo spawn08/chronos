@@ -47,6 +47,7 @@ func TestFallback_StopsOnTerminalError(t *testing.T) {
 	_, err := fp.Chat(context.Background(), &ChatRequest{})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 	if second.calls != 0 {
 		t.Errorf("second provider was tried %d times; terminal errors must not fall through", second.calls)

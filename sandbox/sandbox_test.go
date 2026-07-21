@@ -12,6 +12,7 @@ func TestNewProcessSandbox(t *testing.T) {
 	sb := NewProcessSandbox("/tmp")
 	if sb == nil {
 		t.Fatal("NewProcessSandbox returned nil")
+		return
 	}
 	if sb.WorkDir != "/tmp" {
 		t.Errorf("expected WorkDir /tmp, got %s", sb.WorkDir)
@@ -111,6 +112,7 @@ func TestProcessSandboxInvalidCommand(t *testing.T) {
 	_, err := sb.Execute(ctx, "command_that_does_not_exist_xyz", nil, 5*time.Second)
 	if err == nil {
 		t.Fatal("expected error for invalid command")
+		return
 	}
 }
 
@@ -166,6 +168,7 @@ func TestPoolNewPool(t *testing.T) {
 			if tc.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
+					return
 				}
 				return
 			}
@@ -174,6 +177,7 @@ func TestPoolNewPool(t *testing.T) {
 			}
 			if p == nil {
 				t.Fatal("pool is nil")
+				return
 			}
 		})
 	}
@@ -255,6 +259,7 @@ func TestPoolClosedAcquire(t *testing.T) {
 	_, err = p.Acquire()
 	if err == nil {
 		t.Fatal("expected error acquiring from closed pool")
+		return
 	}
 }
 

@@ -54,6 +54,7 @@ func TestChatWithSession_PersistAssistantError(t *testing.T) {
 	_, err := a.ChatWithSession(context.Background(), "sess1", "hello")
 	if err == nil {
 		t.Fatal("expected error persisting assistant message")
+		return
 	}
 }
 
@@ -84,6 +85,7 @@ func TestBuildAgent_InvalidProvider(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -99,6 +101,7 @@ func TestBuildAgent_InvalidStorageBackend(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -114,6 +117,7 @@ func TestBuildAgent_PostgresWithoutDSN(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -123,6 +127,7 @@ func TestRun_NoModelNoGraph(t *testing.T) {
 	_, err := a.Run(context.Background(), map[string]any{"message": "hi"})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -163,6 +168,7 @@ func TestRun_CreateSessionError(t *testing.T) {
 	_, err = a.Run(context.Background(), map[string]any{"message": "hi"})
 	if err == nil {
 		t.Fatal("expected CreateSession error")
+		return
 	}
 }
 

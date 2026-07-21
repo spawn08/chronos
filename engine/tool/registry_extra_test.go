@@ -66,6 +66,7 @@ func TestRegistry_RequiresConfirmation_Denied(t *testing.T) {
 	_, err := r.Execute(context.Background(), "confirm_tool", nil)
 	if err == nil {
 		t.Fatal("expected error when confirmation denied")
+		return
 	}
 }
 
@@ -80,6 +81,7 @@ func TestRegistry_RequiresConfirmation_NoHandler(t *testing.T) {
 	_, err := r.Execute(context.Background(), "confirm_tool", nil)
 	if err == nil {
 		t.Fatal("expected error when no confirmation handler set")
+		return
 	}
 }
 
@@ -117,6 +119,7 @@ func TestRegistry_RequiresUserInput_NoHandler(t *testing.T) {
 	_, err := r.Execute(context.Background(), "input_tool", nil)
 	if err == nil {
 		t.Fatal("expected error when no user input handler set")
+		return
 	}
 }
 
@@ -134,6 +137,7 @@ func TestRegistry_RequiresUserInput_HandlerError(t *testing.T) {
 	_, err := r.Execute(context.Background(), "input_tool", nil)
 	if err == nil {
 		t.Fatal("expected error from user input handler failure")
+		return
 	}
 }
 

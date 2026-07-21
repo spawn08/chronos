@@ -69,6 +69,7 @@ func TestSendMessage_NotOK(t *testing.T) {
 	err := b.SendMessage(context.Background(), 12345, "hello")
 	if err == nil {
 		t.Fatal("expected error when ok=false")
+		return
 	}
 	if !strings.Contains(err.Error(), "bot blocked") {
 		t.Errorf("error=%v", err)
@@ -88,6 +89,7 @@ func TestSendMessage_NetworkError(t *testing.T) {
 	err := b.SendMessage(context.Background(), 1, "hi")
 	if err == nil {
 		t.Fatal("expected network error")
+		return
 	}
 }
 
@@ -120,6 +122,7 @@ func TestSendInlineKeyboard_NetworkError(t *testing.T) {
 	err := b.SendInlineKeyboard(context.Background(), 1, "test", buttons)
 	if err == nil {
 		t.Fatal("expected network error")
+		return
 	}
 }
 
@@ -179,6 +182,7 @@ func TestPollOnce_InvalidJSON(t *testing.T) {
 	err := b.pollOnce(context.Background())
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
+		return
 	}
 }
 
@@ -190,6 +194,7 @@ func TestPollOnce_NetworkError(t *testing.T) {
 	err := b.pollOnce(context.Background())
 	if err == nil {
 		t.Fatal("expected network error")
+		return
 	}
 }
 

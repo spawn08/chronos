@@ -55,6 +55,7 @@ func TestBuilder_AddSkill(t *testing.T) {
 	}
 	if a == nil {
 		t.Fatal("expected non-nil agent")
+		return
 	}
 }
 

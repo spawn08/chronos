@@ -15,6 +15,7 @@ func TestWebSearch_MissingQuery(t *testing.T) {
 	_, err := ws.Handler(context.Background(), map[string]any{})
 	if err == nil {
 		t.Fatal("expected error for missing query")
+		return
 	}
 }
 
@@ -23,6 +24,7 @@ func TestWebSearch_EmptyQuery(t *testing.T) {
 	_, err := ws.Handler(context.Background(), map[string]any{"query": ""})
 	if err == nil {
 		t.Fatal("expected error for empty query")
+		return
 	}
 }
 
@@ -31,6 +33,7 @@ func TestWebSearch_NonStringQuery(t *testing.T) {
 	_, err := ws.Handler(context.Background(), map[string]any{"query": 123})
 	if err == nil {
 		t.Fatal("expected error for non-string query")
+		return
 	}
 }
 
@@ -49,6 +52,7 @@ func TestWebSearchCustom_MissingQuery(t *testing.T) {
 	_, err := ws.Handler(context.Background(), map[string]any{"query": ""})
 	if err == nil {
 		t.Fatal("expected error for empty query")
+		return
 	}
 }
 
@@ -84,6 +88,7 @@ func TestWebSearchCustom_URLWithoutPercent(t *testing.T) {
 	ws := NewWebSearchToolWithEngine("http://localhost:12345/search", 0)
 	if ws == nil {
 		t.Fatal("expected non-nil definition")
+		return
 	}
 }
 
@@ -101,6 +106,7 @@ func TestNewWebSearchTool_WithHTTPServer(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 }
 
@@ -203,6 +209,7 @@ func TestWebSearchTool_InvalidJSON(t *testing.T) {
 	_, err := def.Handler(context.Background(), map[string]any{"query": "x"})
 	if err == nil {
 		t.Fatal("expected parse error")
+		return
 	}
 }
 
@@ -245,6 +252,7 @@ func TestNewWebSearchToolWithEngine_EdgeCases(t *testing.T) {
 		_, err := ws.Handler(context.Background(), map[string]any{"query": 1})
 		if err == nil {
 			t.Fatal("expected error")
+			return
 		}
 	})
 }

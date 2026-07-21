@@ -14,6 +14,7 @@ func TestNew(t *testing.T) {
 	s := New("http://localhost:8080", "api-key")
 	if s == nil {
 		t.Fatal("New returned nil")
+		return
 	}
 	if s.endpoint != "http://localhost:8080" {
 		t.Errorf("endpoint = %q", s.endpoint)
@@ -126,6 +127,7 @@ func TestUpsert_Error(t *testing.T) {
 	err := s.Upsert(context.Background(), "Col", embeddings)
 	if err == nil {
 		t.Fatal("expected error, got nil")
+		return
 	}
 }
 

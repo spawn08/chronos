@@ -76,6 +76,7 @@ func TestBuildStorage_PostgresErrors(t *testing.T) {
 	}
 	if st == nil {
 		t.Fatal("expected non-nil postgres store")
+		return
 	}
 	_ = st.Close()
 }
@@ -84,6 +85,7 @@ func TestBuildStorage_UnknownBackend(t *testing.T) {
 	_, err := buildStorage(StorageConfig{Backend: "cassandra"})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 

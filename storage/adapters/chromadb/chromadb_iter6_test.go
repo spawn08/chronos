@@ -62,6 +62,7 @@ func TestPost_ClientDoError_ITER6(t *testing.T) {
 	_, err := s.post(context.Background(), "/api/v1/x", map[string]any{"a": 1})
 	if err == nil {
 		t.Fatal("expected post error")
+		return
 	}
 }
 
@@ -96,5 +97,6 @@ func TestDelete_PostHTTPError_ITER6(t *testing.T) {
 	err := s.Delete(context.Background(), "del-col", []string{"e1"})
 	if err == nil {
 		t.Fatal("expected delete error")
+		return
 	}
 }

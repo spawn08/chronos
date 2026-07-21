@@ -25,6 +25,7 @@ func TestNewServer(t *testing.T) {
 	s := NewServer(card, echoHandler)
 	if s == nil {
 		t.Fatal("NewServer returned nil")
+		return
 	}
 }
 
@@ -125,6 +126,7 @@ func TestGetTaskNotFound(t *testing.T) {
 	_, err := c.GetTask(context.Background(), "task_9999")
 	if err == nil {
 		t.Fatal("expected error for nonexistent task")
+		return
 	}
 }
 
@@ -293,5 +295,6 @@ func TestWaitForCompletionContextCancelled(t *testing.T) {
 	_, err := c.WaitForCompletion(ctx, task.ID, 10*time.Millisecond)
 	if err == nil {
 		t.Fatal("expected context cancellation error")
+		return
 	}
 }

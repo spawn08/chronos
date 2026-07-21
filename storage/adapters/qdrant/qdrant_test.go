@@ -14,6 +14,7 @@ func TestNew(t *testing.T) {
 	s := New("http://localhost:6333")
 	if s == nil {
 		t.Fatal("New returned nil")
+		return
 	}
 	if s.baseURL != "http://localhost:6333" {
 		t.Errorf("baseURL = %q, want %q", s.baseURL, "http://localhost:6333")
@@ -64,6 +65,7 @@ func TestCreateCollection_Error(t *testing.T) {
 	err := s.CreateCollection(context.Background(), "col", 128)
 	if err == nil {
 		t.Fatal("expected error, got nil")
+		return
 	}
 }
 
@@ -151,6 +153,7 @@ func TestSearch_Error(t *testing.T) {
 	_, err := s.Search(context.Background(), "col", []float32{0.1}, 5)
 	if err == nil {
 		t.Fatal("expected error, got nil")
+		return
 	}
 }
 

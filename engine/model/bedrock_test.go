@@ -88,6 +88,7 @@ func TestBedrock_Chat_Error(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for non-200 status")
+		return
 	}
 }
 
@@ -188,6 +189,7 @@ func TestBedrock_StreamChat_HTTPError(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for HTTP 500")
+		return
 	}
 }
 

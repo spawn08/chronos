@@ -64,6 +64,7 @@ func TestExecute_UnknownCommand_Boost(t *testing.T) {
 	err := Execute()
 	if err == nil {
 		t.Fatal("expected error for unknown command")
+		return
 	}
 	if !strings.Contains(err.Error(), "unknown command") {
 		t.Errorf("error = %v", err)

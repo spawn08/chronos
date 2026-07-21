@@ -40,6 +40,7 @@ func TestCalculator_LogNonPositive_Squeeze(t *testing.T) {
 	_, err := calc.Handler(context.Background(), map[string]any{"expression": "log(0)"})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -49,6 +50,7 @@ func TestCalculator_MissingClosingParen_Squeeze(t *testing.T) {
 	_, err := calc.Handler(context.Background(), map[string]any{"expression": "(1+2"})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -58,6 +60,7 @@ func TestCalculator_UnclosedFunction_Squeeze(t *testing.T) {
 	_, err := calc.Handler(context.Background(), map[string]any{"expression": "sin(1"})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -67,5 +70,6 @@ func TestCalculator_TrailingJunk_Squeeze(t *testing.T) {
 	_, err := calc.Handler(context.Background(), map[string]any{"expression": "1 + 2 xxx"})
 	if err == nil {
 		t.Fatal("expected error for trailing input")
+		return
 	}
 }

@@ -53,6 +53,7 @@ func TestCostTracker_UnknownModel_RejectMode(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for unknown model in reject mode")
+		return
 	}
 }
 

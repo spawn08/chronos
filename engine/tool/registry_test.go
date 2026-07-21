@@ -10,6 +10,7 @@ func TestNewRegistry(t *testing.T) {
 	r := NewRegistry()
 	if r == nil {
 		t.Fatal("NewRegistry returned nil")
+		return
 	}
 	if len(r.List()) != 0 {
 		t.Error("new registry should be empty")
@@ -57,6 +58,7 @@ func TestExecute_NotFound(t *testing.T) {
 	_, err := r.Execute(context.Background(), "nonexistent", nil)
 	if err == nil {
 		t.Fatal("expected error for missing tool")
+		return
 	}
 }
 
@@ -71,6 +73,7 @@ func TestExecute_Denied(t *testing.T) {
 	_, err := r.Execute(context.Background(), "dangerous", nil)
 	if err == nil {
 		t.Fatal("expected error for denied tool")
+		return
 	}
 }
 
@@ -85,6 +88,7 @@ func TestExecute_RequireApproval_NoHandler(t *testing.T) {
 	_, err := r.Execute(context.Background(), "risky", nil)
 	if err == nil {
 		t.Fatal("expected error when no approval handler set")
+		return
 	}
 }
 
@@ -124,6 +128,7 @@ func TestExecute_RequireApproval_Denied(t *testing.T) {
 	_, err := r.Execute(context.Background(), "risky", nil)
 	if err == nil {
 		t.Fatal("expected error when approval denied")
+		return
 	}
 }
 
@@ -141,6 +146,7 @@ func TestExecute_RequireApproval_Error(t *testing.T) {
 	_, err := r.Execute(context.Background(), "risky", nil)
 	if err == nil {
 		t.Fatal("expected error from approval system failure")
+		return
 	}
 }
 
@@ -156,6 +162,7 @@ func TestExecute_HandlerError(t *testing.T) {
 	_, err := r.Execute(context.Background(), "fail", nil)
 	if err == nil {
 		t.Fatal("expected error from handler")
+		return
 	}
 }
 

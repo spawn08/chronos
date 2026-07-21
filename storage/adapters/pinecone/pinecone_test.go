@@ -14,6 +14,7 @@ func TestNew(t *testing.T) {
 	s := New("https://my-index.svc.pinecone.io", "api-key")
 	if s == nil {
 		t.Fatal("New returned nil")
+		return
 	}
 	if s.host != "https://my-index.svc.pinecone.io" {
 		t.Errorf("host = %q", s.host)
@@ -125,6 +126,7 @@ func TestSearch_HTTPError(t *testing.T) {
 	_, err := s.Search(context.Background(), "col", []float32{0.1}, 5)
 	if err == nil {
 		t.Fatal("expected error, got nil")
+		return
 	}
 }
 

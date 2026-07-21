@@ -65,6 +65,7 @@ func TestSendMessage_APIError_Deep(t *testing.T) {
 	err := b.SendMessage(context.Background(), 1, "hi")
 	if err == nil {
 		t.Fatal("expected telegram API error")
+		return
 	}
 }
 

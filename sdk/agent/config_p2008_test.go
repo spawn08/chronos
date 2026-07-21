@@ -99,6 +99,7 @@ func TestBuildAgent_UnregisteredCustomTool_ErrorsOnInvoke(t *testing.T) {
 	out, err := ag.Tools.Execute(context.Background(), toolName, map[string]any{})
 	if err == nil {
 		t.Fatalf("expected error invoking unregistered custom tool, got output %#v", out)
+		return
 	}
 	if !strings.Contains(err.Error(), "no registered handler") {
 		t.Fatalf("error = %q, want mention of missing handler", err.Error())
@@ -126,6 +127,7 @@ func TestBuildAgent_FactoryError_Propagates(t *testing.T) {
 	_, err := BuildAgent(context.Background(), cfg, handler)
 	if err == nil {
 		t.Fatal("expected BuildAgent to fail when factory errors")
+		return
 	}
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("error should wrap factory error: %v", err)
@@ -163,6 +165,7 @@ func TestBuildToolFromConfig_Cases(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("expected error, got def=%#v", def)
+					return
 				}
 				return
 			}
@@ -177,6 +180,7 @@ func TestBuildToolFromConfig_Cases(t *testing.T) {
 			}
 			if def == nil {
 				t.Fatal("expected non-nil def")
+				return
 			}
 			switch tt.wantInvoke {
 			case "ok":
@@ -220,6 +224,7 @@ func TestBuildStorage_SQLiteRealStore(t *testing.T) {
 	}
 	if store == nil {
 		t.Fatal("expected non-nil sqlite store")
+		return
 	}
 	defer func() { _ = store.Close() }()
 
@@ -263,6 +268,7 @@ func TestBuildStorage_PostgresConstructs(t *testing.T) {
 	}
 	if store == nil {
 		t.Fatal("expected non-nil postgres store")
+		return
 	}
 	defer func() { _ = store.Close() }()
 

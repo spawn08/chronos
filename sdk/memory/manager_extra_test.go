@@ -33,6 +33,7 @@ func TestManager_OptimizeMemories_ListError(t *testing.T) {
 	err := mgr.OptimizeMemories(ctx)
 	if err == nil {
 		t.Fatal("expected error from ListLongTerm")
+		return
 	}
 }
 
@@ -44,5 +45,6 @@ func TestManager_GetUserMemories_ListError(t *testing.T) {
 	_, err := mgr.GetUserMemories(context.Background())
 	if err == nil {
 		t.Fatal("expected error from ListLongTerm")
+		return
 	}
 }

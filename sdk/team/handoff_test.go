@@ -64,6 +64,7 @@ func TestHandoffResult_Invalid(t *testing.T) {
 	_, _, err := HandoffResult(make(chan int))
 	if err == nil {
 		t.Fatal("expected error for unmarshalable type")
+		return
 	}
 }
 
@@ -76,6 +77,7 @@ func TestNewHandoffTool_WithInstructions(t *testing.T) {
 	})
 	if def == nil {
 		t.Fatal("expected non-nil definition")
+		return
 	}
 	if def.Name != "transfer_to_target" {
 		t.Errorf("Name=%q", def.Name)
@@ -90,6 +92,7 @@ func TestNewHandoffTool_WithInstructions(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 }
 
@@ -103,5 +106,6 @@ func TestNewHandoffTool_NoMessage(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 }

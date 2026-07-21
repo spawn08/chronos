@@ -31,6 +31,7 @@ func TestChatWithSession_CreateSessionError(t *testing.T) {
 	_, err = a.ChatWithSession(context.Background(), "new-sess", "hi")
 	if err == nil {
 		t.Fatal("expected error when CreateSession fails")
+		return
 	}
 }
 
@@ -54,5 +55,6 @@ func TestChatWithSession_ListEventsError(t *testing.T) {
 	_, err = a.ChatWithSession(context.Background(), "s1", "hi")
 	if err == nil {
 		t.Fatal("expected error when ListEvents fails")
+		return
 	}
 }

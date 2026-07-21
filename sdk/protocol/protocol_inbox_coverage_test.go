@@ -30,6 +30,7 @@ func TestSendAndWait_SenderNotRegistered_Table(t *testing.T) {
 			})
 			if err == nil {
 				t.Fatal("expected error")
+				return
 			}
 			if !strings.Contains(err.Error(), "not registered") {
 				t.Fatalf("unexpected err: %v", err)
@@ -52,6 +53,7 @@ func TestSendAndWait_BusClosedBeforeSend_Table(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 	if !strings.Contains(err.Error(), "closed") {
 		t.Fatalf("unexpected err: %v", err)
@@ -76,6 +78,7 @@ func TestSendAndWait_InboxClosedWhileWaiting(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 	if !strings.Contains(err.Error(), "closed") && !strings.Contains(err.Error(), "inbox") {
 		t.Fatalf("unexpected err: %v", err)
@@ -92,6 +95,7 @@ func TestDeliverToLocked_RecipientNotFound(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 	if !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("unexpected err: %v", err)

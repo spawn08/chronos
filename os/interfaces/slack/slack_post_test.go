@@ -48,6 +48,7 @@ func TestPostMessage_SlackAPIErrorWithMockTransport(t *testing.T) {
 	err := b.PostMessage(context.Background(), "C1", "text", "")
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 	if !strings.Contains(err.Error(), "channel_not_found") {
 		t.Errorf("err=%v", err)
@@ -65,6 +66,7 @@ func TestPostMessage_RoundTripError(t *testing.T) {
 	err := b.PostMessage(context.Background(), "C1", "text", "")
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 

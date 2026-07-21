@@ -19,6 +19,7 @@ func TestChain_Before_StopsOnError(t *testing.T) {
 
 	if err == nil {
 		t.Fatal("expected error from chain")
+		return
 	}
 	if len(h1.Events) != 1 {
 		t.Error("h1 should have been called")
@@ -210,6 +211,7 @@ func TestCostTracker_BudgetExceeded(t *testing.T) {
 	err := tracker.Before(ctx, &Event{Type: EventModelCallBefore, Name: "m"})
 	if err == nil {
 		t.Fatal("expected budget exceeded error")
+		return
 	}
 }
 
@@ -352,5 +354,6 @@ func TestChain_After_StopsOnError(t *testing.T) {
 	err := chain.After(context.Background(), &Event{Type: EventModelCallAfter})
 	if err == nil {
 		t.Fatal("expected error from Chain.After when hook fails")
+		return
 	}
 }

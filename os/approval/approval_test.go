@@ -16,6 +16,7 @@ func TestNewService(t *testing.T) {
 	svc := NewService()
 	if svc == nil {
 		t.Fatal("NewService returned nil")
+		return
 	}
 	if svc.pending == nil {
 		t.Fatal("pending map is nil")

@@ -39,6 +39,7 @@ func TestNewSwarm_Errors_Table(t *testing.T) {
 			_, err := NewSwarm(tt.cfg)
 			if err == nil {
 				t.Fatal("expected error")
+				return
 			}
 			if !strings.Contains(err.Error(), tt.wantSub) {
 				t.Fatalf("err=%v, want substring %q", err, tt.wantSub)
@@ -70,6 +71,7 @@ func TestRunParallel_FailFast(t *testing.T) {
 	_, err := tm.Run(context.Background(), graph.State{"message": "hi"})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -84,6 +86,7 @@ func TestRunParallel_ContextCancelled(t *testing.T) {
 	_, err := tm.Run(ctx, graph.State{"message": "hi"})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -96,6 +99,7 @@ func TestRunParallel_CollectMode(t *testing.T) {
 	_, err := tm.Run(context.Background(), graph.State{"message": "hi"})
 	if err == nil {
 		t.Fatal("expected combined error")
+		return
 	}
 	if !strings.Contains(err.Error(), "2 agents failed") {
 		t.Fatalf("unexpected error: %v", err)
@@ -112,6 +116,7 @@ func TestRunRouter_ModelRouterError(t *testing.T) {
 	_, err := tm.Run(context.Background(), graph.State{"message": "do"})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -123,6 +128,7 @@ func TestRunRouter_StaticRouterEmptyID(t *testing.T) {
 	_, err := tm.Run(context.Background(), graph.State{"message": "do"})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -134,6 +140,7 @@ func TestRunRouter_UnknownSelectedAgent(t *testing.T) {
 	_, err := tm.Run(context.Background(), graph.State{"message": "do"})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -143,6 +150,7 @@ func TestRunRouter_CapabilityMatchNoAgents(t *testing.T) {
 	_, err := tm.Run(context.Background(), graph.State{"message": "do"})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 	if !strings.Contains(err.Error(), "no agents registered") {
 		t.Fatalf("unexpected: %v", err)
@@ -157,6 +165,7 @@ func TestRunRouter_AgentExecuteError(t *testing.T) {
 	_, err := tm.Run(context.Background(), graph.State{"message": "do"})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -170,6 +179,7 @@ func TestRunRouter_ModelRouterUnknownAgent(t *testing.T) {
 	_, err := tm.Run(context.Background(), graph.State{"message": "hi"})
 	if err == nil {
 		t.Fatal("expected error for unknown routed agent")
+		return
 	}
 }
 
@@ -181,6 +191,7 @@ func TestRunSequential_FirstAgentFails(t *testing.T) {
 	_, err := tm.Run(context.Background(), graph.State{"message": "hi"})
 	if err == nil {
 		t.Fatal("expected error from first agent")
+		return
 	}
 }
 
@@ -195,6 +206,7 @@ func TestRunSequential_ContextCancelledBeforeRun(t *testing.T) {
 	_, err := tm.Run(ctx, graph.State{"message": "hi"})
 	if err == nil {
 		t.Fatal("expected cancellation error")
+		return
 	}
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
@@ -213,6 +225,7 @@ func TestCoordinatorPlan_InvalidJSON(t *testing.T) {
 	_, err := tm.Run(context.Background(), graph.State{"message": "task"})
 	if err == nil {
 		t.Fatal("expected error from invalid coordinator JSON")
+		return
 	}
 }
 
@@ -227,6 +240,7 @@ func TestCoordinatorPlan_UnknownAgentInPlan(t *testing.T) {
 	_, err := tm.Run(context.Background(), graph.State{"message": "task"})
 	if err == nil {
 		t.Fatal("expected error for unknown agent in plan")
+		return
 	}
 }
 
@@ -241,6 +255,7 @@ func TestRunCoordinator_ExecutePlanDelegateFailure(t *testing.T) {
 	_, err := tm.Run(context.Background(), graph.State{"message": "task"})
 	if err == nil {
 		t.Fatal("expected error from task execution")
+		return
 	}
 }
 
@@ -255,6 +270,7 @@ func TestRunCoordinator_PlanIterationError(t *testing.T) {
 	_, err := tm.Run(context.Background(), graph.State{"message": "task"})
 	if err == nil {
 		t.Fatal("expected error from coordinator plan")
+		return
 	}
 }
 
@@ -266,6 +282,7 @@ func TestSetCoordinator_OnEmptyTeam(t *testing.T) {
 	_, err := tm.Run(context.Background(), graph.State{"message": "x"})
 	if err == nil {
 		t.Fatal("expected error: no agents in Order")
+		return
 	}
 }
 
@@ -278,5 +295,6 @@ func TestCompile_EdgeTargetMissing(t *testing.T) {
 	_, err := g.Compile()
 	if err == nil {
 		t.Fatal("expected compile error for missing edge target")
+		return
 	}
 }

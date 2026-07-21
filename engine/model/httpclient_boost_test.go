@@ -19,6 +19,7 @@ func TestHTTPClient_post_MarshalError_Boost(t *testing.T) {
 	_, err := h.post(context.Background(), "/x", marshalFail{})
 	if err == nil {
 		t.Fatal("expected marshal error")
+		return
 	}
 }
 

@@ -13,6 +13,7 @@ func TestNewSwarm_TooFewAgents_Deep(t *testing.T) {
 	_, err := NewSwarm(SwarmConfig{Agents: []*agent.Agent{a1}})
 	if err == nil {
 		t.Fatal("expected error for single agent")
+		return
 	}
 }
 
@@ -26,6 +27,7 @@ func TestNewSwarm_UnknownInitial_Deep(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected unknown initial agent error")
+		return
 	}
 }
 
@@ -64,6 +66,7 @@ func TestHandoffResult_MarshalFail_Deep(t *testing.T) {
 	_, _, err := HandoffResult(ch)
 	if err == nil {
 		t.Fatal("expected marshal error for channel")
+		return
 	}
 }
 
@@ -82,6 +85,7 @@ func TestNewHierarchy_NilRoot_Deep(t *testing.T) {
 	_, err := NewHierarchy(HierarchyConfig{})
 	if err == nil {
 		t.Fatal("expected nil root error")
+		return
 	}
 }
 
@@ -91,6 +95,7 @@ func TestNewHierarchy_NilRootSupervisor_Deep(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected nil supervisor error")
+		return
 	}
 }
 
@@ -123,6 +128,7 @@ func TestCollectAgents_SubMissingSupervisor_Deep(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected collectAgents error")
+		return
 	}
 }
 
@@ -131,5 +137,6 @@ func TestTeam_UnknownStrategy_Deep(t *testing.T) {
 	_, err := tm.Run(context.Background(), graph.State{"message": "hi"})
 	if err == nil {
 		t.Fatal("expected unknown strategy")
+		return
 	}
 }

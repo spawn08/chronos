@@ -9,6 +9,7 @@ func TestProviderFromString_ParseError(t *testing.T) {
 	_, err := ProviderFromString("not-a-model-ref")
 	if err == nil {
 		t.Fatal("expected error from invalid model string")
+		return
 	}
 	if !strings.Contains(err.Error(), "invalid model string") {
 		t.Errorf("unexpected error: %v", err)
@@ -25,5 +26,6 @@ func TestProviderFromString_UsesLowercaseProviderKey(t *testing.T) {
 	}
 	if p == nil {
 		t.Fatal("expected provider")
+		return
 	}
 }

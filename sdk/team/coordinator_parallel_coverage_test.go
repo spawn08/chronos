@@ -67,6 +67,7 @@ func TestNewSwarm_ZeroAgents_Table(t *testing.T) {
 			_, err := NewSwarm(SwarmConfig{Agents: tt.agents})
 			if err == nil {
 				t.Fatal("expected error")
+				return
 			}
 			if !strings.Contains(err.Error(), tt.wantSub) {
 				t.Fatalf("err=%q want substring %q", err.Error(), tt.wantSub)
@@ -94,6 +95,7 @@ func TestRunParallel_ContextCancelWhileWaitingOnSemaphore(t *testing.T) {
 	_, err := tm.Run(ctx, graph.State{"message": "x"})
 	if err == nil {
 		t.Fatal("expected error after cancellation / agent failure")
+		return
 	}
 }
 
@@ -126,6 +128,7 @@ func TestRunSequential_ContextCancelAfterFirstAgent(t *testing.T) {
 	_, err := tm.Run(ctx, graph.State{"message": "go"})
 	if err == nil {
 		t.Fatal("expected cancellation before second agent")
+		return
 	}
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("want context.Canceled, got %v", err)
@@ -181,6 +184,7 @@ func TestRunCoordinator_EmptyTaskListExitsWithoutDelegate(t *testing.T) {
 	}
 	if out == nil {
 		t.Fatal("nil state")
+		return
 	}
 }
 
@@ -200,6 +204,7 @@ func TestExecutePlan_DependencyNotCompleted(t *testing.T) {
 	_, err := tm.Run(context.Background(), graph.State{"message": "x"})
 	if err == nil {
 		t.Fatal("expected execute plan error for missing dependency")
+		return
 	}
 	if !strings.Contains(err.Error(), "ghost") || !strings.Contains(err.Error(), "not completed") {
 		t.Fatalf("unexpected error: %v", err)

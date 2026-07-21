@@ -68,6 +68,7 @@ func TestHTTPTool_MissingURL(t *testing.T) {
 	_, err := tool.Handler(context.Background(), map[string]any{})
 	if err == nil {
 		t.Fatal("expected error for missing URL")
+		return
 	}
 }
 
@@ -78,5 +79,6 @@ func TestHTTPTool_InvalidURL(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for invalid URL")
+		return
 	}
 }

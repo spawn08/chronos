@@ -65,6 +65,7 @@ func TestStore_Migrate_SecondStatementFails_Push(t *testing.T) {
 	err = s.Migrate(context.Background())
 	if err == nil {
 		t.Fatal("expected Migrate error")
+		return
 	}
 	if !strings.Contains(err.Error(), "migrate") {
 		t.Fatalf("expected migrate wrap, got %v", err)

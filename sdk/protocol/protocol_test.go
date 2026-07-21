@@ -35,6 +35,7 @@ func TestAcquireReleaseEnvelope(t *testing.T) {
 	e := AcquireEnvelope()
 	if e == nil {
 		t.Fatal("AcquireEnvelope returned nil")
+		return
 	}
 	e.ID = "test-id"
 	ReleaseEnvelope(e)
@@ -48,6 +49,7 @@ func TestNewDirectChannel(t *testing.T) {
 	dc := NewDirectChannel(10)
 	if dc == nil {
 		t.Fatal("NewDirectChannel returned nil")
+		return
 	}
 	if cap(dc.AtoB) != 10 {
 		t.Errorf("expected AtoB cap 10, got %d", cap(dc.AtoB))
@@ -76,6 +78,7 @@ func TestNewBus(t *testing.T) {
 	b := NewBus()
 	if b == nil {
 		t.Fatal("NewBus returned nil")
+		return
 	}
 	if len(b.Peers()) != 0 {
 		t.Error("new bus should have no peers")

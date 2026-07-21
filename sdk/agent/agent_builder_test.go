@@ -371,6 +371,7 @@ func TestChatSessionFromEvents_Empty(t *testing.T) {
 	cs := chatSessionFromEvents(nil)
 	if cs == nil {
 		t.Fatal("expected non-nil ChatSession")
+		return
 	}
 	if len(cs.Messages) != 0 {
 		t.Errorf("expected no messages, got %d", len(cs.Messages))

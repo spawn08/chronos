@@ -58,6 +58,7 @@ func TestHandlerPanicRecovery(t *testing.T) {
 			}
 			if reply == nil {
 				t.Fatal("expected an error reply, got nil")
+				return
 			}
 			if reply.Type != TypeError {
 				t.Fatalf("expected TypeError reply, got %q", reply.Type)
@@ -93,6 +94,7 @@ func TestInvokeHandlerRecovers(t *testing.T) {
 	}, &Envelope{})
 	if err == nil {
 		t.Fatal("expected error from panicking handler")
+		return
 	}
 	if reply != nil {
 		t.Fatalf("expected nil reply, got %v", reply)

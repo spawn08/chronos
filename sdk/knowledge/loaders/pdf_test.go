@@ -77,6 +77,7 @@ func TestPDFLoader_InvalidPDF(t *testing.T) {
 	_, err := loader.Load()
 	if err == nil {
 		t.Fatal("expected error for invalid PDF")
+		return
 	}
 }
 
@@ -85,6 +86,7 @@ func TestPDFLoader_MissingFile(t *testing.T) {
 	_, err := loader.Load()
 	if err == nil {
 		t.Fatal("expected error for missing file")
+		return
 	}
 }
 

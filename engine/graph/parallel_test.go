@@ -64,6 +64,7 @@ func TestFanOut_BranchError(t *testing.T) {
 	_, err := fn(context.Background(), State{})
 	if err == nil {
 		t.Fatal("expected error from failing branch")
+		return
 	}
 }
 

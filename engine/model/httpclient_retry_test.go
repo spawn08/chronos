@@ -150,6 +150,7 @@ func TestHTTPClient_CircuitBreakerOpens(t *testing.T) {
 	_, err := h.post(context.Background(), "/x", map[string]string{})
 	if err == nil {
 		t.Fatal("expected circuit-open error")
+		return
 	}
 	if IsRetryable(err) {
 		t.Error("circuit-open error must not be classified as retryable")
@@ -173,5 +174,6 @@ func TestHTTPClient_ContextCancelStopsRetry(t *testing.T) {
 	_, err := h.post(ctx, "/x", map[string]string{})
 	if err == nil {
 		t.Fatal("expected error when context is canceled")
+		return
 	}
 }

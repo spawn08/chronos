@@ -89,6 +89,7 @@ func TestAzureOpenAI_Chat_Error(t *testing.T) {
 	_, err := p.Chat(t.Context(), &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 	if !strings.Contains(err.Error(), "azure openai chat") {
 		t.Errorf("error=%v", err)
@@ -132,6 +133,7 @@ func TestAzureOpenAI_StreamChat_Error(t *testing.T) {
 	_, err := p.StreamChat(t.Context(), &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -198,6 +200,7 @@ func TestAzureOpenAIEmbeddings_Embed_Error(t *testing.T) {
 	_, err := p.Embed(t.Context(), &EmbeddingRequest{Input: []string{"text"}})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -265,6 +268,7 @@ func TestCohere_Chat_Error(t *testing.T) {
 	_, err := p.Chat(t.Context(), &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 	if !strings.Contains(err.Error(), "cohere chat") {
 		t.Errorf("error=%v", err)
@@ -279,6 +283,7 @@ func TestCohere_Chat_InvalidJSON(t *testing.T) {
 	_, err := p.Chat(t.Context(), &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -347,6 +352,7 @@ func TestCohere_StreamChat_Error(t *testing.T) {
 	_, err := p.StreamChat(t.Context(), &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -418,6 +424,7 @@ func TestMistral_Chat_Error(t *testing.T) {
 	_, err := p.Chat(t.Context(), &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 	if !strings.Contains(err.Error(), "mistral chat") {
 		t.Errorf("error=%v", err)
@@ -432,6 +439,7 @@ func TestMistral_Chat_InvalidJSON(t *testing.T) {
 	_, err := p.Chat(t.Context(), &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -463,6 +471,7 @@ func TestMistral_StreamChat_Error(t *testing.T) {
 	_, err := p.StreamChat(t.Context(), &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -512,6 +521,7 @@ func TestOllama_Chat_Error(t *testing.T) {
 	_, err := p.Chat(t.Context(), &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 	if !strings.Contains(err.Error(), "ollama chat") {
 		t.Errorf("error=%v", err)
@@ -526,6 +536,7 @@ func TestOllama_Chat_InvalidJSON(t *testing.T) {
 	_, err := p.Chat(t.Context(), &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -557,6 +568,7 @@ func TestOllama_StreamChat_Error(t *testing.T) {
 	_, err := p.StreamChat(t.Context(), &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -603,6 +615,7 @@ func TestOpenAICompatible_Chat_Error(t *testing.T) {
 	_, err := p.Chat(t.Context(), &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 	if !strings.Contains(err.Error(), "test chat") {
 		t.Errorf("error=%v", err)
@@ -617,6 +630,7 @@ func TestOpenAICompatible_Chat_InvalidJSON(t *testing.T) {
 	_, err := p.Chat(t.Context(), &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -648,6 +662,7 @@ func TestOpenAICompatible_StreamChat_Error(t *testing.T) {
 	_, err := p.StreamChat(t.Context(), &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -712,6 +727,7 @@ func TestFallbackProvider_NewFallbackProvider_NoProviders(t *testing.T) {
 	_, err := NewFallbackProvider()
 	if err == nil {
 		t.Fatal("expected error for empty providers")
+		return
 	}
 }
 
@@ -768,6 +784,7 @@ func TestFallbackProvider_Chat_AllFail(t *testing.T) {
 	_, err := p.Chat(context.Background(), &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}})
 	if err == nil {
 		t.Fatal("expected error when all providers fail")
+		return
 	}
 	if !strings.Contains(err.Error(), "all 2 providers failed") {
 		t.Errorf("error=%v", err)
@@ -800,6 +817,7 @@ func TestFallbackProvider_StreamChat_AllFail(t *testing.T) {
 	_, err := p.StreamChat(context.Background(), &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -812,6 +830,7 @@ func TestFallbackProvider_Chat_ContextCanceled(t *testing.T) {
 	_, err := p.Chat(ctx, &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}})
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 
@@ -1006,5 +1025,6 @@ func TestFallbackProvider_StreamChat_ContextCanceled(t *testing.T) {
 	_, err := p.StreamChat(ctx, &ChatRequest{})
 	if err == nil {
 		t.Fatal("expected error with canceled context")
+		return
 	}
 }

@@ -44,6 +44,7 @@ func TestClient_GetAgentCard_RequestError_Boost(t *testing.T) {
 	_, err := c.GetAgentCard(context.Background())
 	if err == nil {
 		t.Fatal("expected error")
+		return
 	}
 }
 

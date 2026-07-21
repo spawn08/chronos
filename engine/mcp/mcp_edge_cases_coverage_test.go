@@ -26,6 +26,7 @@ func TestReadResource_RPCError(t *testing.T) {
 	_, err = client.ReadResource(context.Background(), "file:///any")
 	if err == nil {
 		t.Fatal("expected resources/read RPC error")
+		return
 	}
 	if !strings.Contains(err.Error(), "resources/read") {
 		t.Fatalf("unexpected error: %v", err)
@@ -63,6 +64,7 @@ func TestListResources_ParseError(t *testing.T) {
 	_, err = c.ListResources(context.Background())
 	if err == nil {
 		t.Fatal("expected parse error")
+		return
 	}
 	if !strings.Contains(err.Error(), "parse resources") {
 		t.Fatalf("unexpected: %v", err)

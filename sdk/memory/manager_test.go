@@ -64,6 +64,7 @@ func TestManager_ExtractMemories_ProviderError(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error from provider")
+		return
 	}
 	if err.Error() == "" {
 		t.Error("expected non-empty error message")
@@ -220,6 +221,7 @@ func TestManager_MemoryTools_Remember(t *testing.T) {
 	}
 	if rememberTool == nil {
 		t.Fatal("remember tool not found")
+		return
 	}
 
 	_, err := rememberTool.Handler(context.Background(), map[string]any{"key": "test_key", "value": "test_value"})
@@ -249,6 +251,7 @@ func TestManager_MemoryTools_Remember_MissingKey(t *testing.T) {
 	_, err := rememberTool.Handler(context.Background(), map[string]any{"value": "no key"})
 	if err == nil {
 		t.Fatal("expected error for missing key")
+		return
 	}
 }
 
@@ -269,6 +272,7 @@ func TestManager_MemoryTools_Forget(t *testing.T) {
 	}
 	if forgetTool == nil {
 		t.Fatal("forget tool not found")
+		return
 	}
 
 	_, err := forgetTool.Handler(ctx, map[string]any{"key": "test_key"})
@@ -300,6 +304,7 @@ func TestManager_MemoryTools_Recall(t *testing.T) {
 	}
 	if recallTool == nil {
 		t.Fatal("recall tool not found")
+		return
 	}
 
 	result, err := recallTool.Handler(ctx, nil)

@@ -66,6 +66,7 @@ func TestAnthropic_Chat_Error(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for 401")
+		return
 	}
 	if !strings.Contains(err.Error(), "anthropic chat") {
 		t.Errorf("error should mention anthropic chat: %v", err)
@@ -280,6 +281,7 @@ func TestAnthropic_StreamChat_Error(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for 500")
+		return
 	}
 }
 
@@ -293,6 +295,7 @@ func TestAnthropic_Chat_InvalidJSON(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
+		return
 	}
 }
 

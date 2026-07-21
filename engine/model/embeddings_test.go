@@ -59,6 +59,7 @@ func TestGoogleEmbeddings_Embed_HTTPError(t *testing.T) {
 	_, err := e.Embed(context.Background(), &EmbeddingRequest{Input: []string{"test"}})
 	if err == nil {
 		t.Fatal("expected error for 403")
+		return
 	}
 }
 
@@ -123,6 +124,7 @@ func TestOllamaEmbeddings_Embed_HTTPError(t *testing.T) {
 	_, err := e.Embed(context.Background(), &EmbeddingRequest{Input: []string{"test"}})
 	if err == nil {
 		t.Fatal("expected error for 500")
+		return
 	}
 }
 
@@ -200,5 +202,6 @@ func TestOpenAIEmbeddings_Embed_HTTPError(t *testing.T) {
 	_, err := e.Embed(context.Background(), &EmbeddingRequest{Input: []string{"test"}})
 	if err == nil {
 		t.Fatal("expected error for 401")
+		return
 	}
 }

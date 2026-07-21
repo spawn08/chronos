@@ -26,6 +26,7 @@ func TestEvictLargeResult_PutMemoryError(t *testing.T) {
 	_, err := EvictLargeResult(ctx, store, "sess", "tool", large)
 	if err == nil {
 		t.Fatal("expected error from PutMemory")
+		return
 	}
 }
 
@@ -36,6 +37,7 @@ func TestEvictLargeResult_MarshalError(t *testing.T) {
 	_, err := EvictLargeResult(ctx, store, "sess", "tool", ch)
 	if err == nil {
 		t.Fatal("expected marshal error")
+		return
 	}
 }
 

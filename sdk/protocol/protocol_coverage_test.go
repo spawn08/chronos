@@ -23,6 +23,7 @@ func TestSendAndWait_Timeout(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected timeout error")
+		return
 	}
 	if err != context.DeadlineExceeded {
 		t.Fatalf("want DeadlineExceeded, got %v", err)
@@ -48,6 +49,7 @@ func TestSendAndWait_ContextCancelled(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected cancel error")
+		return
 	}
 	if err != context.Canceled {
 		t.Fatalf("want Canceled, got %v", err)
@@ -81,5 +83,6 @@ func TestDeliverToLocked_Backpressure(t *testing.T) {
 	err2 := b.Send(context.Background(), &Envelope{Type: TypeBroadcast, From: "x", To: "full", Body: []byte(`{}`)})
 	if err2 == nil {
 		t.Fatal("expected inbox full error")
+		return
 	}
 }

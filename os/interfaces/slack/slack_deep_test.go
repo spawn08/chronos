@@ -42,6 +42,7 @@ func TestPostMessage_APIError_Deep(t *testing.T) {
 	err := b.PostMessage(context.Background(), "C1", "hello", "")
 	if err == nil {
 		t.Fatal("expected slack API error")
+		return
 	}
 }
 

@@ -56,6 +56,7 @@ func TestCollectAgents_Table(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error")
+					return
 				}
 				return
 			}
@@ -84,6 +85,7 @@ func TestBuildHierarchyGraph_SupervisorNodeError(t *testing.T) {
 	_, err = fn(context.Background(), graph.State{"input": "task"})
 	if err == nil {
 		t.Fatal("expected error from supervisor node")
+		return
 	}
 }
 
@@ -102,6 +104,7 @@ func TestBuildHierarchyGraph_WorkerNodeError(t *testing.T) {
 	_, err = wfn(context.Background(), graph.State{"input": "do work"})
 	if err == nil {
 		t.Fatal("expected error from worker node")
+		return
 	}
 }
 
