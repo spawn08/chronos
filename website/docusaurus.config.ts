@@ -38,10 +38,13 @@ const config: Config = {
   // .mdx files still get full MDX.
   markdown: {
     format: 'detect',
+    mermaid: true,
     hooks: {
       onBrokenMarkdownLinks: 'warn',
     },
   },
+
+  themes: ['@docusaurus/theme-mermaid'],
 
   presets: [
     [

@@ -5,6 +5,34 @@ title: "Building Real-World Agents"
 
 This guide walks you through building production-quality agents with **real LLM providers** — no mocks, no stubs. Every example in this guide compiles, runs, and makes actual LLM API calls. You'll see both the **Go code** and the **YAML equivalent** for each pattern.
 
+## Pattern Map
+
+Each pattern in this guide corresponds to a runnable example under [`examples/`](https://github.com/spawn08/chronos/tree/main/examples):
+
+```mermaid
+flowchart LR
+    P1[1 · Chat] --> P2[2 · Tools]
+    P2 --> P3[3 · StateGraph]
+    P3 --> P4[4 · Memory + Sessions]
+    P4 --> P5[5 · Sequential Team]
+    P5 --> P6[6 · Coordinator Team]
+    P6 --> P7[7 · Human-in-the-loop]
+    P7 --> P8[8 · Fallback Provider]
+    P8 --> P9[9 · Streaming]
+    P9 --> P10[10 · CLI Deploy]
+
+    click P1 "#pattern-1-chat-agent-simplest-real-agent"
+    click P2 "#pattern-2-agent-with-tools"
+    click P3 "#pattern-3-stategraph-with-llm-nodes"
+    click P4 "#pattern-4-multi-turn-sessions-with-memory"
+    click P5 "#pattern-5-multi-agent-team-sequential-pipeline"
+    click P6 "#pattern-6-coordinator-team-task-decomposition"
+    click P7 "#pattern-7-interrupt--resume-human-in-the-loop"
+    click P8 "#pattern-8-fallback-provider-high-availability"
+    click P9 "#pattern-9-streaming-responses"
+    click P10 "#pattern-10-deploy-via-cli-no-go-code"
+```
+
 ## Environment Setup
 
 Before running any example, you need exactly one thing: an LLM API key.
@@ -276,26 +304,19 @@ This is the most powerful pattern in Chronos. A **StateGraph** defines a multi-s
 
 ### Architecture
 
-```
-User Input
-    │
-    ▼
-┌──────────┐      ┌───────────────┐
-│ classify  │─────→│ conditional   │
-│ (LLM call)│      │   edge        │
-└──────────┘      └───┬───────┬───┘
-                      │       │
-              technical│       │general
-                      ▼       ▼
-              ┌──────────┐  ┌──────────┐
-              │ technical │  │ general  │
-              │ (LLM+tools)│  │ (LLM)   │
-              └──────────┘  └──────────┘
-                      │       │
-                      ▼       ▼
-                    ┌──────────┐
-                    │   END    │
-                    └──────────┘
+```mermaid
+flowchart TB
+    U([User Input]) --> C[classify · LLM call]
+    C --> Cond{conditional edge<br/>on state.category}
+    Cond -->|technical| T[technical<br/>LLM + tools]
+    Cond -->|general| G[general<br/>LLM only]
+    T --> E([END · checkpointed])
+    G --> E
+
+    style C fill:#4c6ef5,color:#fff,stroke:#364fc7
+    style T fill:#0ca678,color:#fff,stroke:#087f5b
+    style G fill:#7048e8,color:#fff,stroke:#5f3dc4
+    style Cond fill:#fab005,stroke:#e67700,color:#000
 ```
 
 ### Go Code (Full Runnable Example)
@@ -627,6 +648,18 @@ go run ./cli/main.go repl
 
 Three agents collaborate in a pipeline: one researches, one writes, one edits. Each sees the output of the previous agent.
 
+```mermaid
+flowchart LR
+    T([Task]) --> R[researcher<br/>5 key facts + data]
+    R -->|research notes| W[writer<br/>300-word article]
+    W -->|draft article| E[editor<br/>grammar + flow]
+    E --> O([Polished output])
+
+    style R fill:#4c6ef5,color:#fff,stroke:#364fc7
+    style W fill:#0ca678,color:#fff,stroke:#087f5b
+    style E fill:#7048e8,color:#fff,stroke:#5f3dc4
+```
+
 ### Go Code
 
 ```go
@@ -722,6 +755,20 @@ CHRONOS_CONFIG=examples/yaml-configs/content-pipeline.yaml \
 
 A coordinator agent breaks down a complex task and delegates to specialists. The coordinator uses the LLM to plan sub-tasks, assign them, and synthesize results.
 
+```mermaid
+flowchart TB
+    F([Feature request]) --> L[tech-lead · coordinator]
+    L -->|task 1| BE[backend-dev]
+    L -->|task 2| FE[frontend-dev]
+    BE -->|result| L
+    FE -->|result| L
+    L --> S([Synthesised deliverable])
+
+    style L fill:#e64980,color:#fff,stroke:#c2255c
+    style BE fill:#4c6ef5,color:#fff,stroke:#364fc7
+    style FE fill:#7048e8,color:#fff,stroke:#5f3dc4
+```
+
 ### Go Code
 
 ```go
@@ -793,6 +840,28 @@ teams:
 ## Pattern 7: Interrupt & Resume (Human-in-the-Loop)
 
 A graph that pauses at a critical decision point, waits for human approval, then resumes.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as User
+    participant A as Agent
+    participant G as StateGraph
+    participant S as Storage
+    actor H as Human Reviewer
+
+    U->>A: Run("Deploy v2.0 to prod")
+    A->>G: analyze node
+    G->>S: checkpoint · analysis
+    G-->>A: paused at human_review
+    A-->>U: Status: paused
+    Note over U,H: hours or days later...
+    H->>A: Resume(sessionID)
+    A->>S: load latest checkpoint
+    A->>G: execute node
+    G-->>A: result
+    A-->>H: Status: completed
+```
 
 ### Go Code
 
@@ -868,6 +937,23 @@ fmt.Printf("Result: %s\n", result.State["result"])
 ## Pattern 8: Fallback Provider (High Availability)
 
 Chain multiple providers for automatic failover. If OpenAI is down, fall back to Anthropic, then to local Ollama.
+
+```mermaid
+flowchart LR
+    Req([Chat request]) --> P1{OpenAI}
+    P1 -->|success| OK([Response])
+    P1 -->|5xx / timeout| P2{Anthropic}
+    P2 -->|success| OK
+    P2 -->|5xx / timeout| P3{Ollama · local}
+    P3 -->|success| OK
+    P3 -->|failure| Err([Error to caller])
+
+    style P1 fill:#4c6ef5,color:#fff,stroke:#364fc7
+    style P2 fill:#7048e8,color:#fff,stroke:#5f3dc4
+    style P3 fill:#0ca678,color:#fff,stroke:#087f5b
+    style OK fill:#37b24d,color:#fff,stroke:#2b8a3e
+    style Err fill:#f03e3e,color:#fff,stroke:#c92a2a
+```
 
 ### Go Code
 
@@ -991,11 +1077,27 @@ go run ./cli/main.go deploy deploy-config.yaml "Create a hello world HTTP server
 
 ---
 
+## Real-World Scenarios
+
+The patterns above map to concrete production use cases:
+
+| Scenario | Patterns used | Reference example |
+|----------|--------------|-------------------|
+| **Customer-support triage bot** — classify → route to KB agent or human handoff | 3 (StateGraph) + 7 (HITL) | [`durable_hitl`](https://github.com/spawn08/chronos/tree/main/examples/durable_hitl) |
+| **Code review assistant** — plan → analyse → produce review comments | 3 + 6 (coordinator) | [`coding_agent`](https://github.com/spawn08/chronos/tree/main/examples/coding_agent) |
+| **RAG-backed knowledge assistant** — retrieve → answer with citations | 1 + memory + vector store | [`memory_and_sessions`](https://github.com/spawn08/chronos/tree/main/examples/memory_and_sessions) |
+| **Autonomous DevOps operator** — plan → execute shell in sandbox → verify | 2 (tools) + 10 (deploy) | [`team_deploy`](https://github.com/spawn08/chronos/tree/main/examples/team_deploy) |
+| **High-availability chat backend** — with provider failover + streaming | 8 + 9 | [`fallback_provider`](https://github.com/spawn08/chronos/tree/main/examples/fallback_provider) |
+| **Long-running research workflow** — durable queue survives crashes | 3 + durable queue | [`durable_queue`](https://github.com/spawn08/chronos/tree/main/examples/durable_queue) |
+| **Data-pipeline agent** — 3-stage extract/transform/validate | 5 (sequential team) | [`multi_agent`](https://github.com/spawn08/chronos/tree/main/examples/multi_agent) |
+
 ## Next Steps
 
+- [Architecture](/reference/architecture) — Visual diagrams of every subsystem
 - [Model Providers](/guides/models/) — All 14+ supported providers with configuration
 - [StateGraph Runtime](/guides/stategraph/) — Deep dive into graph patterns
 - [Tools & Function Calling](/guides/tools/) — Built-in and custom tools
 - [Multi-Agent Teams](/guides/teams/) — All team strategies with examples
 - [YAML Examples](/guides/yaml-examples/) — 5 ready-to-run YAML configurations
 - [Storage Adapters](/guides/storage/) — SQLite, PostgreSQL, Redis, and more
+- [CLI Reference](/api/cli) — Every command with examples
