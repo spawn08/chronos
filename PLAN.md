@@ -287,10 +287,19 @@ Sustained-scale operability and security. Ongoing.
     `no-new-privileges`, pids/ulimit/tmpfs caps); remove or gate the auto-allow host-shell tool; make
     stub backends fail at construction, not execution.
 
-- [ ] **P2-002 — Multi-tenancy in the data model.** No tenant/org column exists anywhere; isolation is
+- [x] **P2-002 — Multi-tenancy in the data model.** No tenant/org column exists anywhere; isolation is
   currently impossible. Add tenant scoping to schema + all queries; enforce object-level authorization
-  (session/trace/checkpoint access is keyed only by client-supplied IDs today → IDOR).
+  (session/trace/checkpoint access is keyed only by client-supplied IDs today → IDOR). <!-- done: 2026-07-22 -->
   - **Location:** `storage/storage.go`, `os/server.go:118-217`
+  - **Delivered:** Context-based tenant propagation (`storage/tenant.go`: `WithTenant`/`TenantFromContext`/
+    `DefaultTenant`) — additive, no interface signature changes. `tenant_id` added to all six record types;
+    sqlite/postgres migration v2 + composite `(tenant_id, …)` indexes; memory adapter scoped. Writes stamp
+    tenant from context (unspoofable); reads filter by it; cross-tenant id lookups return not-found.
+    `os/server.go` derives tenant from the authenticated principal (`auth.UserClaims.TenantID`), never from
+    client ids → IDOR closed (cross-tenant `/api/sessions/state` now 404s). Isolation tests for sqlite/memory
+    + HTTP integration test.
+  - **Follow-up:** the four experimental adapters (dynamo/mongo/redis/redisvector) do not yet enforce tenant
+    scoping (their data lands under the default tenant); apply `TenantFromContext` stamping/filtering there.
 
 - [x] **P2-003 — AuthN/Z depth.** Current JWT is HS256-only with unused `Issuer`/`AllowExpired`; API keys
   are plaintext in memory. Add OIDC/JWKS + RS256 + rotation; hashed, persisted API keys; per-key/per-tenant
@@ -308,15 +317,25 @@ Sustained-scale operability and security. Ongoing.
   (CodeQL/gosec), SBOM, or image signing (cosign). Add all; enforce (not warn) a meaningful coverage gate.
   - **Location:** `.github/workflows/ci.yml`, `release.yml`
 
-- [ ] **P2-006 — Test quality.** ~110 of 263 test files are coverage-padding (`_squeeze/_boost/_max`),
+- [x] **P2-006 — Test quality.** ~110 of 263 test files are coverage-padding (`_squeeze/_boost/_max`),
   there are zero benchmarks, and no load/soak/chaos tests. Add benchmarks for hot paths; concurrency
   stress tests under `-race` for `sdk/protocol`, `sdk/team`, `engine/hooks`, `engine/graph`; load and
-  soak tests for the durable queue and control plane.
+  soak tests for the durable queue and control plane. <!-- done: 2026-07-22 -->
+  - **Delivered:** Benchmarks for hot paths (queue, hooks, graph, tool, protocol, team); `-race` stress
+    tests for `sdk/protocol`, `sdk/team`, `engine/hooks`, `engine/graph`; queue load/soak tests
+    (exactly-once steady-state; at-least-once-with-zero-loss under worker churn) gated behind
+    `testing.Short()`. `-short` and `-race` suites green; no source bugs found.
 
-- [ ] **P2-007 — Storage adapter quality.** dynamo/mongo/redis/redisvector are prototype REST/TCP glue
+- [x] **P2-007 — Storage adapter quality.** dynamo/mongo/redis/redisvector are prototype REST/TCP glue
   with wire-protocol bugs (e.g. single-64KB `Read` RESP parsing, missing SigV4). Rebuild on official SDKs
-  or clearly label experimental and exclude from the "production" set.
+  or clearly label experimental and exclude from the "production" set. <!-- done: 2026-07-22 -->
   - **Location:** `storage/adapters/{dynamo,mongo,redis,redisvector}/`
+  - **Delivered:** All four rebuilt on official SDKs — redis/redisvector on `redis/go-redis/v9` (correct RESP
+    framing; redisvector now uses binary little-endian float32 vector blobs + `FT.*`), dynamo on
+    `aws-sdk-go-v2` (SigV4, single-table + GSI, all methods functional), mongo on `go.mongodb.org/mongo-driver`
+    (real wire protocol; the dead Atlas Data API is gone). Unit-tested via `miniredis` / injected fakes;
+    full round-trips gated behind `REDISVECTOR_ADDR` / `MONGO_URI` env. `mongo.New` signature changed to
+    `New(uri, database)` (no external callers).
 
 - [x] **P2-008 — Config-driven completeness.** YAML custom tools are placeholders and config-driven
   Postgres is a stub. Make config-built agents fully functional (custom tool handlers, Postgres).
