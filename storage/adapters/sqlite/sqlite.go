@@ -135,11 +135,31 @@ CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_logs(session_id);
 CREATE INDEX IF NOT EXISTS idx_traces_session ON traces(session_id, started_at);
 `
 
+// schemaTenant is the v2 migration (P2-002): it adds a tenant_id column to every
+// table for multi-tenant isolation and composite indexes leading with tenant_id
+// so tenant-scoped reads stay index-backed. Existing rows default to
+// storage.DefaultTenant, preserving single-tenant deployments.
+const schemaTenant = `
+ALTER TABLE sessions ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default';
+ALTER TABLE memory ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default';
+ALTER TABLE audit_logs ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default';
+ALTER TABLE traces ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default';
+ALTER TABLE events ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default';
+ALTER TABLE checkpoints ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default';
+CREATE INDEX IF NOT EXISTS idx_sessions_tenant_agent ON sessions(tenant_id, agent_id);
+CREATE INDEX IF NOT EXISTS idx_memory_tenant_agent_key ON memory(tenant_id, agent_id, key);
+CREATE INDEX IF NOT EXISTS idx_audit_tenant_session ON audit_logs(tenant_id, session_id);
+CREATE INDEX IF NOT EXISTS idx_traces_tenant_session ON traces(tenant_id, session_id, started_at);
+CREATE INDEX IF NOT EXISTS idx_events_tenant_session_seq ON events(tenant_id, session_id, seq_num);
+CREATE INDEX IF NOT EXISTS idx_checkpoints_tenant_session ON checkpoints(tenant_id, session_id, seq_num);
+`
+
 // Migrate creates all required tables and indexes via the versioned migration
-// framework (P1-014).
+// framework (P1-014). Migration v2 adds tenant scoping (P2-002).
 func (s *Store) Migrate(ctx context.Context) error {
 	m := migrate.New(s.db, migrate.WithDialect(migrate.DialectSQLite))
 	m.Add(1, "initial schema", schema, "")
+	m.Add(2, "tenant scoping", schemaTenant, "")
 	if err := m.Migrate(ctx); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
@@ -151,19 +171,21 @@ func (s *Store) Close() error { return s.db.Close() }
 // --- Sessions ---
 
 func (s *Store) CreateSession(ctx context.Context, sess *storage.Session) error {
+	tenant := storage.TenantFromContext(ctx)
 	meta, _ := json.Marshal(sess.Metadata)
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO sessions (id, agent_id, status, metadata, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
-		sess.ID, sess.AgentID, sess.Status, string(meta), sess.CreatedAt, sess.UpdatedAt,
+		`INSERT INTO sessions (id, tenant_id, agent_id, status, metadata, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`,
+		sess.ID, tenant, sess.AgentID, sess.Status, string(meta), sess.CreatedAt, sess.UpdatedAt,
 	)
 	return err
 }
 
 func (s *Store) GetSession(ctx context.Context, id string) (*storage.Session, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, agent_id, status, metadata, created_at, updated_at FROM sessions WHERE id=?`, id)
+	tenant := storage.TenantFromContext(ctx)
+	row := s.db.QueryRowContext(ctx, `SELECT id, tenant_id, agent_id, status, metadata, created_at, updated_at FROM sessions WHERE id=? AND tenant_id=?`, id, tenant)
 	sess := &storage.Session{}
 	var meta string
-	if err := row.Scan(&sess.ID, &sess.AgentID, &sess.Status, &meta, &sess.CreatedAt, &sess.UpdatedAt); err != nil {
+	if err := row.Scan(&sess.ID, &sess.TenantID, &sess.AgentID, &sess.Status, &meta, &sess.CreatedAt, &sess.UpdatedAt); err != nil {
 		return nil, err
 	}
 	_ = json.Unmarshal([]byte(meta), &sess.Metadata)
@@ -171,18 +193,20 @@ func (s *Store) GetSession(ctx context.Context, id string) (*storage.Session, er
 }
 
 func (s *Store) UpdateSession(ctx context.Context, sess *storage.Session) error {
+	tenant := storage.TenantFromContext(ctx)
 	meta, _ := json.Marshal(sess.Metadata)
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE sessions SET status=?, metadata=?, updated_at=? WHERE id=?`,
-		sess.Status, string(meta), time.Now(), sess.ID,
+		`UPDATE sessions SET status=?, metadata=?, updated_at=? WHERE id=? AND tenant_id=?`,
+		sess.Status, string(meta), time.Now(), sess.ID, tenant,
 	)
 	return err
 }
 
 func (s *Store) ListSessions(ctx context.Context, agentID string, limit, offset int) ([]*storage.Session, error) {
+	tenant := storage.TenantFromContext(ctx)
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, agent_id, status, metadata, created_at, updated_at FROM sessions WHERE agent_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?`,
-		agentID, limit, offset,
+		`SELECT id, tenant_id, agent_id, status, metadata, created_at, updated_at FROM sessions WHERE tenant_id=? AND agent_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+		tenant, agentID, limit, offset,
 	)
 	if err != nil {
 		return nil, err
@@ -192,7 +216,7 @@ func (s *Store) ListSessions(ctx context.Context, agentID string, limit, offset 
 	for rows.Next() {
 		sess := &storage.Session{}
 		var meta string
-		if err := rows.Scan(&sess.ID, &sess.AgentID, &sess.Status, &meta, &sess.CreatedAt, &sess.UpdatedAt); err != nil {
+		if err := rows.Scan(&sess.ID, &sess.TenantID, &sess.AgentID, &sess.Status, &meta, &sess.CreatedAt, &sess.UpdatedAt); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(meta), &sess.Metadata)
@@ -204,19 +228,21 @@ func (s *Store) ListSessions(ctx context.Context, agentID string, limit, offset 
 // --- Memory ---
 
 func (s *Store) PutMemory(ctx context.Context, m *storage.MemoryRecord) error {
+	tenant := storage.TenantFromContext(ctx)
 	val, _ := json.Marshal(m.Value)
 	_, err := s.db.ExecContext(ctx,
-		`INSERT OR REPLACE INTO memory (id, session_id, agent_id, kind, key, value, created_at) VALUES (?,?,?,?,?,?,?)`,
-		m.ID, m.SessionID, m.AgentID, m.Kind, m.Key, string(val), m.CreatedAt,
+		`INSERT OR REPLACE INTO memory (id, tenant_id, session_id, agent_id, kind, key, value, created_at) VALUES (?,?,?,?,?,?,?,?)`,
+		m.ID, tenant, m.SessionID, m.AgentID, m.Kind, m.Key, string(val), m.CreatedAt,
 	)
 	return err
 }
 
 func (s *Store) GetMemory(ctx context.Context, agentID, key string) (*storage.MemoryRecord, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, session_id, agent_id, kind, key, value, created_at FROM memory WHERE agent_id=? AND key=?`, agentID, key)
+	tenant := storage.TenantFromContext(ctx)
+	row := s.db.QueryRowContext(ctx, `SELECT id, tenant_id, session_id, agent_id, kind, key, value, created_at FROM memory WHERE tenant_id=? AND agent_id=? AND key=?`, tenant, agentID, key)
 	m := &storage.MemoryRecord{}
 	var val string
-	if err := row.Scan(&m.ID, &m.SessionID, &m.AgentID, &m.Kind, &m.Key, &val, &m.CreatedAt); err != nil {
+	if err := row.Scan(&m.ID, &m.TenantID, &m.SessionID, &m.AgentID, &m.Kind, &m.Key, &val, &m.CreatedAt); err != nil {
 		return nil, err
 	}
 	_ = json.Unmarshal([]byte(val), &m.Value)
@@ -224,9 +250,10 @@ func (s *Store) GetMemory(ctx context.Context, agentID, key string) (*storage.Me
 }
 
 func (s *Store) ListMemory(ctx context.Context, agentID, kind string) ([]*storage.MemoryRecord, error) {
+	tenant := storage.TenantFromContext(ctx)
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, session_id, agent_id, kind, key, value, created_at FROM memory WHERE agent_id=? AND kind=?`,
-		agentID, kind,
+		`SELECT id, tenant_id, session_id, agent_id, kind, key, value, created_at FROM memory WHERE tenant_id=? AND agent_id=? AND kind=?`,
+		tenant, agentID, kind,
 	)
 	if err != nil {
 		return nil, err
@@ -236,7 +263,7 @@ func (s *Store) ListMemory(ctx context.Context, agentID, kind string) ([]*storag
 	for rows.Next() {
 		m := &storage.MemoryRecord{}
 		var val string
-		if err := rows.Scan(&m.ID, &m.SessionID, &m.AgentID, &m.Kind, &m.Key, &val, &m.CreatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.TenantID, &m.SessionID, &m.AgentID, &m.Kind, &m.Key, &val, &m.CreatedAt); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(val), &m.Value)
@@ -246,25 +273,28 @@ func (s *Store) ListMemory(ctx context.Context, agentID, kind string) ([]*storag
 }
 
 func (s *Store) DeleteMemory(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM memory WHERE id=?`, id)
+	tenant := storage.TenantFromContext(ctx)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM memory WHERE id=? AND tenant_id=?`, id, tenant)
 	return err
 }
 
 // --- Audit Logs ---
 
 func (s *Store) AppendAuditLog(ctx context.Context, log *storage.AuditLog) error {
+	tenant := storage.TenantFromContext(ctx)
 	detail, _ := json.Marshal(log.Detail)
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO audit_logs (id, session_id, actor, action, resource, detail, created_at) VALUES (?,?,?,?,?,?,?)`,
-		log.ID, log.SessionID, log.Actor, log.Action, log.Resource, string(detail), log.CreatedAt,
+		`INSERT INTO audit_logs (id, tenant_id, session_id, actor, action, resource, detail, created_at) VALUES (?,?,?,?,?,?,?,?)`,
+		log.ID, tenant, log.SessionID, log.Actor, log.Action, log.Resource, string(detail), log.CreatedAt,
 	)
 	return err
 }
 
 func (s *Store) ListAuditLogs(ctx context.Context, sessionID string, limit, offset int) ([]*storage.AuditLog, error) {
+	tenant := storage.TenantFromContext(ctx)
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, session_id, actor, action, resource, detail, created_at FROM audit_logs WHERE session_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?`,
-		sessionID, limit, offset,
+		`SELECT id, tenant_id, session_id, actor, action, resource, detail, created_at FROM audit_logs WHERE tenant_id=? AND session_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+		tenant, sessionID, limit, offset,
 	)
 	if err != nil {
 		return nil, err
@@ -274,7 +304,7 @@ func (s *Store) ListAuditLogs(ctx context.Context, sessionID string, limit, offs
 	for rows.Next() {
 		l := &storage.AuditLog{}
 		var detail string
-		if err := rows.Scan(&l.ID, &l.SessionID, &l.Actor, &l.Action, &l.Resource, &detail, &l.CreatedAt); err != nil {
+		if err := rows.Scan(&l.ID, &l.TenantID, &l.SessionID, &l.Actor, &l.Action, &l.Resource, &detail, &l.CreatedAt); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(detail), &l.Detail)
@@ -286,20 +316,22 @@ func (s *Store) ListAuditLogs(ctx context.Context, sessionID string, limit, offs
 // --- Traces ---
 
 func (s *Store) InsertTrace(ctx context.Context, t *storage.Trace) error {
+	tenant := storage.TenantFromContext(ctx)
 	inp, _ := json.Marshal(t.Input)
 	outp, _ := json.Marshal(t.Output)
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO traces (id, session_id, parent_id, name, kind, input, output, error, started_at, ended_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		t.ID, t.SessionID, t.ParentID, t.Name, t.Kind, string(inp), string(outp), t.Error, t.StartedAt, t.EndedAt,
+		`INSERT INTO traces (id, tenant_id, session_id, parent_id, name, kind, input, output, error, started_at, ended_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+		t.ID, tenant, t.SessionID, t.ParentID, t.Name, t.Kind, string(inp), string(outp), t.Error, t.StartedAt, t.EndedAt,
 	)
 	return err
 }
 
 func (s *Store) GetTrace(ctx context.Context, id string) (*storage.Trace, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, session_id, parent_id, name, kind, input, output, error, started_at, ended_at FROM traces WHERE id=?`, id)
+	tenant := storage.TenantFromContext(ctx)
+	row := s.db.QueryRowContext(ctx, `SELECT id, tenant_id, session_id, parent_id, name, kind, input, output, error, started_at, ended_at FROM traces WHERE id=? AND tenant_id=?`, id, tenant)
 	t := &storage.Trace{}
 	var inp, outp string
-	if err := row.Scan(&t.ID, &t.SessionID, &t.ParentID, &t.Name, &t.Kind, &inp, &outp, &t.Error, &t.StartedAt, &t.EndedAt); err != nil {
+	if err := row.Scan(&t.ID, &t.TenantID, &t.SessionID, &t.ParentID, &t.Name, &t.Kind, &inp, &outp, &t.Error, &t.StartedAt, &t.EndedAt); err != nil {
 		return nil, err
 	}
 	_ = json.Unmarshal([]byte(inp), &t.Input)
@@ -308,9 +340,10 @@ func (s *Store) GetTrace(ctx context.Context, id string) (*storage.Trace, error)
 }
 
 func (s *Store) ListTraces(ctx context.Context, sessionID string) ([]*storage.Trace, error) {
+	tenant := storage.TenantFromContext(ctx)
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, session_id, parent_id, name, kind, input, output, error, started_at, ended_at FROM traces WHERE session_id=? ORDER BY started_at`,
-		sessionID,
+		`SELECT id, tenant_id, session_id, parent_id, name, kind, input, output, error, started_at, ended_at FROM traces WHERE tenant_id=? AND session_id=? ORDER BY started_at`,
+		tenant, sessionID,
 	)
 	if err != nil {
 		return nil, err
@@ -320,7 +353,7 @@ func (s *Store) ListTraces(ctx context.Context, sessionID string) ([]*storage.Tr
 	for rows.Next() {
 		t := &storage.Trace{}
 		var inp, outp string
-		if err := rows.Scan(&t.ID, &t.SessionID, &t.ParentID, &t.Name, &t.Kind, &inp, &outp, &t.Error, &t.StartedAt, &t.EndedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.TenantID, &t.SessionID, &t.ParentID, &t.Name, &t.Kind, &inp, &outp, &t.Error, &t.StartedAt, &t.EndedAt); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(inp), &t.Input)
@@ -336,18 +369,20 @@ func (s *Store) ListTraces(ctx context.Context, sessionID string) ([]*storage.Tr
 // with an existing id is a no-op, so replay/resume cannot error on the primary
 // key or duplicate the ledger (P0-004).
 func (s *Store) AppendEvent(ctx context.Context, e *storage.Event) error {
+	tenant := storage.TenantFromContext(ctx)
 	payload, _ := json.Marshal(e.Payload)
 	_, err := s.db.ExecContext(ctx,
-		`INSERT OR IGNORE INTO events (id, session_id, seq_num, type, payload, created_at) VALUES (?,?,?,?,?,?)`,
-		e.ID, e.SessionID, e.SeqNum, e.Type, string(payload), e.CreatedAt,
+		`INSERT OR IGNORE INTO events (id, tenant_id, session_id, seq_num, type, payload, created_at) VALUES (?,?,?,?,?,?,?)`,
+		e.ID, tenant, e.SessionID, e.SeqNum, e.Type, string(payload), e.CreatedAt,
 	)
 	return err
 }
 
 func (s *Store) ListEvents(ctx context.Context, sessionID string, afterSeq int64) ([]*storage.Event, error) {
+	tenant := storage.TenantFromContext(ctx)
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, session_id, seq_num, type, payload, created_at FROM events WHERE session_id=? AND seq_num>? ORDER BY seq_num`,
-		sessionID, afterSeq,
+		`SELECT id, tenant_id, session_id, seq_num, type, payload, created_at FROM events WHERE tenant_id=? AND session_id=? AND seq_num>? ORDER BY seq_num`,
+		tenant, sessionID, afterSeq,
 	)
 	if err != nil {
 		return nil, err
@@ -357,7 +392,7 @@ func (s *Store) ListEvents(ctx context.Context, sessionID string, afterSeq int64
 	for rows.Next() {
 		e := &storage.Event{}
 		var payload string
-		if err := rows.Scan(&e.ID, &e.SessionID, &e.SeqNum, &e.Type, &payload, &e.CreatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.TenantID, &e.SessionID, &e.SeqNum, &e.Type, &payload, &e.CreatedAt); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(payload), &e.Payload)
@@ -372,10 +407,11 @@ func (s *Store) ListEvents(ctx context.Context, sessionID string, afterSeq int64
 // with an existing id overwrites it, so resuming/replaying a run cannot error on
 // the primary key (P0-004).
 func (s *Store) SaveCheckpoint(ctx context.Context, cp *storage.Checkpoint) error {
+	tenant := storage.TenantFromContext(ctx)
 	state, _ := json.Marshal(cp.State)
 	_, err := s.db.ExecContext(ctx,
-		`INSERT OR REPLACE INTO checkpoints (id, session_id, run_id, node_id, state, seq_num, created_at) VALUES (?,?,?,?,?,?,?)`,
-		cp.ID, cp.SessionID, cp.RunID, cp.NodeID, string(state), cp.SeqNum, cp.CreatedAt,
+		`INSERT OR REPLACE INTO checkpoints (id, tenant_id, session_id, run_id, node_id, state, seq_num, created_at) VALUES (?,?,?,?,?,?,?,?)`,
+		cp.ID, tenant, cp.SessionID, cp.RunID, cp.NodeID, string(state), cp.SeqNum, cp.CreatedAt,
 	)
 	return err
 }
@@ -384,6 +420,7 @@ func (s *Store) SaveCheckpoint(ctx context.Context, cp *storage.Checkpoint) erro
 // a single transaction, satisfying graph.CheckpointCommitter. A crash cannot
 // leave the checkpoint and event ledger out of sync (P0-004).
 func (s *Store) SaveCheckpointAndEvent(ctx context.Context, cp *storage.Checkpoint, evt *storage.Event) error {
+	tenant := storage.TenantFromContext(ctx)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -392,8 +429,8 @@ func (s *Store) SaveCheckpointAndEvent(ctx context.Context, cp *storage.Checkpoi
 
 	state, _ := json.Marshal(cp.State)
 	if _, err := tx.ExecContext(ctx,
-		`INSERT OR REPLACE INTO checkpoints (id, session_id, run_id, node_id, state, seq_num, created_at) VALUES (?,?,?,?,?,?,?)`,
-		cp.ID, cp.SessionID, cp.RunID, cp.NodeID, string(state), cp.SeqNum, cp.CreatedAt,
+		`INSERT OR REPLACE INTO checkpoints (id, tenant_id, session_id, run_id, node_id, state, seq_num, created_at) VALUES (?,?,?,?,?,?,?,?)`,
+		cp.ID, tenant, cp.SessionID, cp.RunID, cp.NodeID, string(state), cp.SeqNum, cp.CreatedAt,
 	); err != nil {
 		return fmt.Errorf("save checkpoint: %w", err)
 	}
@@ -401,8 +438,8 @@ func (s *Store) SaveCheckpointAndEvent(ctx context.Context, cp *storage.Checkpoi
 	if evt != nil {
 		payload, _ := json.Marshal(evt.Payload)
 		if _, err := tx.ExecContext(ctx,
-			`INSERT OR IGNORE INTO events (id, session_id, seq_num, type, payload, created_at) VALUES (?,?,?,?,?,?)`,
-			evt.ID, evt.SessionID, evt.SeqNum, evt.Type, string(payload), evt.CreatedAt,
+			`INSERT OR IGNORE INTO events (id, tenant_id, session_id, seq_num, type, payload, created_at) VALUES (?,?,?,?,?,?,?)`,
+			evt.ID, tenant, evt.SessionID, evt.SeqNum, evt.Type, string(payload), evt.CreatedAt,
 		); err != nil {
 			return fmt.Errorf("append event: %w", err)
 		}
@@ -415,10 +452,11 @@ func (s *Store) SaveCheckpointAndEvent(ctx context.Context, cp *storage.Checkpoi
 }
 
 func (s *Store) GetCheckpoint(ctx context.Context, id string) (*storage.Checkpoint, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, session_id, run_id, node_id, state, seq_num, created_at FROM checkpoints WHERE id=?`, id)
+	tenant := storage.TenantFromContext(ctx)
+	row := s.db.QueryRowContext(ctx, `SELECT id, tenant_id, session_id, run_id, node_id, state, seq_num, created_at FROM checkpoints WHERE id=? AND tenant_id=?`, id, tenant)
 	cp := &storage.Checkpoint{}
 	var state string
-	if err := row.Scan(&cp.ID, &cp.SessionID, &cp.RunID, &cp.NodeID, &state, &cp.SeqNum, &cp.CreatedAt); err != nil {
+	if err := row.Scan(&cp.ID, &cp.TenantID, &cp.SessionID, &cp.RunID, &cp.NodeID, &state, &cp.SeqNum, &cp.CreatedAt); err != nil {
 		return nil, err
 	}
 	_ = json.Unmarshal([]byte(state), &cp.State)
@@ -426,15 +464,16 @@ func (s *Store) GetCheckpoint(ctx context.Context, id string) (*storage.Checkpoi
 }
 
 func (s *Store) GetLatestCheckpoint(ctx context.Context, sessionID string) (*storage.Checkpoint, error) {
+	tenant := storage.TenantFromContext(ctx)
 	// Order by seq_num (monotonic) rather than wall-clock: same-tick timestamps
 	// would otherwise make the "latest" checkpoint non-deterministic (P0-003).
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, session_id, run_id, node_id, state, seq_num, created_at FROM checkpoints WHERE session_id=? ORDER BY seq_num DESC LIMIT 1`,
-		sessionID,
+		`SELECT id, tenant_id, session_id, run_id, node_id, state, seq_num, created_at FROM checkpoints WHERE tenant_id=? AND session_id=? ORDER BY seq_num DESC LIMIT 1`,
+		tenant, sessionID,
 	)
 	cp := &storage.Checkpoint{}
 	var state string
-	if err := row.Scan(&cp.ID, &cp.SessionID, &cp.RunID, &cp.NodeID, &state, &cp.SeqNum, &cp.CreatedAt); err != nil {
+	if err := row.Scan(&cp.ID, &cp.TenantID, &cp.SessionID, &cp.RunID, &cp.NodeID, &state, &cp.SeqNum, &cp.CreatedAt); err != nil {
 		return nil, err
 	}
 	_ = json.Unmarshal([]byte(state), &cp.State)
@@ -442,9 +481,10 @@ func (s *Store) GetLatestCheckpoint(ctx context.Context, sessionID string) (*sto
 }
 
 func (s *Store) ListCheckpoints(ctx context.Context, sessionID string) ([]*storage.Checkpoint, error) {
+	tenant := storage.TenantFromContext(ctx)
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, session_id, run_id, node_id, state, seq_num, created_at FROM checkpoints WHERE session_id=? ORDER BY seq_num`,
-		sessionID,
+		`SELECT id, tenant_id, session_id, run_id, node_id, state, seq_num, created_at FROM checkpoints WHERE tenant_id=? AND session_id=? ORDER BY seq_num`,
+		tenant, sessionID,
 	)
 	if err != nil {
 		return nil, err
@@ -454,7 +494,7 @@ func (s *Store) ListCheckpoints(ctx context.Context, sessionID string) ([]*stora
 	for rows.Next() {
 		cp := &storage.Checkpoint{}
 		var state string
-		if err := rows.Scan(&cp.ID, &cp.SessionID, &cp.RunID, &cp.NodeID, &state, &cp.SeqNum, &cp.CreatedAt); err != nil {
+		if err := rows.Scan(&cp.ID, &cp.TenantID, &cp.SessionID, &cp.RunID, &cp.NodeID, &state, &cp.SeqNum, &cp.CreatedAt); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(state), &cp.State)
