@@ -44,9 +44,10 @@ func (s *Store) ListEventsPaged(ctx context.Context, sessionID string, afterSeq 
 	if cur > afterSeq {
 		afterSeq = cur
 	}
+	tenant := storage.TenantFromContext(ctx)
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, session_id, seq_num, type, payload, created_at FROM events WHERE session_id=$1 AND seq_num>$2 ORDER BY seq_num LIMIT $3`,
-		sessionID, afterSeq, limit+1,
+		`SELECT id, tenant_id, session_id, seq_num, type, payload, created_at FROM events WHERE tenant_id=$1 AND session_id=$2 AND seq_num>$3 ORDER BY seq_num LIMIT $4`,
+		tenant, sessionID, afterSeq, limit+1,
 	)
 	if err != nil {
 		return nil, err
@@ -56,7 +57,7 @@ func (s *Store) ListEventsPaged(ctx context.Context, sessionID string, afterSeq 
 	for rows.Next() {
 		e := &storage.Event{}
 		var payload []byte
-		if err := rows.Scan(&e.ID, &e.SessionID, &e.SeqNum, &e.Type, &payload, &e.CreatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.TenantID, &e.SessionID, &e.SeqNum, &e.Type, &payload, &e.CreatedAt); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal(payload, &e.Payload); err != nil {
@@ -82,9 +83,10 @@ func (s *Store) ListCheckpointsPaged(ctx context.Context, sessionID string, limi
 	if err != nil {
 		return nil, err
 	}
+	tenant := storage.TenantFromContext(ctx)
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, session_id, run_id, node_id, state, seq_num, created_at FROM checkpoints WHERE session_id=$1 AND seq_num>$2 ORDER BY seq_num LIMIT $3`,
-		sessionID, after, limit+1,
+		`SELECT id, tenant_id, session_id, run_id, node_id, state, seq_num, created_at FROM checkpoints WHERE tenant_id=$1 AND session_id=$2 AND seq_num>$3 ORDER BY seq_num LIMIT $4`,
+		tenant, sessionID, after, limit+1,
 	)
 	if err != nil {
 		return nil, err
@@ -94,7 +96,7 @@ func (s *Store) ListCheckpointsPaged(ctx context.Context, sessionID string, limi
 	for rows.Next() {
 		cp := &storage.Checkpoint{}
 		var state []byte
-		if err := rows.Scan(&cp.ID, &cp.SessionID, &cp.RunID, &cp.NodeID, &state, &cp.SeqNum, &cp.CreatedAt); err != nil {
+		if err := rows.Scan(&cp.ID, &cp.TenantID, &cp.SessionID, &cp.RunID, &cp.NodeID, &state, &cp.SeqNum, &cp.CreatedAt); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal(state, &cp.State); err != nil {
@@ -122,17 +124,18 @@ func (s *Store) ListTracesPaged(ctx context.Context, sessionID string, limit int
 		return nil, err
 	}
 
-	const cols = `id, session_id, parent_id, name, kind, input, output, error, started_at, ended_at`
+	tenant := storage.TenantFromContext(ctx)
+	const cols = `id, tenant_id, session_id, parent_id, name, kind, input, output, error, started_at, ended_at`
 	var r *sql.Rows
 	if afterID == "" {
 		r, err = s.db.QueryContext(ctx,
-			`SELECT `+cols+` FROM traces WHERE session_id=$1 ORDER BY id LIMIT $2`,
-			sessionID, limit+1,
+			`SELECT `+cols+` FROM traces WHERE tenant_id=$1 AND session_id=$2 ORDER BY id LIMIT $3`,
+			tenant, sessionID, limit+1,
 		)
 	} else {
 		r, err = s.db.QueryContext(ctx,
-			`SELECT `+cols+` FROM traces WHERE session_id=$1 AND id>$2 ORDER BY id LIMIT $3`,
-			sessionID, afterID, limit+1,
+			`SELECT `+cols+` FROM traces WHERE tenant_id=$1 AND session_id=$2 AND id>$3 ORDER BY id LIMIT $4`,
+			tenant, sessionID, afterID, limit+1,
 		)
 	}
 	if err != nil {
@@ -143,7 +146,7 @@ func (s *Store) ListTracesPaged(ctx context.Context, sessionID string, limit int
 	for r.Next() {
 		t := &storage.Trace{}
 		var inp, outp []byte
-		if err := r.Scan(&t.ID, &t.SessionID, &t.ParentID, &t.Name, &t.Kind, &inp, &outp, &t.Error, &t.StartedAt, &t.EndedAt); err != nil {
+		if err := r.Scan(&t.ID, &t.TenantID, &t.SessionID, &t.ParentID, &t.Name, &t.Kind, &inp, &outp, &t.Error, &t.StartedAt, &t.EndedAt); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal(inp, &t.Input); err != nil {
@@ -205,11 +208,12 @@ func (s *Store) TrimCheckpoints(ctx context.Context, sessionID string, keep int)
 	if keep <= 0 {
 		return 0, nil
 	}
+	tenant := storage.TenantFromContext(ctx)
 	res, err := s.db.ExecContext(ctx,
-		`DELETE FROM checkpoints WHERE session_id=$1 AND seq_num NOT IN (
-			SELECT seq_num FROM checkpoints WHERE session_id=$1 ORDER BY seq_num DESC LIMIT $2
+		`DELETE FROM checkpoints WHERE tenant_id=$1 AND session_id=$2 AND seq_num NOT IN (
+			SELECT seq_num FROM checkpoints WHERE tenant_id=$1 AND session_id=$2 ORDER BY seq_num DESC LIMIT $3
 		)`,
-		sessionID, keep,
+		tenant, sessionID, keep,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("trim checkpoints: %w", err)
@@ -228,7 +232,8 @@ func (s *Store) AppendEvents(ctx context.Context, events []*storage.Event) error
 	if len(events) == 0 {
 		return nil
 	}
-	const paramsPerRow = 6
+	tenant := storage.TenantFromContext(ctx)
+	const paramsPerRow = 7
 	rowsPerChunk := pgMaxBindParams / paramsPerRow
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -245,20 +250,20 @@ func (s *Store) AppendEvents(ctx context.Context, events []*storage.Event) error
 		chunk := events[start:end]
 
 		var b strings.Builder
-		b.WriteString(`INSERT INTO events (id, session_id, seq_num, type, payload, created_at) VALUES `)
+		b.WriteString(`INSERT INTO events (id, tenant_id, session_id, seq_num, type, payload, created_at) VALUES `)
 		args := make([]any, 0, len(chunk)*paramsPerRow)
 		n := 0
 		for i, e := range chunk {
 			if i > 0 {
 				b.WriteByte(',')
 			}
-			fmt.Fprintf(&b, "($%d,$%d,$%d,$%d,$%d,$%d)", n+1, n+2, n+3, n+4, n+5, n+6)
+			fmt.Fprintf(&b, "($%d,$%d,$%d,$%d,$%d,$%d,$%d)", n+1, n+2, n+3, n+4, n+5, n+6, n+7)
 			n += paramsPerRow
 			payload, err := json.Marshal(e.Payload)
 			if err != nil {
 				return fmt.Errorf("marshal event payload: %w", err)
 			}
-			args = append(args, e.ID, e.SessionID, e.SeqNum, e.Type, payload, e.CreatedAt)
+			args = append(args, e.ID, tenant, e.SessionID, e.SeqNum, e.Type, payload, e.CreatedAt)
 		}
 		b.WriteString(` ON CONFLICT (id) DO NOTHING`)
 		if _, err := tx.ExecContext(ctx, b.String(), args...); err != nil {
@@ -277,16 +282,17 @@ func (s *Store) InsertTraces(ctx context.Context, traces []*storage.Trace) error
 	if len(traces) == 0 {
 		return nil
 	}
+	tenant := storage.TenantFromContext(ctx)
 	rows := make([][]any, len(traces))
 	for i, t := range traces {
 		inp, _ := json.Marshal(t.Input)
 		outp, _ := json.Marshal(t.Output)
 		rows[i] = []any{
-			t.ID, t.SessionID, t.ParentID, t.Name, t.Kind,
+			t.ID, tenant, t.SessionID, t.ParentID, t.Name, t.Kind,
 			string(inp), string(outp), t.Error, t.StartedAt, t.EndedAt,
 		}
 	}
-	columns := []string{"id", "session_id", "parent_id", "name", "kind", "input", "output", "error", "started_at", "ended_at"}
+	columns := []string{"id", "tenant_id", "session_id", "parent_id", "name", "kind", "input", "output", "error", "started_at", "ended_at"}
 
 	conn, err := s.db.Conn(ctx)
 	if err != nil {

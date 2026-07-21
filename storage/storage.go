@@ -9,6 +9,7 @@ import (
 // Session represents an agent execution session.
 type Session struct {
 	ID        string         `json:"id"`
+	TenantID  string         `json:"tenant_id,omitempty"`
 	AgentID   string         `json:"agent_id"`
 	Status    string         `json:"status"` // running, paused, completed, failed
 	Metadata  map[string]any `json:"metadata,omitempty"`
@@ -19,6 +20,7 @@ type Session struct {
 // MemoryRecord represents a short-term or long-term memory entry.
 type MemoryRecord struct {
 	ID        string    `json:"id"`
+	TenantID  string    `json:"tenant_id,omitempty"`
 	SessionID string    `json:"session_id,omitempty"` // empty = long-term
 	AgentID   string    `json:"agent_id"`
 	UserID    string    `json:"user_id,omitempty"`
@@ -31,6 +33,7 @@ type MemoryRecord struct {
 // AuditLog records a security-relevant event.
 type AuditLog struct {
 	ID        string         `json:"id"`
+	TenantID  string         `json:"tenant_id,omitempty"`
 	SessionID string         `json:"session_id"`
 	Actor     string         `json:"actor"`
 	Action    string         `json:"action"`
@@ -42,6 +45,7 @@ type AuditLog struct {
 // Trace represents a single trace span for observability.
 type Trace struct {
 	ID        string    `json:"id"`
+	TenantID  string    `json:"tenant_id,omitempty"`
 	SessionID string    `json:"session_id"`
 	ParentID  string    `json:"parent_id,omitempty"`
 	Name      string    `json:"name"`
@@ -56,6 +60,7 @@ type Trace struct {
 // Event is an append-only ledger entry for replayability.
 type Event struct {
 	ID        string    `json:"id"`
+	TenantID  string    `json:"tenant_id,omitempty"`
 	SessionID string    `json:"session_id"`
 	SeqNum    int64     `json:"seq_num"`
 	Type      string    `json:"type"`
@@ -66,6 +71,7 @@ type Event struct {
 // Checkpoint captures the full state of a run for resume/time-travel.
 type Checkpoint struct {
 	ID        string         `json:"id"`
+	TenantID  string         `json:"tenant_id,omitempty"`
 	SessionID string         `json:"session_id"`
 	RunID     string         `json:"run_id"`
 	NodeID    string         `json:"node_id"`
@@ -75,6 +81,14 @@ type Checkpoint struct {
 }
 
 // Storage is the primary persistence interface. All adapters must implement this.
+//
+// Multi-tenancy (P2-002): every method is scoped to the tenant carried by its
+// context (see WithTenant / TenantFromContext). Adapters stamp writes with, and
+// filter reads by, the context tenant so that objects created under one tenant
+// are never visible to another — including id-addressed reads such as
+// GetSession, GetTrace and GetCheckpoint, which return a not-found error rather
+// than another tenant's object. Callers that do not set a tenant operate under
+// DefaultTenant, preserving single-tenant behavior.
 type Storage interface {
 	// Sessions
 	CreateSession(ctx context.Context, s *Session) error

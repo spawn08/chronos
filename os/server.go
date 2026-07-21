@@ -361,6 +361,21 @@ func (s *Server) decodeJSONBody(w http.ResponseWriter, r *http.Request, dst any)
 	return 0, nil
 }
 
+// tenantContext derives the tenant scope from the authenticated principal (JWT
+// or API-key claims) and returns a context that scopes every storage operation
+// to that tenant. Because the tenant comes from the verified principal and never
+// from client-supplied ids, id-addressed reads (sessions, traces, checkpoints)
+// for another tenant's objects resolve to not-found, closing the IDOR (P2-002).
+// When no principal is present (authentication disabled) the request operates
+// under storage.DefaultTenant, preserving single-tenant behavior.
+func (s *Server) tenantContext(r *http.Request) context.Context {
+	tenant := storage.DefaultTenant
+	if claims, ok := auth.UserFromContext(r.Context()); ok && claims != nil && claims.TenantID != "" {
+		tenant = claims.TenantID
+	}
+	return storage.WithTenant(r.Context(), tenant)
+}
+
 func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	agentID := r.URL.Query().Get("agent_id")
 	limit := 50
@@ -375,7 +390,7 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 			offset = n
 		}
 	}
-	sessions, err := s.Store.ListSessions(r.Context(), agentID, limit, offset)
+	sessions, err := s.Store.ListSessions(s.tenantContext(r), agentID, limit, offset)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusInternalServerError)
 		return
@@ -391,7 +406,7 @@ func (s *Server) handleListTraces(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, `{"traces":[],"error":"session_id query parameter is required"}`)
 		return
 	}
-	traces, err := s.Store.ListTraces(r.Context(), sessionID)
+	traces, err := s.Store.ListTraces(s.tenantContext(r), sessionID)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusInternalServerError)
 		return
@@ -407,9 +422,11 @@ func (s *Server) handleSessionState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx := s.tenantContext(r)
+
 	switch r.Method {
 	case http.MethodGet:
-		cp, err := s.Store.GetLatestCheckpoint(r.Context(), sessionID)
+		cp, err := s.Store.GetLatestCheckpoint(ctx, sessionID)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusNotFound)
 			return
@@ -432,7 +449,7 @@ func (s *Server) handleSessionState(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		cp, err := s.Store.GetLatestCheckpoint(r.Context(), sessionID)
+		cp, err := s.Store.GetLatestCheckpoint(ctx, sessionID)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusNotFound)
 			return
@@ -447,7 +464,7 @@ func (s *Server) handleSessionState(w http.ResponseWriter, r *http.Request) {
 		// same (session, seq_num) would violate the uq_checkpoints_session_seq
 		// index: a hard error on Postgres and a silent row-replace on SQLite.
 		cp.CreatedAt = time.Now()
-		if err := s.Store.SaveCheckpoint(r.Context(), cp); err != nil {
+		if err := s.Store.SaveCheckpoint(ctx, cp); err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusInternalServerError)
 			return
 		}

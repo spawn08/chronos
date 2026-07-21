@@ -73,17 +73,17 @@ func (r *pgMockRows) Columns() []string {
 	// We return appropriate columns for each table.
 	switch {
 	case containsAll(r.query, "sessions", "agent_id"):
-		return []string{"id", "agent_id", "status", "metadata", "created_at", "updated_at"}
+		return []string{"id", "tenant_id", "agent_id", "status", "metadata", "created_at", "updated_at"}
 	case containsAll(r.query, "memory", "agent_id"):
-		return []string{"id", "session_id", "agent_id", "kind", "key", "value", "created_at"}
+		return []string{"id", "tenant_id", "session_id", "agent_id", "kind", "key", "value", "created_at"}
 	case containsAll(r.query, "audit_logs"):
-		return []string{"id", "session_id", "actor", "action", "resource", "detail", "created_at"}
+		return []string{"id", "tenant_id", "session_id", "actor", "action", "resource", "detail", "created_at"}
 	case containsAll(r.query, "traces"):
-		return []string{"id", "session_id", "parent_id", "name", "kind", "input", "output", "error", "started_at", "ended_at"}
+		return []string{"id", "tenant_id", "session_id", "parent_id", "name", "kind", "input", "output", "error", "started_at", "ended_at"}
 	case containsAll(r.query, "events"):
-		return []string{"id", "session_id", "seq_num", "type", "payload", "created_at"}
+		return []string{"id", "tenant_id", "session_id", "seq_num", "type", "payload", "created_at"}
 	case containsAll(r.query, "checkpoints"):
-		return []string{"id", "session_id", "run_id", "node_id", "state", "seq_num", "created_at"}
+		return []string{"id", "tenant_id", "session_id", "run_id", "node_id", "state", "seq_num", "created_at"}
 	default:
 		return []string{"id"}
 	}
@@ -115,53 +115,59 @@ func (r *pgMockRows) Next(dest []driver.Value) error {
 	switch {
 	case containsAll(r.query, "sessions", "agent_id"):
 		dest[0] = "sess-1"
-		dest[1] = "agent-1"
-		dest[2] = "running"
-		dest[3] = []byte(`{}`)
-		dest[4] = now
+		dest[1] = "default"
+		dest[2] = "agent-1"
+		dest[3] = "running"
+		dest[4] = []byte(`{}`)
 		dest[5] = now
+		dest[6] = now
 	case containsAll(r.query, "memory", "agent_id"):
 		dest[0] = "mem-1"
-		dest[1] = ""
-		dest[2] = "agent-1"
-		dest[3] = "long_term"
-		dest[4] = "key1"
-		dest[5] = []byte(`"value1"`)
-		dest[6] = now
+		dest[1] = "default"
+		dest[2] = ""
+		dest[3] = "agent-1"
+		dest[4] = "long_term"
+		dest[5] = "key1"
+		dest[6] = []byte(`"value1"`)
+		dest[7] = now
 	case containsAll(r.query, "audit_logs"):
 		dest[0] = "audit-1"
-		dest[1] = "sess-1"
-		dest[2] = "user"
-		dest[3] = "chat"
-		dest[4] = "agent"
-		dest[5] = []byte(`{}`)
-		dest[6] = now
+		dest[1] = "default"
+		dest[2] = "sess-1"
+		dest[3] = "user"
+		dest[4] = "chat"
+		dest[5] = "agent"
+		dest[6] = []byte(`{}`)
+		dest[7] = now
 	case containsAll(r.query, "traces"):
 		dest[0] = "trace-1"
-		dest[1] = "sess-1"
-		dest[2] = ""
-		dest[3] = "chat"
-		dest[4] = "agent"
-		dest[5] = []byte(`null`)
+		dest[1] = "default"
+		dest[2] = "sess-1"
+		dest[3] = ""
+		dest[4] = "chat"
+		dest[5] = "agent"
 		dest[6] = []byte(`null`)
-		dest[7] = ""
-		dest[8] = now
+		dest[7] = []byte(`null`)
+		dest[8] = ""
 		dest[9] = now
+		dest[10] = now
 	case containsAll(r.query, "events"):
 		dest[0] = "evt-1"
-		dest[1] = "sess-1"
-		dest[2] = int64(1)
-		dest[3] = "node_enter"
-		dest[4] = []byte(`{}`)
-		dest[5] = now
+		dest[1] = "default"
+		dest[2] = "sess-1"
+		dest[3] = int64(1)
+		dest[4] = "node_enter"
+		dest[5] = []byte(`{}`)
+		dest[6] = now
 	case containsAll(r.query, "checkpoints"):
 		dest[0] = "cp-1"
-		dest[1] = "sess-1"
-		dest[2] = "run-1"
-		dest[3] = "node-1"
-		dest[4] = []byte(`{}`)
-		dest[5] = int64(1)
-		dest[6] = now
+		dest[1] = "default"
+		dest[2] = "sess-1"
+		dest[3] = "run-1"
+		dest[4] = "node-1"
+		dest[5] = []byte(`{}`)
+		dest[6] = int64(1)
+		dest[7] = now
 	case containsAll(r.query, "MAX(version)"):
 		// migrate.currentVersion scans a single int.
 		dest[0] = int64(0)

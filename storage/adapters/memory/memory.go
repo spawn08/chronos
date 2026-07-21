@@ -39,44 +39,54 @@ func (s *Store) Close() error                    { return nil }
 
 // --- Sessions ---
 
-func (s *Store) CreateSession(_ context.Context, sess *storage.Session) error {
+func (s *Store) CreateSession(ctx context.Context, sess *storage.Session) error {
+	tenant := storage.TenantFromContext(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, exists := s.sessions[sess.ID]; exists {
 		return fmt.Errorf("session %q already exists", sess.ID)
 	}
 	cp := *sess
+	cp.TenantID = tenant
 	s.sessions[sess.ID] = &cp
 	return nil
 }
 
-func (s *Store) GetSession(_ context.Context, id string) (*storage.Session, error) {
+func (s *Store) GetSession(ctx context.Context, id string) (*storage.Session, error) {
+	tenant := storage.TenantFromContext(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	sess, ok := s.sessions[id]
-	if !ok {
+	if !ok || sess.TenantID != tenant {
 		return nil, fmt.Errorf("session %q not found", id)
 	}
 	cp := *sess
 	return &cp, nil
 }
 
-func (s *Store) UpdateSession(_ context.Context, sess *storage.Session) error {
+func (s *Store) UpdateSession(ctx context.Context, sess *storage.Session) error {
+	tenant := storage.TenantFromContext(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.sessions[sess.ID]; !ok {
+	existing, ok := s.sessions[sess.ID]
+	if !ok || existing.TenantID != tenant {
 		return fmt.Errorf("session %q not found", sess.ID)
 	}
 	cp := *sess
+	cp.TenantID = tenant
 	s.sessions[sess.ID] = &cp
 	return nil
 }
 
-func (s *Store) ListSessions(_ context.Context, agentID string, limit, offset int) ([]*storage.Session, error) {
+func (s *Store) ListSessions(ctx context.Context, agentID string, limit, offset int) ([]*storage.Session, error) {
+	tenant := storage.TenantFromContext(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var filtered []*storage.Session
 	for _, sess := range s.sessions {
+		if sess.TenantID != tenant {
+			continue
+		}
 		if agentID == "" || sess.AgentID == agentID {
 			cp := *sess
 			filtered = append(filtered, &cp)
@@ -97,19 +107,22 @@ func (s *Store) ListSessions(_ context.Context, agentID string, limit, offset in
 
 // --- Memory ---
 
-func (s *Store) PutMemory(_ context.Context, m *storage.MemoryRecord) error {
+func (s *Store) PutMemory(ctx context.Context, m *storage.MemoryRecord) error {
+	tenant := storage.TenantFromContext(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cp := *m
+	cp.TenantID = tenant
 	s.memory[m.ID] = &cp
 	return nil
 }
 
-func (s *Store) GetMemory(_ context.Context, agentID, key string) (*storage.MemoryRecord, error) {
+func (s *Store) GetMemory(ctx context.Context, agentID, key string) (*storage.MemoryRecord, error) {
+	tenant := storage.TenantFromContext(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for _, m := range s.memory {
-		if m.AgentID == agentID && m.Key == key {
+		if m.TenantID == tenant && m.AgentID == agentID && m.Key == key {
 			cp := *m
 			return &cp, nil
 		}
@@ -117,12 +130,13 @@ func (s *Store) GetMemory(_ context.Context, agentID, key string) (*storage.Memo
 	return nil, fmt.Errorf("memory key %q not found for agent %q", key, agentID)
 }
 
-func (s *Store) ListMemory(_ context.Context, agentID, kind string) ([]*storage.MemoryRecord, error) {
+func (s *Store) ListMemory(ctx context.Context, agentID, kind string) ([]*storage.MemoryRecord, error) {
+	tenant := storage.TenantFromContext(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var out []*storage.MemoryRecord
 	for _, m := range s.memory {
-		if m.AgentID == agentID && m.Kind == kind {
+		if m.TenantID == tenant && m.AgentID == agentID && m.Kind == kind {
 			cp := *m
 			out = append(out, &cp)
 		}
@@ -130,29 +144,35 @@ func (s *Store) ListMemory(_ context.Context, agentID, kind string) ([]*storage.
 	return out, nil
 }
 
-func (s *Store) DeleteMemory(_ context.Context, id string) error {
+func (s *Store) DeleteMemory(ctx context.Context, id string) error {
+	tenant := storage.TenantFromContext(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.memory, id)
+	if m, ok := s.memory[id]; ok && m.TenantID == tenant {
+		delete(s.memory, id)
+	}
 	return nil
 }
 
 // --- Audit Logs ---
 
-func (s *Store) AppendAuditLog(_ context.Context, log *storage.AuditLog) error {
+func (s *Store) AppendAuditLog(ctx context.Context, log *storage.AuditLog) error {
+	tenant := storage.TenantFromContext(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cp := *log
+	cp.TenantID = tenant
 	s.auditLogs[log.ID] = &cp
 	return nil
 }
 
-func (s *Store) ListAuditLogs(_ context.Context, sessionID string, limit, offset int) ([]*storage.AuditLog, error) {
+func (s *Store) ListAuditLogs(ctx context.Context, sessionID string, limit, offset int) ([]*storage.AuditLog, error) {
+	tenant := storage.TenantFromContext(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var filtered []*storage.AuditLog
 	for _, l := range s.auditLogs {
-		if l.SessionID == sessionID {
+		if l.TenantID == tenant && l.SessionID == sessionID {
 			cp := *l
 			filtered = append(filtered, &cp)
 		}
@@ -172,31 +192,35 @@ func (s *Store) ListAuditLogs(_ context.Context, sessionID string, limit, offset
 
 // --- Traces ---
 
-func (s *Store) InsertTrace(_ context.Context, t *storage.Trace) error {
+func (s *Store) InsertTrace(ctx context.Context, t *storage.Trace) error {
+	tenant := storage.TenantFromContext(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cp := *t
+	cp.TenantID = tenant
 	s.traces[t.ID] = &cp
 	return nil
 }
 
-func (s *Store) GetTrace(_ context.Context, id string) (*storage.Trace, error) {
+func (s *Store) GetTrace(ctx context.Context, id string) (*storage.Trace, error) {
+	tenant := storage.TenantFromContext(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	t, ok := s.traces[id]
-	if !ok {
+	if !ok || t.TenantID != tenant {
 		return nil, fmt.Errorf("trace %q not found", id)
 	}
 	cp := *t
 	return &cp, nil
 }
 
-func (s *Store) ListTraces(_ context.Context, sessionID string) ([]*storage.Trace, error) {
+func (s *Store) ListTraces(ctx context.Context, sessionID string) ([]*storage.Trace, error) {
+	tenant := storage.TenantFromContext(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var out []*storage.Trace
 	for _, t := range s.traces {
-		if t.SessionID == sessionID {
+		if t.TenantID == tenant && t.SessionID == sessionID {
 			cp := *t
 			out = append(out, &cp)
 		}
@@ -209,20 +233,23 @@ func (s *Store) ListTraces(_ context.Context, sessionID string) ([]*storage.Trac
 
 // --- Events ---
 
-func (s *Store) AppendEvent(_ context.Context, e *storage.Event) error {
+func (s *Store) AppendEvent(ctx context.Context, e *storage.Event) error {
+	tenant := storage.TenantFromContext(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cp := *e
+	cp.TenantID = tenant
 	s.events[e.ID] = &cp
 	return nil
 }
 
-func (s *Store) ListEvents(_ context.Context, sessionID string, afterSeq int64) ([]*storage.Event, error) {
+func (s *Store) ListEvents(ctx context.Context, sessionID string, afterSeq int64) ([]*storage.Event, error) {
+	tenant := storage.TenantFromContext(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var out []*storage.Event
 	for _, e := range s.events {
-		if e.SessionID == sessionID && e.SeqNum > afterSeq {
+		if e.TenantID == tenant && e.SessionID == sessionID && e.SeqNum > afterSeq {
 			cp := *e
 			out = append(out, &cp)
 		}
@@ -235,31 +262,35 @@ func (s *Store) ListEvents(_ context.Context, sessionID string, afterSeq int64) 
 
 // --- Checkpoints ---
 
-func (s *Store) SaveCheckpoint(_ context.Context, cp *storage.Checkpoint) error {
+func (s *Store) SaveCheckpoint(ctx context.Context, cp *storage.Checkpoint) error {
+	tenant := storage.TenantFromContext(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	c := *cp
+	c.TenantID = tenant
 	s.checkpoints[cp.ID] = &c
 	return nil
 }
 
-func (s *Store) GetCheckpoint(_ context.Context, id string) (*storage.Checkpoint, error) {
+func (s *Store) GetCheckpoint(ctx context.Context, id string) (*storage.Checkpoint, error) {
+	tenant := storage.TenantFromContext(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	cp, ok := s.checkpoints[id]
-	if !ok {
+	if !ok || cp.TenantID != tenant {
 		return nil, fmt.Errorf("checkpoint %q not found", id)
 	}
 	c := *cp
 	return &c, nil
 }
 
-func (s *Store) GetLatestCheckpoint(_ context.Context, sessionID string) (*storage.Checkpoint, error) {
+func (s *Store) GetLatestCheckpoint(ctx context.Context, sessionID string) (*storage.Checkpoint, error) {
+	tenant := storage.TenantFromContext(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var latest *storage.Checkpoint
 	for _, cp := range s.checkpoints {
-		if cp.SessionID == sessionID {
+		if cp.TenantID == tenant && cp.SessionID == sessionID {
 			if latest == nil || cp.CreatedAt.After(latest.CreatedAt) {
 				latest = cp
 			}
@@ -272,12 +303,13 @@ func (s *Store) GetLatestCheckpoint(_ context.Context, sessionID string) (*stora
 	return &c, nil
 }
 
-func (s *Store) ListCheckpoints(_ context.Context, sessionID string) ([]*storage.Checkpoint, error) {
+func (s *Store) ListCheckpoints(ctx context.Context, sessionID string) ([]*storage.Checkpoint, error) {
+	tenant := storage.TenantFromContext(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var out []*storage.Checkpoint
 	for _, cp := range s.checkpoints {
-		if cp.SessionID == sessionID {
+		if cp.TenantID == tenant && cp.SessionID == sessionID {
 			c := *cp
 			out = append(out, &c)
 		}
