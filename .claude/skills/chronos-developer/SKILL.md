@@ -1,7 +1,9 @@
-# Chronos Framework Developer Skill
+---
+name: chronos-developer
+description: Specialist skill for implementing features, fixing bugs, and writing tests in the Chronos Go AI agents framework.
+---
 
-## Description
-Specialist skill for implementing features, fixing bugs, and writing tests in the Chronos Go AI agents framework.
+# Chronos Framework Developer Skill
 
 ## Activation
 Use this skill when:
