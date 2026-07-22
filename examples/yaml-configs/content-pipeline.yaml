@@ -5,7 +5,7 @@
 #
 # Usage:
 #   export OPENAI_API_KEY=sk-...
-#   CHRONOS_CONFIG=examples/yaml-configs/content-pipeline.yaml go run ./cli/main.go team run pipeline "Write an article about the rise of electric vehicles"
+#   CHRONOS_CONFIG=examples/yaml-configs/content-pipeline.yaml chronos team run pipeline "Write an article about the rise of electric vehicles"
 
 defaults:
   model:

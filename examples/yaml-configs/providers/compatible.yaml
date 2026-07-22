@@ -1,0 +1,13 @@
+# Any OpenAI-compatible endpoint (Together, OpenRouter, Fireworks, vLLM, ...).
+# Run:  export TOGETHER_API_KEY=...
+#       CHRONOS_CONFIG=examples/yaml-configs/providers/compatible.yaml chronos run "Hello"
+agents:
+  - id: assistant
+    name: Compatible Assistant
+    model:
+      provider: compatible
+      model: meta-llama/Llama-3.3-70B-Instruct-Turbo
+      base_url: https://api.together.xyz/v1
+      api_key: ${TOGETHER_API_KEY}
+    storage: { backend: none }
+    system_prompt: You are a helpful assistant.

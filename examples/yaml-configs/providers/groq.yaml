@@ -1,0 +1,12 @@
+# Groq (ultra-fast inference) — single-agent config.
+# Run:  export GROQ_API_KEY=gsk-...
+#       CHRONOS_CONFIG=examples/yaml-configs/providers/groq.yaml chronos run "Hello"
+agents:
+  - id: assistant
+    name: Groq Assistant
+    model:
+      provider: groq
+      model: llama-3.3-70b-versatile
+      api_key: ${GROQ_API_KEY}
+    storage: { backend: none }
+    system_prompt: You are a fast, concise assistant.

@@ -5,7 +5,7 @@
 #
 # Usage:
 #   export OPENAI_API_KEY=sk-...
-#   CHRONOS_CONFIG=examples/yaml-configs/coding-team.yaml go run ./cli/main.go team run dev-team "Build a user registration feature"
+#   CHRONOS_CONFIG=examples/yaml-configs/coding-team.yaml chronos team run dev-team "Build a user registration feature"
 
 defaults:
   model:

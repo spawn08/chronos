@@ -5,7 +5,7 @@
 #
 # Usage:
 #   export OPENAI_API_KEY=sk-...
-#   go run ./cli/main.go deploy examples/yaml-configs/sandbox-deploy.yaml "Build a REST API for todo items"
+#   chronos deploy examples/yaml-configs/sandbox-deploy.yaml "Build a REST API for todo items"
 
 name: sandbox-coding-team
 

@@ -1,0 +1,14 @@
+# Google Vertex AI (OpenAI-compatible endpoint) — single-agent config.
+# Vertex is reached via its OpenAI-compatible API, so use provider: compatible.
+# Run:  export GOOGLE_ACCESS_TOKEN=$(gcloud auth print-access-token)
+#       CHRONOS_CONFIG=examples/yaml-configs/providers/vertex.yaml chronos run "Hello"
+agents:
+  - id: assistant
+    name: Vertex AI Assistant
+    model:
+      provider: compatible
+      model: google/gemini-2.0-flash
+      base_url: https://us-central1-aiplatform.googleapis.com/v1/projects/YOUR_PROJECT/locations/us-central1/endpoints/openapi
+      api_key: ${GOOGLE_ACCESS_TOKEN}
+    storage: { backend: none }
+    system_prompt: You are a helpful assistant hosted on Google Vertex AI.

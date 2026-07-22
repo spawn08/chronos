@@ -7,8 +7,8 @@
 #   export OPENAI_API_KEY=sk-...
 #
 # Run:
-#   CHRONOS_CONFIG=examples/yaml-configs/graph-agent.yaml go run ./cli/main.go team run classifier-team "What are goroutines?"
-#   CHRONOS_CONFIG=examples/yaml-configs/graph-agent.yaml go run ./cli/main.go team run classifier-team "What is the tallest mountain?"
+#   CHRONOS_CONFIG=examples/yaml-configs/graph-agent.yaml chronos team run classifier-team "What are goroutines?"
+#   CHRONOS_CONFIG=examples/yaml-configs/graph-agent.yaml chronos team run classifier-team "What is the tallest mountain?"
 #
 # To use Anthropic instead:
 #   1. Change defaults.model.provider to "anthropic"

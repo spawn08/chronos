@@ -7,9 +7,9 @@
 #   export OPENAI_API_KEY=sk-...
 #   export ANTHROPIC_API_KEY=sk-ant-...
 #   export GEMINI_API_KEY=AI...
-#   CHRONOS_CONFIG=examples/yaml-configs/multi-provider.yaml go run ./cli/main.go agent list
-#   CHRONOS_CONFIG=examples/yaml-configs/multi-provider.yaml go run ./cli/main.go agent chat openai-agent
-#   CHRONOS_CONFIG=examples/yaml-configs/multi-provider.yaml go run ./cli/main.go team run compare "Explain quantum entanglement"
+#   CHRONOS_CONFIG=examples/yaml-configs/multi-provider.yaml chronos agent list
+#   CHRONOS_CONFIG=examples/yaml-configs/multi-provider.yaml chronos agent chat openai-agent
+#   CHRONOS_CONFIG=examples/yaml-configs/multi-provider.yaml chronos team run compare "Explain quantum entanglement"
 
 agents:
   # --- OpenAI GPT-4o ---

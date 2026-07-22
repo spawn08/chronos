@@ -1,0 +1,12 @@
+# Mistral — single-agent config.
+# Run:  export MISTRAL_API_KEY=...
+#       CHRONOS_CONFIG=examples/yaml-configs/providers/mistral.yaml chronos run "Hello"
+agents:
+  - id: assistant
+    name: Mistral Assistant
+    model:
+      provider: mistral
+      model: mistral-large-latest
+      api_key: ${MISTRAL_API_KEY}
+    storage: { backend: none }
+    system_prompt: You are a helpful assistant powered by Mistral.

@@ -52,25 +52,38 @@ chronos team run pipeline "Write about electric vehicles"
 
 ## Prerequisites
 
-1. **Go 1.24+** installed
-2. **Chronos cloned:**
+1. **Install the `chronos` CLI.** The quickest way is the install script (see the
+   [CLI Install](/getting-started/cli-install/) guide for all options):
 
-```bash
-git clone https://github.com/spawn08/chronos.git
-cd chronos
-```
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/spawn08/chronos/main/install.sh | bash
+   ```
+
+   Or build it from source (requires Go 1.24+):
+
+   ```bash
+   git clone https://github.com/spawn08/chronos.git
+   cd chronos
+   go build -o chronos ./cli && sudo mv chronos /usr/local/bin/
+   ```
+
+2. **Verify it's on your PATH:**
+
+   ```bash
+   chronos version
+   ```
 
 3. **At least one API key.** Set it as an environment variable:
 
-```bash
-export OPENAI_API_KEY=sk-your-key-here
-```
+   ```bash
+   export OPENAI_API_KEY=sk-your-key-here
+   ```
 
-4. **Verify the build:**
-
-```bash
-go build ./...
-```
+:::note Running from source without installing
+Prefer not to install a binary? Anywhere this guide says `chronos`, you can
+substitute `go run ./cli/main.go` from a cloned repo — e.g.
+`go run ./cli/main.go agent list`.
+:::
 
 ---
 
@@ -133,13 +146,13 @@ agents:
 export OPENAI_API_KEY=sk-your-key-here
 
 # List agents to verify config loaded
-go run ./cli/main.go agent list
+chronos agent list
 
 # Send a one-shot message
-go run ./cli/main.go run "What are three interesting facts about the moon?"
+chronos run "What are three interesting facts about the moon?"
 
 # Start interactive chat
-go run ./cli/main.go repl
+chronos repl
 ```
 
 Since the file is at `.chronos/agents.yaml`, the CLI discovers it automatically. No `CHRONOS_CONFIG` needed.
@@ -231,16 +244,16 @@ export OPENAI_API_KEY=sk-your-key-here
 export CHRONOS_CONFIG=customer-support.yaml
 
 # See all agents and teams
-go run ./cli/main.go agent list
-go run ./cli/main.go team list
+chronos agent list
+chronos team list
 
 # Run the router team — it picks the right agent automatically
-go run ./cli/main.go team run support "I was charged twice on my last invoice"
-go run ./cli/main.go team run support "The app crashes when I export a PDF"
-go run ./cli/main.go team run support "What's the difference between Pro and Enterprise?"
+chronos team run support "I was charged twice on my last invoice"
+chronos team run support "The app crashes when I export a PDF"
+chronos team run support "What's the difference between Pro and Enterprise?"
 
 # Or chat directly with a specific agent
-go run ./cli/main.go agent chat billing-support
+chronos agent chat billing-support
 ```
 
 ### How routing works
@@ -318,10 +331,10 @@ export OPENAI_API_KEY=sk-your-key-here
 export CHRONOS_CONFIG=content-pipeline.yaml
 
 # See the team configuration
-go run ./cli/main.go team show pipeline
+chronos team show pipeline
 
 # Run the full pipeline
-go run ./cli/main.go team run pipeline "Write a short article about the rise of electric vehicles"
+chronos team run pipeline "Write a short article about the rise of electric vehicles"
 ```
 
 ### How the pipeline flows
@@ -419,10 +432,10 @@ export OPENAI_API_KEY=sk-your-key-here
 export CHRONOS_CONFIG=coding-team.yaml
 
 # Inspect the team
-go run ./cli/main.go team show dev-team
+chronos team show dev-team
 
 # Run a feature request
-go run ./cli/main.go team run dev-team "Build a user registration feature with email/password signup and a registration form"
+chronos team run dev-team "Build a user registration feature with email/password signup and a registration form"
 ```
 
 ### How the coordinator works
@@ -446,17 +459,20 @@ Different LLM providers answer the same question in parallel, so you can compare
 
 ### Create `multi-provider.yaml`
 
+Each agent uses a different provider — OpenAI, Anthropic, Gemini, Azure OpenAI, and
+Grok (xAI) — and the `compare` team fans one prompt out to all of them in parallel.
+See [Provider Configurations](#provider-configurations) for the full per-provider reference.
+
 ```yaml
 agents:
   - id: openai-agent
-    name: GPT-4o Agent
+    name: GPT Agent
     model:
       provider: openai
       model: gpt-5.5
       api_key: ${OPENAI_API_KEY}
-    storage:
-      backend: none
-    system_prompt: You are a helpful assistant powered by GPT-4o.
+    storage: { backend: none }
+    system_prompt: You are a helpful assistant powered by OpenAI.
 
   - id: claude-agent
     name: Claude Agent
@@ -464,19 +480,38 @@ agents:
       provider: anthropic
       model: claude-opus-4-8
       api_key: ${ANTHROPIC_API_KEY}
-    storage:
-      backend: none
+    storage: { backend: none }
     system_prompt: You are Claude, an AI assistant by Anthropic.
 
-  - id: local-agent
-    name: Local Agent
+  - id: gemini-agent
+    name: Gemini Agent
     model:
-      provider: ollama
-      model: llama3.2
-      base_url: http://localhost:11434
-    storage:
-      backend: none
-    system_prompt: You are a local AI assistant. All data stays private.
+      provider: gemini
+      model: gemini-2.0-flash
+      api_key: ${GEMINI_API_KEY}
+    storage: { backend: none }
+    system_prompt: You are a helpful assistant powered by Google Gemini.
+
+  - id: azure-agent
+    name: Azure OpenAI Agent
+    model:
+      provider: azure
+      deployment: my-gpt4o-deployment
+      endpoint: https://my-resource.openai.azure.com
+      api_version: "2024-10-21"
+      api_key: ${AZURE_OPENAI_API_KEY}
+    storage: { backend: none }
+    system_prompt: You are a helpful assistant hosted on Azure OpenAI.
+
+  - id: grok-agent
+    name: Grok Agent
+    model:
+      provider: compatible          # xAI is OpenAI-compatible
+      model: grok-4
+      base_url: https://api.x.ai/v1
+      api_key: ${XAI_API_KEY}
+    storage: { backend: none }
+    system_prompt: You are Grok, a witty assistant by xAI.
 
 teams:
   - id: compare
@@ -485,30 +520,187 @@ teams:
     agents:
       - openai-agent
       - claude-agent
-    max_concurrency: 3
-    error_strategy: best_effort
+      - gemini-agent
+      - azure-agent
+      - grok-agent
+    max_concurrency: 5
+    error_strategy: best_effort      # missing keys don't fail the whole run
 ```
 
 ### Run it
 
 ```bash
+# Set whichever provider keys you have — best_effort skips the rest.
 export OPENAI_API_KEY=sk-your-key-here
 export ANTHROPIC_API_KEY=sk-ant-your-key-here
+export GEMINI_API_KEY=AI-your-key-here
+export AZURE_OPENAI_API_KEY=your-azure-key
+export XAI_API_KEY=xai-your-key-here
+
 export CHRONOS_CONFIG=multi-provider.yaml
 
-# Chat with individual providers
-go run ./cli/main.go agent chat openai-agent
-go run ./cli/main.go agent chat claude-agent
+# Chat with an individual provider
+chronos agent chat claude-agent
+chronos agent chat grok-agent
 
-# Run both in parallel on the same question
-go run ./cli/main.go team run compare "Explain quantum entanglement in 2 sentences"
-
-# For the local agent, make sure Ollama is running:
-# ollama serve && ollama pull llama3.2
-go run ./cli/main.go agent chat local-agent
+# Fan the same question out to every provider in parallel
+chronos team run compare "Explain quantum entanglement in 2 sentences"
 ```
 
-The `error_strategy: best_effort` means if one provider fails (e.g., missing API key), the other results are still returned.
+The `error_strategy: best_effort` means if one provider fails (e.g., a missing API key), the other results are still returned — so you can start with just one or two keys.
+
+---
+
+## Provider Configurations
+
+Every agent's `model:` block selects an LLM provider. Below is the exact YAML for
+each supported provider — drop any of these into an agent (or into `defaults.model`).
+All values support `${ENV_VAR}` expansion.
+
+| Provider | `provider:` value | Auth env var |
+|----------|-------------------|--------------|
+| OpenAI | `openai` | `OPENAI_API_KEY` |
+| Anthropic (Claude) | `anthropic` | `ANTHROPIC_API_KEY` |
+| Google Gemini (AI Studio) | `gemini` | `GEMINI_API_KEY` |
+| Google Vertex AI | `compatible` | `GOOGLE_ACCESS_TOKEN` |
+| Azure OpenAI | `azure` | `AZURE_OPENAI_API_KEY` |
+| Grok (xAI) | `compatible` | `XAI_API_KEY` |
+| Groq | `groq` | `GROQ_API_KEY` |
+| Mistral | `mistral` | `MISTRAL_API_KEY` |
+| DeepSeek | `deepseek` | `DEEPSEEK_API_KEY` |
+| Ollama (local) | `ollama` | — (none) |
+| Any OpenAI-compatible | `compatible` | `${YOUR_KEY}` |
+
+### OpenAI
+
+```yaml
+model:
+  provider: openai
+  model: gpt-5.5
+  api_key: ${OPENAI_API_KEY}
+```
+
+### Anthropic (Claude)
+
+```yaml
+model:
+  provider: anthropic
+  model: claude-opus-4-8
+  api_key: ${ANTHROPIC_API_KEY}
+```
+
+### Google Gemini (AI Studio)
+
+Use `provider: gemini` with an AI Studio API key — the simplest way to use Gemini.
+
+```yaml
+model:
+  provider: gemini
+  model: gemini-2.0-flash
+  api_key: ${GEMINI_API_KEY}
+```
+
+### Google Vertex AI
+
+Vertex is reached through its **OpenAI-compatible** endpoint, so use `provider: compatible`
+with your project/location `base_url` and a short-lived access token
+(`gcloud auth print-access-token`) as the key.
+
+```yaml
+model:
+  provider: compatible
+  model: google/gemini-2.0-flash
+  base_url: https://us-central1-aiplatform.googleapis.com/v1/projects/YOUR_PROJECT/locations/us-central1/endpoints/openapi
+  api_key: ${GOOGLE_ACCESS_TOKEN}
+```
+
+```bash
+export GOOGLE_ACCESS_TOKEN=$(gcloud auth print-access-token)
+```
+
+### Azure OpenAI
+
+Azure uses your **resource endpoint**, a **deployment name**, and an **API version** —
+not a plain model id.
+
+```yaml
+model:
+  provider: azure
+  deployment: my-gpt4o-deployment      # the Azure *deployment* name
+  endpoint: https://my-resource.openai.azure.com
+  api_version: "2024-10-21"
+  api_key: ${AZURE_OPENAI_API_KEY}
+```
+
+### Grok (xAI)
+
+xAI's API is OpenAI-compatible, so use `provider: compatible` pointed at `https://api.x.ai/v1`.
+
+```yaml
+model:
+  provider: compatible
+  model: grok-4
+  base_url: https://api.x.ai/v1
+  api_key: ${XAI_API_KEY}
+```
+
+### Groq (ultra-fast inference)
+
+The Groq endpoint is built in — just set the key and model.
+
+```yaml
+model:
+  provider: groq
+  model: llama-3.3-70b-versatile
+  api_key: ${GROQ_API_KEY}
+```
+
+### Mistral
+
+```yaml
+model:
+  provider: mistral
+  model: mistral-large-latest
+  api_key: ${MISTRAL_API_KEY}
+```
+
+### DeepSeek
+
+```yaml
+model:
+  provider: deepseek
+  model: deepseek-chat
+  api_key: ${DEEPSEEK_API_KEY}
+```
+
+### Ollama (local, no API key)
+
+```yaml
+model:
+  provider: ollama
+  model: llama3.2
+  base_url: http://localhost:11434
+```
+
+### Any OpenAI-compatible endpoint
+
+`provider: compatible` (alias `custom`) works with Together, OpenRouter, Fireworks,
+Perplexity, vLLM, LiteLLM, and anything that speaks the OpenAI Chat Completions API —
+just set `base_url`.
+
+```yaml
+model:
+  provider: compatible
+  model: meta-llama/Llama-3.3-70B-Instruct-Turbo
+  base_url: https://api.together.xyz/v1
+  api_key: ${TOGETHER_API_KEY}
+```
+
+:::tip Mix providers in one team
+Because each agent has its own `model:` block, a single `parallel` team can fan a
+prompt out to OpenAI, Claude, Gemini, Azure, and Grok at once — see
+[Example 5](#example-5-multi-provider-parallel-comparison).
+:::
 
 ---
 
@@ -542,32 +734,32 @@ The `error_strategy: best_effort` means if one provider fails (e.g., missing API
 
 ```bash
 # List all agents from your config
-go run ./cli/main.go agent list
+chronos agent list
 
 # Show details for a specific agent
-go run ./cli/main.go agent show <agent-id>
+chronos agent show <agent-id>
 
 # Start interactive chat with an agent
-go run ./cli/main.go agent chat <agent-id>
+chronos agent chat <agent-id>
 
 # One-shot message to the default (first) agent
-go run ./cli/main.go run "your message here"
+chronos run "your message here"
 
 # One-shot message to a specific agent
-go run ./cli/main.go run --agent <agent-id> "your message here"
+chronos run --agent <agent-id> "your message here"
 ```
 
 ### Team commands
 
 ```bash
 # List all teams
-go run ./cli/main.go team list
+chronos team list
 
 # Show team configuration
-go run ./cli/main.go team show <team-id>
+chronos team show <team-id>
 
 # Run a team on a task
-go run ./cli/main.go team run <team-id> "your task description"
+chronos team run <team-id> "your task description"
 ```
 
 ### Specifying a config file
@@ -577,10 +769,10 @@ By default, the CLI looks for `.chronos/agents.yaml` in the current directory. T
 ```bash
 # Option 1: Environment variable
 export CHRONOS_CONFIG=/path/to/your-config.yaml
-go run ./cli/main.go team run my-team "do something"
+chronos team run my-team "do something"
 
 # Option 2: Inline for a single command
-CHRONOS_CONFIG=my-config.yaml go run ./cli/main.go team run my-team "do something"
+CHRONOS_CONFIG=my-config.yaml chronos team run my-team "do something"
 ```
 
 ---
@@ -594,19 +786,19 @@ export OPENAI_API_KEY=sk-your-key-here
 
 # Customer support — router dispatches to billing/technical/sales
 CHRONOS_CONFIG=examples/yaml-configs/customer-support.yaml \
-  go run ./cli/main.go team run support "I need a refund for order #12345"
+  chronos team run support "I need a refund for order #12345"
 
 # Content pipeline — sequential research → write → edit
 CHRONOS_CONFIG=examples/yaml-configs/content-pipeline.yaml \
-  go run ./cli/main.go team run pipeline "Write about renewable energy trends"
+  chronos team run pipeline "Write about renewable energy trends"
 
 # Coding team — coordinator delegates to backend/frontend/reviewer
 CHRONOS_CONFIG=examples/yaml-configs/coding-team.yaml \
-  go run ./cli/main.go team run dev-team "Build a REST API for user management"
+  chronos team run dev-team "Build a REST API for user management"
 
 # Multi-provider — parallel comparison of different LLMs
 CHRONOS_CONFIG=examples/yaml-configs/multi-provider.yaml \
-  go run ./cli/main.go team run compare "What is the meaning of life?"
+  chronos team run compare "What is the meaning of life?"
 ```
 
 ---

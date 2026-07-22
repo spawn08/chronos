@@ -1,0 +1,15 @@
+# Azure OpenAI — single-agent config.
+# Uses a resource endpoint + deployment name + api version (not a plain model id).
+# Run:  export AZURE_OPENAI_API_KEY=...
+#       CHRONOS_CONFIG=examples/yaml-configs/providers/azure.yaml chronos run "Hello"
+agents:
+  - id: assistant
+    name: Azure OpenAI Assistant
+    model:
+      provider: azure
+      deployment: my-gpt4o-deployment
+      endpoint: https://my-resource.openai.azure.com
+      api_version: "2024-10-21"
+      api_key: ${AZURE_OPENAI_API_KEY}
+    storage: { backend: none }
+    system_prompt: You are a helpful assistant hosted on Azure OpenAI.

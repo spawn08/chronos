@@ -5,9 +5,9 @@
 #
 # Usage:
 #   export OPENAI_API_KEY=sk-...
-#   CHRONOS_CONFIG=examples/yaml-configs/customer-support.yaml go run ./cli/main.go team list
-#   CHRONOS_CONFIG=examples/yaml-configs/customer-support.yaml go run ./cli/main.go team run support "I was charged twice"
-#   CHRONOS_CONFIG=examples/yaml-configs/customer-support.yaml go run ./cli/main.go agent chat billing-support
+#   CHRONOS_CONFIG=examples/yaml-configs/customer-support.yaml chronos team list
+#   CHRONOS_CONFIG=examples/yaml-configs/customer-support.yaml chronos team run support "I was charged twice"
+#   CHRONOS_CONFIG=examples/yaml-configs/customer-support.yaml chronos agent chat billing-support
 
 defaults:
   model:

@@ -1,0 +1,12 @@
+# Anthropic (Claude) — single-agent config.
+# Run:  export ANTHROPIC_API_KEY=sk-ant-...
+#       CHRONOS_CONFIG=examples/yaml-configs/providers/anthropic.yaml chronos run "Hello"
+agents:
+  - id: assistant
+    name: Claude Assistant
+    model:
+      provider: anthropic
+      model: claude-opus-4-8
+      api_key: ${ANTHROPIC_API_KEY}
+    storage: { backend: none }
+    system_prompt: You are Claude, an AI assistant by Anthropic.

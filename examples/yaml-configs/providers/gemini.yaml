@@ -1,0 +1,12 @@
+# Google Gemini (AI Studio) — single-agent config.
+# Run:  export GEMINI_API_KEY=AI...
+#       CHRONOS_CONFIG=examples/yaml-configs/providers/gemini.yaml chronos run "Hello"
+agents:
+  - id: assistant
+    name: Gemini Assistant
+    model:
+      provider: gemini
+      model: gemini-2.0-flash
+      api_key: ${GEMINI_API_KEY}
+    storage: { backend: none }
+    system_prompt: You are a helpful assistant powered by Google Gemini.

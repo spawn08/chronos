@@ -1,0 +1,12 @@
+# DeepSeek — single-agent config.
+# Run:  export DEEPSEEK_API_KEY=...
+#       CHRONOS_CONFIG=examples/yaml-configs/providers/deepseek.yaml chronos run "Hello"
+agents:
+  - id: assistant
+    name: DeepSeek Assistant
+    model:
+      provider: deepseek
+      model: deepseek-chat
+      api_key: ${DEEPSEEK_API_KEY}
+    storage: { backend: none }
+    system_prompt: You are an expert programmer. Write clean, efficient code.

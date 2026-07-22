@@ -7,31 +7,48 @@
 <meta name="description" content="Interactive architecture explorer for Chronos — layers, key concepts, and runtime sequence flows.">
 <link rel="icon" href="/chronos/img/logo.svg">
 <style>
+  /* ---- Dark (default) theme tokens ---- */
   :root{
-    --bg:#0b0e14; --panel:#12161f; --panel2:#171c28; --line:#232a39; --line2:#2c3546;
+    --bg:#0b0e14; --panel:#12161f; --panel2:#171c28; --sidebar-bg:linear-gradient(180deg,#0d111a,#0b0e14);
+    --line:#232a39; --line2:#2c3546;
     --text:#e7edf5; --muted:#93a1b5; --dim:#6b7686;
     --violet:#8b5cf6; --cyan:#22d3ee; --grad:linear-gradient(100deg,#8b5cf6,#22d3ee);
     --os:#a78bfa; --engine:#38bdf8; --sdk:#34d399; --storage:#fbbf24; --sandbox:#fb7185;
+    --diagram-bg:#0c111b; --code-bg:#0e1420; --code-fg:#c9d5e6;
+    --h1a:#ffffff; --h1b:#b9c6d8;
+    --glow1:rgba(139,92,246,.14); --glow2:rgba(34,211,238,.10);
     --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
     --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     --shadow:0 1px 0 rgba(255,255,255,.03),0 18px 40px -20px rgba(0,0,0,.7);
   }
+  /* ---- Light theme (matches OS day mode) ---- */
+  @media (prefers-color-scheme: light){
+    :root{
+      --bg:#f6f8fc; --panel:#ffffff; --panel2:#eef1f7; --sidebar-bg:linear-gradient(180deg,#ffffff,#f4f6fb);
+      --line:#e4e8f0; --line2:#d3dae6;
+      --text:#141a24; --muted:#5a6476; --dim:#8b94a5;
+      --os:#7c3aed; --engine:#0284c7; --sdk:#059669; --storage:#c2790a; --sandbox:#e11d48;
+      --diagram-bg:#f4f6fb; --code-bg:#eef1f7; --code-fg:#334155;
+      --h1a:#0f172a; --h1b:#475569;
+      --glow1:rgba(124,58,237,.10); --glow2:rgba(2,132,199,.08);
+      --shadow:0 1px 2px rgba(16,24,40,.05),0 14px 34px -20px rgba(16,24,40,.22);
+    }
+  }
   *{box-sizing:border-box}
   html{scroll-behavior:smooth}
   body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.6;
-    background-image:radial-gradient(900px 500px at 82% -8%,rgba(139,92,246,.14),transparent 60%),
-      radial-gradient(760px 460px at -6% 4%,rgba(34,211,238,.10),transparent 55%);}
-  a{color:var(--cyan);text-decoration:none}
-  code{font-family:var(--mono);font-size:.86em;background:#0e1420;border:1px solid var(--line);
-    padding:.08em .4em;border-radius:5px;color:#c9d5e6}
+    background-image:radial-gradient(900px 500px at 82% -8%,var(--glow1),transparent 60%),
+      radial-gradient(760px 460px at -6% 4%,var(--glow2),transparent 55%);}
+  a{color:var(--violet);text-decoration:none}
+  code{font-family:var(--mono);font-size:.86em;background:var(--code-bg);border:1px solid var(--line);
+    padding:.08em .4em;border-radius:5px;color:var(--code-fg)}
 
-  /* Layout */
   .app{display:grid;grid-template-columns:256px 1fr;min-height:100vh}
   aside{position:sticky;top:0;height:100vh;border-right:1px solid var(--line);
-    background:linear-gradient(180deg,#0d111a,#0b0e14);padding:22px 16px;overflow-y:auto}
+    background:var(--sidebar-bg);padding:22px 16px;overflow-y:auto}
   .brand{display:flex;align-items:center;gap:11px;font-weight:800;font-size:1.12rem;letter-spacing:.3px;margin:2px 6px 4px}
   .brand .mark{width:26px;height:26px;border-radius:8px;background:var(--grad);
-    box-shadow:0 0 20px rgba(139,92,246,.55);display:grid;place-items:center;color:#0b0e14;font-weight:900;font-size:.9rem}
+    box-shadow:0 0 20px rgba(139,92,246,.45);display:grid;place-items:center;color:#fff;font-weight:900;font-size:.9rem}
   .brand small{display:block;font-weight:500;font-size:.68rem;color:var(--muted);letter-spacing:.14em;text-transform:uppercase}
   nav.side{margin-top:20px;display:flex;flex-direction:column;gap:2px}
   nav.side a{color:var(--muted);padding:8px 12px;border-radius:9px;font-size:.9rem;display:flex;gap:10px;align-items:center;border:1px solid transparent}
@@ -39,7 +56,7 @@
   nav.side a:hover{color:var(--text);background:var(--panel)}
   nav.side a.active{color:var(--text);background:var(--panel2);border-color:var(--line2);box-shadow:inset 2px 0 0 var(--violet)}
   .side-foot{margin-top:22px;padding:12px;border:1px solid var(--line);border-radius:11px;background:var(--panel);font-size:.8rem;color:var(--muted)}
-  .side-foot a{display:block;margin-top:6px}
+  .side-foot a{display:block;margin-top:6px;color:var(--violet)}
 
   main{padding:0 clamp(20px,4vw,64px) 120px;max-width:1080px}
   .progress{position:fixed;top:0;left:256px;right:0;height:3px;background:transparent;z-index:20}
@@ -48,67 +65,61 @@
   section{padding-top:56px;scroll-margin-top:20px}
   .eyebrow{font-size:.72rem;letter-spacing:.18em;text-transform:uppercase;color:var(--violet);font-weight:800;margin:0 0 8px}
   h1{font-size:clamp(1.9rem,4vw,2.7rem);line-height:1.08;letter-spacing:-.02em;margin:0 0 14px;
-    background:linear-gradient(180deg,#fff,#b9c6d8);-webkit-background-clip:text;background-clip:text;color:transparent}
+    background:linear-gradient(180deg,var(--h1a),var(--h1b));-webkit-background-clip:text;background-clip:text;color:transparent}
   h2{font-size:1.6rem;letter-spacing:-.01em;margin:0 0 6px;display:flex;align-items:center;gap:11px}
   h2 .num{font-family:var(--mono);font-size:.78rem;color:var(--violet);border:1px solid var(--line2);border-radius:7px;padding:2px 8px;background:var(--panel)}
   .lead{font-size:1.12rem;color:var(--muted);max-width:70ch}
-  p{color:#c7d0dd}
-  .muted{color:var(--muted)}
+  p{color:var(--text);opacity:.92}
+  .muted{color:var(--muted);opacity:1}
 
-  /* Hero */
   .hero{padding-top:52px}
   .chips{display:flex;flex-wrap:wrap;gap:10px;margin:22px 0 4px}
   .chip{border:1px solid var(--line2);background:var(--panel);border-radius:11px;padding:10px 14px;min-width:120px}
   .chip b{display:block;font-size:1.5rem;line-height:1;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
   .chip span{font-size:.78rem;color:var(--muted)}
 
-  /* Layer stack */
   .stack{display:flex;flex-direction:column;gap:14px;margin:26px 0 6px}
   .layer{position:relative;border:1px solid var(--line);border-radius:14px;background:linear-gradient(180deg,var(--panel2),var(--panel));
     padding:16px 18px;box-shadow:var(--shadow);overflow:hidden}
   .layer::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--c)}
   .layer .lh{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:12px}
-  .layer .lh .badge{font-family:var(--mono);font-size:.72rem;color:#0b0e14;background:var(--c);padding:2px 8px;border-radius:6px;font-weight:700}
+  .layer .lh .badge{font-family:var(--mono);font-size:.72rem;color:#fff;background:var(--c);padding:2px 8px;border-radius:6px;font-weight:700}
   .layer .lh h3{margin:0;font-size:1.06rem}
   .layer .lh .role{color:var(--muted);font-size:.86rem}
   .mods{display:flex;flex-wrap:wrap;gap:8px}
-  .mods span{font-size:.8rem;color:#cdd7e5;background:#0e1420;border:1px solid var(--line);border-radius:8px;padding:5px 10px}
+  .mods span{font-size:.8rem;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:5px 10px}
   .flowarrow{align-self:center;color:var(--dim);font-size:1.1rem;line-height:0}
   .layer.os{--c:var(--os)} .layer.engine{--c:var(--engine)} .layer.sdk{--c:var(--sdk)}
   .layer.storage{--c:var(--storage)} .layer.sandbox{--c:var(--sandbox)}
   .sidenote{margin-top:14px;font-size:.9rem;color:var(--muted);border-left:3px solid var(--line2);padding:2px 0 2px 14px}
 
-  /* Cards */
   .grid{display:grid;gap:14px}
   .g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
   .g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
   .card{border:1px solid var(--line);border-radius:13px;background:var(--panel);padding:16px 16px 14px;box-shadow:var(--shadow);transition:.18s}
   .card:hover{border-color:var(--line2);transform:translateY(-2px)}
   .card h3{margin:0 0 6px;font-size:1.02rem;display:flex;align-items:center;gap:9px}
-  .card h3 .dot{width:9px;height:9px;border-radius:50%;background:var(--grad);box-shadow:0 0 10px var(--violet)}
-  .card p{margin:0;font-size:.92rem;color:var(--muted)}
+  .card h3 .dot{width:9px;height:9px;border-radius:50%;background:var(--grad)}
+  .card p{margin:0;font-size:.92rem;color:var(--muted);opacity:1}
   .card .k{font-family:var(--mono);font-size:.72rem;color:var(--dim);margin-top:10px;display:block}
 
-  /* Tabs (flows) */
   .tabs{display:flex;flex-wrap:wrap;gap:8px;margin:22px 0 14px}
   .tabs button{font:inherit;font-size:.88rem;color:var(--muted);background:var(--panel);border:1px solid var(--line);
     border-radius:10px;padding:8px 14px;cursor:pointer;transition:.15s}
   .tabs button:hover{color:var(--text);border-color:var(--line2)}
-  .tabs button.active{color:#0b0e14;background:var(--grad);border-color:transparent;font-weight:700}
+  .tabs button.active{color:#fff;background:var(--grad);border-color:transparent;font-weight:700}
   .flow{display:none;animation:fade .25s ease}
   .flow.active{display:block}
   @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
   .flow > .cap{font-size:.86rem;color:var(--muted);margin:0 0 8px}
-  .diagram{border:1px solid var(--line);border-radius:14px;background:#0c111b;padding:18px;overflow-x:auto}
+  .diagram{border:1px solid var(--line);border-radius:14px;background:var(--diagram-bg);padding:18px;overflow-x:auto;min-height:120px}
   .mermaid{display:flex;justify-content:center}
 
-  /* Tables */
   table{width:100%;border-collapse:collapse;margin:14px 0;font-size:.9rem}
   th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
   th{color:var(--muted);text-transform:uppercase;font-size:.72rem;letter-spacing:.06em}
   tbody tr:hover{background:var(--panel)}
   td code{white-space:nowrap}
-  .ok{color:#34d399;font-weight:700}
 
   .backlink{position:fixed;right:18px;bottom:18px;z-index:30;background:var(--panel2);border:1px solid var(--line2);
     color:var(--text);border-radius:999px;padding:10px 16px;font-size:.85rem;box-shadow:var(--shadow)}
@@ -148,7 +159,6 @@
   </aside>
 
   <main>
-    <!-- OVERVIEW -->
     <section id="overview" class="hero">
       <p class="eyebrow">Interactive Architecture Explorer</p>
       <h1>How Chronos is built</h1>
@@ -162,7 +172,6 @@
       </div>
     </section>
 
-    <!-- LAYERS -->
     <section id="layers">
       <h2><span class="num">01</span> Layer Architecture</h2>
       <p class="muted">Dependencies flow strictly downward — each layer imports only the ones beneath it, never the reverse.</p>
@@ -194,7 +203,6 @@
       <p class="sidenote">Enforced rule: <code>os/</code> → <code>sdk/</code> → <code>engine/</code> → <code>storage/</code>, with zero cycles. <code>storage/</code> is the sink.</p>
     </section>
 
-    <!-- CONCEPTS -->
     <section id="concepts">
       <h2><span class="num">02</span> Key Concepts</h2>
       <p class="muted">The ideas that define how Chronos behaves under load and failure.</p>
@@ -211,7 +219,6 @@
       </div>
     </section>
 
-    <!-- FLOWS -->
     <section id="flows">
       <h2><span class="num">03</span> Sequence Flows</h2>
       <p class="muted">The real runtime paths, drawn from the code. Switch between them:</p>
@@ -244,8 +251,8 @@ sequenceDiagram
     A->>H: Before(model call)
     A->>P: Chat(ctx, req)
     P-->>A: response
-    A->>H: After(model call) — retry may replace output
-    loop while tool_call (<= MaxIterations)
+    A->>H: After(model call)
+    loop while tool_call
         A->>T: Execute(tool, args)
         T-->>A: result
         A->>P: Chat(ctx, msgs + results)
@@ -258,7 +265,7 @@ sequenceDiagram
       </div>
 
       <div class="flow" data-flow="graph">
-        <p class="cap">The durable runner loop. The next node is computed <em>before</em> the checkpoint, and checkpoint + ledger event are written together.</p>
+        <p class="cap">The durable runner loop. The next node is computed before the checkpoint, and checkpoint + ledger event are written together.</p>
         <div class="diagram"><pre class="mermaid">
 sequenceDiagram
     autonumber
@@ -292,15 +299,15 @@ sequenceDiagram
     participant AP as Approval
     participant R as Runner
     participant S as Storage
-    R->>S: interrupt → commit(checkpoint), Paused
+    R->>S: interrupt, commit checkpoint, Paused
     Note over R,S: run is durable; process may exit
     Human->>API: GET /api/approval/pending
     API->>AP: HandlePending()
     Human->>API: POST /api/approval/respond
     AP->>S: record decision
-    API->>R: Resume(skipFirstInterrupt=true)
+    API->>R: Resume(skipFirstInterrupt)
     R->>S: load latest checkpoint
-    R-->>API: RunState (Running → Completed)
+    R-->>API: RunState Running to Completed
         </pre></div>
       </div>
 
@@ -309,14 +316,14 @@ sequenceDiagram
         <div class="diagram"><pre class="mermaid">
 flowchart TD
     M["Model returns tool_call"] --> LOOK["Registry.lookup"]
-    LOOK --> PERM{Permission?}
+    LOOK --> PERM{"Permission?"}
     PERM -->|Allow| RUN["Handler(ctx, args)"]
     PERM -->|RequireApproval| REQ["Approval.Request"]
-    REQ --> WAIT{Decision}
+    REQ --> WAIT{"Decision"}
     WAIT -->|approved| RUN
     WAIT -->|denied| DENY["denied result"]
     RUN --> RES["tool result"]
-    RES --> BACK["append → next Model.Chat"]
+    RES --> BACK["append to next Model.Chat"]
     DENY --> BACK
         </pre></div>
       </div>
@@ -329,15 +336,15 @@ sequenceDiagram
     participant C as MCP Client
     participant P as Server (stdio)
     participant S as Remote (SSE)
-    C->>P: spawn + "initialize"
+    C->>P: spawn + initialize
     P-->>C: capabilities
-    C->>P: "tools/list" / "tools/call"
-    P-->>C: tools / content
-    Note over C,S: — or, remote transport —
+    C->>P: tools/list, tools/call
+    P-->>C: tools, content
+    Note over C,S: or, remote transport
     C->>S: GET /sse (text/event-stream)
-    S-->>C: event: endpoint → /messages
-    C->>S: POST /messages {id, "tools/call"}
-    S-->>C: SSE message {id, result}
+    S-->>C: event endpoint, /messages
+    C->>S: POST /messages (id, tools/call)
+    S-->>C: SSE message (id, result)
         </pre></div>
       </div>
 
@@ -346,20 +353,19 @@ sequenceDiagram
         <div class="diagram"><pre class="mermaid">
 stateDiagram-v2
     [*] --> Queued: Enqueue
-    Queued --> Leased: Dequeue(owner, lease)
+    Queued --> Leased: Dequeue
     Leased --> Leased: Heartbeat
-    Leased --> Sleeping: Sleep(delay)
+    Leased --> Sleeping: Sleep
     Sleeping --> Queued: delay elapses
-    Leased --> Parked: Park(signal)
+    Leased --> Parked: Park
     Parked --> Queued: signal
-    Leased --> Queued: Retry / lease expires
+    Leased --> Queued: Retry or lease expiry
     Leased --> Done: Complete
     Done --> [*]
         </pre></div>
       </div>
     </section>
 
-    <!-- INTERFACES -->
     <section id="interfaces">
       <h2><span class="num">04</span> Extension Interfaces</h2>
       <p class="muted">Extending Chronos means implementing one small interface — the seam an adapter or plugin plugs into.</p>
@@ -378,7 +384,6 @@ stateDiagram-v2
       </table>
     </section>
 
-    <!-- BACKENDS -->
     <section id="backends">
       <h2><span class="num">05</span> Backends at a Glance</h2>
       <div class="grid g2">
@@ -406,7 +411,6 @@ stateDiagram-v2
       </table>
     </section>
 
-    <!-- DEPLOY -->
     <section id="deploy">
       <h2><span class="num">06</span> Deployment Topology</h2>
       <p class="muted">From a single binary to a Kubernetes fleet — no code changes.</p>
@@ -434,41 +438,65 @@ flowchart LR
 
 <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
 <script>
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
   mermaid.initialize({
-    startOnLoad:true, theme:'dark',
-    themeVariables:{
-      fontFamily:'ui-sans-serif, system-ui, sans-serif', fontSize:'13px',
-      background:'#0c111b', primaryColor:'#171c28', primaryBorderColor:'#8b5cf6',
-      primaryTextColor:'#e7edf5', lineColor:'#6b7686', secondaryColor:'#12161f',
-      actorBkg:'#1a1f2e', actorBorder:'#8b5cf6', actorTextColor:'#e7edf5',
-      noteBkgColor:'#1f2a1a', noteBorderColor:'#34d399', noteTextColor:'#e7edf5'
-    },
-    flowchart:{curve:'basis',useMaxWidth:true},
-    sequence:{useMaxWidth:true,mirrorActors:false,wrap:true}
+    startOnLoad: false,
+    theme: prefersDark ? 'dark' : 'default',
+    themeVariables: prefersDark
+      ? { fontFamily:'ui-sans-serif, system-ui, sans-serif', fontSize:'13px',
+          primaryColor:'#171c28', primaryBorderColor:'#8b5cf6', primaryTextColor:'#e7edf5',
+          lineColor:'#8892a0', actorBkg:'#1a1f2e', actorBorder:'#8b5cf6', actorTextColor:'#e7edf5',
+          noteBkgColor:'#241a33', noteBorderColor:'#8b5cf6', noteTextColor:'#e7edf5' }
+      : { fontFamily:'ui-sans-serif, system-ui, sans-serif', fontSize:'13px',
+          primaryColor:'#f2ecff', primaryBorderColor:'#7c3aed', primaryTextColor:'#141a24',
+          lineColor:'#8b93a3', actorBkg:'#efeaff', actorBorder:'#7c3aed', actorTextColor:'#241a33',
+          noteBkgColor:'#fdf6e3', noteBorderColor:'#d97706', noteTextColor:'#3a2f10' },
+    flowchart:{ curve:'basis', useMaxWidth:true },
+    sequence:{ useMaxWidth:true, mirrorActors:false, wrap:true }
   });
 
-  // Tabs
+  // Render a diagram only when its container is visible, and only once.
+  // Diagrams inside hidden (display:none) tabs cannot be measured, so we render
+  // them lazily the first time their tab is shown.
+  function renderNode(el){
+    if (el && !el.getAttribute('data-processed')) {
+      try { mermaid.run({ nodes: [el] }); }
+      catch (e) { console.error('mermaid render failed', e); }
+    }
+  }
+
+  window.addEventListener('load', () => {
+    const visible = [...document.querySelectorAll('.mermaid')]
+      .filter(el => el.offsetParent !== null && !el.getAttribute('data-processed'));
+    if (visible.length) { try { mermaid.run({ nodes: visible }); } catch(e){ console.error(e); } }
+  });
+
+  // Tabs: reveal the flow first, then render its (now measurable) diagram.
   const tabs = document.getElementById('tabs');
   tabs.addEventListener('click', e => {
-    const btn = e.target.closest('button'); if(!btn) return;
+    const btn = e.target.closest('button'); if (!btn) return;
     const flow = btn.dataset.flow;
-    tabs.querySelectorAll('button').forEach(b => b.classList.toggle('active', b===btn));
-    document.querySelectorAll('.flow').forEach(f => f.classList.toggle('active', f.dataset.flow===flow));
+    tabs.querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
+    document.querySelectorAll('.flow').forEach(f => {
+      const on = f.dataset.flow === flow;
+      f.classList.toggle('active', on);
+      if (on) renderNode(f.querySelector('.mermaid'));
+    });
   });
 
-  // Scrollspy + progress bar
+  // Scrollspy + reading-progress bar.
   const links = [...document.querySelectorAll('nav.side a')];
   const sections = links.map(a => document.querySelector(a.getAttribute('href')));
   const prog = document.getElementById('prog');
   function onScroll(){
     const y = window.scrollY + 120;
     let active = sections[0];
-    for(const s of sections){ if(s && s.offsetTop <= y) active = s; }
-    links.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#'+active.id));
+    for (const s of sections) { if (s && s.offsetTop <= y) active = s; }
+    links.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + active.id));
     const h = document.body.scrollHeight - window.innerHeight;
-    prog.style.width = (h>0 ? (window.scrollY/h*100) : 0) + '%';
+    prog.style.width = (h > 0 ? (window.scrollY / h * 100) : 0) + '%';
   }
-  window.addEventListener('scroll', onScroll, {passive:true});
+  window.addEventListener('scroll', onScroll, { passive:true });
   window.addEventListener('load', onScroll);
 </script>
 </body>

@@ -1,0 +1,12 @@
+# Ollama (local, no API key) — single-agent config.
+# Run:  ollama serve && ollama pull llama3.2
+#       CHRONOS_CONFIG=examples/yaml-configs/providers/ollama.yaml chronos run "Hello"
+agents:
+  - id: assistant
+    name: Local Assistant
+    model:
+      provider: ollama
+      model: llama3.2
+      base_url: http://localhost:11434
+    storage: { backend: none }
+    system_prompt: You are a local AI assistant. All data stays private.

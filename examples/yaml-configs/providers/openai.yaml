@@ -1,0 +1,12 @@
+# OpenAI — single-agent config.
+# Run:  export OPENAI_API_KEY=sk-...
+#       CHRONOS_CONFIG=examples/yaml-configs/providers/openai.yaml chronos run "Hello"
+agents:
+  - id: assistant
+    name: OpenAI Assistant
+    model:
+      provider: openai
+      model: gpt-5.5
+      api_key: ${OPENAI_API_KEY}
+    storage: { backend: none }
+    system_prompt: You are a helpful assistant powered by OpenAI.

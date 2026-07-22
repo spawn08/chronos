@@ -1,0 +1,14 @@
+# Grok (xAI) — single-agent config.
+# xAI is OpenAI-compatible, so use provider: compatible pointed at api.x.ai.
+# Run:  export XAI_API_KEY=xai-...
+#       CHRONOS_CONFIG=examples/yaml-configs/providers/grok.yaml chronos run "Hello"
+agents:
+  - id: assistant
+    name: Grok Assistant
+    model:
+      provider: compatible
+      model: grok-4
+      base_url: https://api.x.ai/v1
+      api_key: ${XAI_API_KEY}
+    storage: { backend: none }
+    system_prompt: You are Grok, a witty assistant by xAI.
