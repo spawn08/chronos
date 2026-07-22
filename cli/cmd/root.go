@@ -15,6 +15,7 @@ import (
 
 	"github.com/spawn08/chronos/cli/repl"
 	"github.com/spawn08/chronos/engine/graph"
+	"github.com/spawn08/chronos/engine/model"
 	"github.com/spawn08/chronos/evals"
 	chronosos "github.com/spawn08/chronos/os"
 	"github.com/spawn08/chronos/sdk/agent"
@@ -112,7 +113,7 @@ Global options:
 Commands:
   repl                      Start interactive REPL (loads agent from YAML config)
   serve [addr]              Start ChronosOS control plane server (default :8420)
-  run [--agent <id>] <msg>  Run an agent in headless mode
+  run [--agent <id>] [--stream] <msg>  Run an agent in headless mode (--stream for live tokens)
   pipe                      Non-interactive mode: reads from stdin, writes to stdout
   agent list                List agents defined in config
   agent show <id>           Show agent configuration details
@@ -242,25 +243,29 @@ func runServe() error {
 }
 
 func runAgent() error {
-	// Parse: chronos run [--agent <id>] <message...>
+	// Parse: chronos run [--agent <id>] [--stream] <message...>
 	args := os.Args[2:]
 	agentID := ""
+	streaming := false
 	var msgParts []string
 
 	for i := 0; i < len(args); i++ {
-		if args[i] == "--agent" || args[i] == "-a" {
+		switch args[i] {
+		case "--agent", "-a":
 			if i+1 >= len(args) {
-				return fmt.Errorf("flag %s requires an agent id\nusage: chronos run [--agent <id>] <message>", args[i])
+				return fmt.Errorf("flag %s requires an agent id\nusage: chronos run [--agent <id>] [--stream] <message>", args[i])
 			}
 			agentID = args[i+1]
 			i++
-		} else {
+		case "--stream", "-s":
+			streaming = true
+		default:
 			msgParts = append(msgParts, args[i])
 		}
 	}
 
 	if len(msgParts) == 0 {
-		return fmt.Errorf("usage: chronos run [--agent <id>] <message>")
+		return fmt.Errorf("usage: chronos run [--agent <id>] [--stream] <message>")
 	}
 	message := strings.Join(msgParts, " ")
 
@@ -281,6 +286,10 @@ func runAgent() error {
 	fmt.Printf("Agent: %s (model: %s)\n", a.Name, a.Model.Name())
 	fmt.Printf("Message: %s\n\n", message)
 
+	if streaming {
+		return runAgentStream(a, message)
+	}
+
 	resp, err := a.Chat(context.Background(), message)
 	if err != nil {
 		return fmt.Errorf("chat: %w", err)
@@ -288,6 +297,30 @@ func runAgent() error {
 	fmt.Println(resp.Content)
 	if resp.Usage.PromptTokens > 0 || resp.Usage.CompletionTokens > 0 {
 		fmt.Printf("\n[tokens: %d prompt + %d completion]\n", resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
+	}
+	return nil
+}
+
+// runAgentStream prints a headless agent response token-by-token via ChatStream.
+func runAgentStream(a *agent.Agent, message string) error {
+	ch, err := a.ChatStream(context.Background(), message)
+	if err != nil {
+		return fmt.Errorf("chat: %w", err)
+	}
+	var usage model.Usage
+	for chunk := range ch {
+		if chunk.Err != nil {
+			return fmt.Errorf("chat: %w", chunk.Err)
+		}
+		if chunk.Delta {
+			fmt.Print(chunk.Content)
+			continue
+		}
+		usage = chunk.Usage
+	}
+	fmt.Println()
+	if usage.PromptTokens > 0 || usage.CompletionTokens > 0 {
+		fmt.Printf("\n[tokens: %d prompt + %d completion]\n", usage.PromptTokens, usage.CompletionTokens)
 	}
 	return nil
 }

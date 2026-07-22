@@ -21,7 +21,18 @@ func (m *mockProvider) Chat(_ context.Context, _ *model.ChatRequest) (*model.Cha
 }
 
 func (m *mockProvider) StreamChat(_ context.Context, _ *model.ChatRequest) (<-chan *model.ChatResponse, error) {
-	return nil, errors.New("not implemented")
+	if m.err != nil {
+		return nil, m.err
+	}
+	ch := make(chan *model.ChatResponse, 2)
+	if m.resp != nil {
+		if m.resp.Content != "" {
+			ch <- &model.ChatResponse{Role: model.RoleAssistant, Content: m.resp.Content, Delta: true}
+		}
+		ch <- &model.ChatResponse{Role: model.RoleAssistant, Usage: m.resp.Usage, StopReason: m.resp.StopReason}
+	}
+	close(ch)
+	return ch, nil
 }
 
 func (m *mockProvider) Name() string  { return "mock" }

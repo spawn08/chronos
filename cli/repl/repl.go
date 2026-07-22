@@ -20,6 +20,7 @@ type REPL struct {
 	agent    *agent.Agent
 	commands map[string]Command
 	history  []string
+	stream   bool
 	ctx      context.Context
 	cancel   context.CancelFunc
 }
@@ -37,11 +38,17 @@ func New(store storage.Storage) *REPL {
 	r := &REPL{
 		store:    store,
 		commands: make(map[string]Command),
+		stream:   true,
 		ctx:      ctx,
 		cancel:   cancel,
 	}
 	r.registerBuiltins()
 	return r
+}
+
+// SetStream enables or disables token-by-token streaming of agent responses.
+func (r *REPL) SetStream(enabled bool) {
+	r.stream = enabled
 }
 
 // SetAgent configures the agent that handles non-command input.
@@ -175,6 +182,27 @@ func (r *REPL) registerBuiltins() {
 		},
 	})
 	r.Register(Command{
+		Name: "/stream", Description: "Toggle streaming responses (on|off), or show current state",
+		Handler: func(args string) error {
+			switch strings.ToLower(strings.TrimSpace(args)) {
+			case "on", "true", "1":
+				r.stream = true
+			case "off", "false", "0":
+				r.stream = false
+			case "":
+				// no-op: just report current state below
+			default:
+				return fmt.Errorf("usage: /stream [on|off]")
+			}
+			state := "off"
+			if r.stream {
+				state = "on"
+			}
+			fmt.Printf("Streaming is %s.\n", state)
+			return nil
+		},
+	})
+	r.Register(Command{
 		Name: "/clear", Description: "Clear conversation history",
 		Handler: func(_ string) error {
 			r.history = nil
@@ -274,6 +302,10 @@ func (r *REPL) Start() error {
 }
 
 func (r *REPL) chatWithAgent(message string) {
+	if r.stream {
+		r.chatStream(message)
+		return
+	}
 	resp, err := r.agent.Chat(r.ctx, message)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -284,6 +316,38 @@ func (r *REPL) chatWithAgent(message string) {
 	fmt.Println()
 	if resp.Usage.PromptTokens > 0 || resp.Usage.CompletionTokens > 0 {
 		fmt.Printf("[tokens: %d prompt + %d completion]\n", resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
+	}
+}
+
+// chatStream prints the agent's response incrementally as tokens arrive.
+func (r *REPL) chatStream(message string) {
+	ch, err := r.agent.ChatStream(r.ctx, message)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return
+	}
+	fmt.Println()
+	var usage model.Usage
+	var printed bool
+	for chunk := range ch {
+		if chunk.Err != nil {
+			fmt.Fprintf(os.Stderr, "\nError: %v\n", chunk.Err)
+			return
+		}
+		if chunk.Delta {
+			fmt.Print(chunk.Content)
+			printed = true
+			continue
+		}
+		// Final summary chunk carries usage totals.
+		usage = chunk.Usage
+	}
+	if printed {
+		fmt.Println()
+	}
+	fmt.Println()
+	if usage.PromptTokens > 0 || usage.CompletionTokens > 0 {
+		fmt.Printf("[tokens: %d prompt + %d completion]\n", usage.PromptTokens, usage.CompletionTokens)
 	}
 }
 
@@ -300,6 +364,3 @@ func (r *REPL) execShell(cmdStr string) {
 		fmt.Fprintf(os.Stderr, "Shell error: %v\n", err)
 	}
 }
-
-// Ensure model is imported (used by SetAgent for type checking)
-var _ model.Provider

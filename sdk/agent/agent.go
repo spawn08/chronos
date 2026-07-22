@@ -245,14 +245,12 @@ func (a *Agent) memoryManager() *memory.Manager {
 	return a.MemoryManager
 }
 
-// Chat sends a single user message to the agent's model and returns the response.
-// This is a convenience method for agents that have a model but no graph.
-func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatResponse, error) {
-	if a.Model == nil {
-		return nil, fmt.Errorf("agent %q has no model", a.ID)
-	}
-	a.debugLog("Chat called with message length=%d", len(userMessage))
-
+// buildChatRequest assembles the full message list (system prompt, instructions,
+// few-shot examples, long-term memory, RAG knowledge, run history and reasoning
+// scaffolding) plus the user message, applies input guardrails and the output
+// schema, and attaches registered tool definitions. It is shared by the blocking
+// Chat and streaming ChatStream paths so both send identical context to the model.
+func (a *Agent) buildChatRequest(ctx context.Context, userMessage string) (*model.ChatRequest, []model.Message, error) {
 	messages := make([]model.Message, 0, 8)
 	if a.SystemPrompt != "" {
 		messages = append(messages, model.Message{Role: model.RoleSystem, Content: a.SystemPrompt})
@@ -311,7 +309,7 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 
 	// Check input guardrails
 	if result := a.Guardrails.CheckInput(ctx, userMessage); result != nil {
-		return nil, fmt.Errorf("input guardrail failed: %s", result.Reason)
+		return nil, nil, fmt.Errorf("input guardrail failed: %s", result.Reason)
 	}
 
 	req := &model.ChatRequest{
@@ -334,6 +332,22 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 				},
 			})
 		}
+	}
+
+	return req, messages, nil
+}
+
+// Chat sends a single user message to the agent's model and returns the response.
+// This is a convenience method for agents that have a model but no graph.
+func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatResponse, error) {
+	if a.Model == nil {
+		return nil, fmt.Errorf("agent %q has no model", a.ID)
+	}
+	a.debugLog("Chat called with message length=%d", len(userMessage))
+
+	req, messages, buildErr := a.buildChatRequest(ctx, userMessage)
+	if buildErr != nil {
+		return nil, buildErr
 	}
 
 	// Fire model call hooks, passing provider and request for retry hook
@@ -440,6 +454,186 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 	return resp, nil
 }
 
+// ChatStream sends a single user message and streams the model's response token
+// by token. It returns a channel of *model.ChatResponse that the caller must
+// drain to completion; the channel is closed when the turn finishes.
+//
+// Channel protocol:
+//   - Delta chunks have Delta == true and carry a Content fragment to print.
+//   - Exactly one final chunk has Delta == false with the aggregated Usage and
+//     StopReason (and empty Content, since the text was already streamed).
+//   - A chunk with Err != nil signals a fatal error; it is the last chunk.
+//
+// Tool calls are handled transparently: when the model requests tools, the
+// fragments are aggregated, the tools are executed, and the follow-up turn is
+// streamed — so callers see live text across every round.
+//
+// Note on guardrails/schema: because tokens are emitted as they arrive, output
+// guardrails and OutputSchema are validated only AFTER the full response has been
+// streamed. A validation failure surfaces as a trailing Err chunk, by which point
+// the (rejected) text has already been shown. Use the blocking Chat when you need
+// pre-emission validation.
+func (a *Agent) ChatStream(ctx context.Context, userMessage string) (<-chan *model.ChatResponse, error) {
+	if a.Model == nil {
+		return nil, fmt.Errorf("agent %q has no model", a.ID)
+	}
+	a.debugLog("ChatStream called with message length=%d", len(userMessage))
+
+	// Build the request synchronously so input-guardrail rejections are returned
+	// to the caller directly rather than buried in the stream.
+	req, messages, err := a.buildChatRequest(ctx, userMessage)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make(chan *model.ChatResponse, 64)
+	go func() {
+		defer close(out)
+		a.streamLoop(ctx, req, messages, out)
+	}()
+	return out, nil
+}
+
+// streamLoop drives the streaming model call and the tool-calling rounds,
+// forwarding text deltas to out and reassembling each round's full response so it
+// can decide whether more tool calls are pending.
+func (a *Agent) streamLoop(ctx context.Context, req *model.ChatRequest, messages []model.Message, out chan<- *model.ChatResponse) {
+	if a.Broker != nil {
+		a.Broker.Publish(stream.Event{Type: stream.EventModelCall, Data: map[string]any{
+			"agent": a.ID, "model": a.Model.Name(), "messages": len(req.Messages), "stream": true,
+		}})
+	}
+
+	resp, err := a.streamOnce(ctx, req, out)
+	if err != nil {
+		a.emitError(ctx, out, fmt.Errorf("agent %q stream: %w", a.ID, err))
+		return
+	}
+
+	var totalUsage model.Usage
+	accumulateUsage(&totalUsage, resp.Usage)
+
+	maxIter := a.MaxIterations
+	if maxIter <= 0 {
+		maxIter = 25
+	}
+	iteration := 0
+	for resp != nil && resp.StopReason == model.StopReasonToolCall && len(resp.ToolCalls) > 0 {
+		iteration++
+		if iteration > maxIter {
+			a.emitError(ctx, out, fmt.Errorf("agent %q: exceeded max tool-calling iterations (%d) with unsatisfied tool calls", a.ID, maxIter))
+			return
+		}
+		messages, err = a.executeToolCalls(ctx, messages, resp)
+		if err != nil {
+			a.emitError(ctx, out, err)
+			return
+		}
+		followReq := &model.ChatRequest{Messages: messages, Tools: req.Tools}
+		resp, err = a.streamOnce(ctx, followReq, out)
+		if err != nil {
+			a.emitError(ctx, out, fmt.Errorf("agent %q stream: %w", a.ID, err))
+			return
+		}
+		accumulateUsage(&totalUsage, resp.Usage)
+	}
+
+	if a.Broker != nil {
+		a.Broker.Publish(stream.Event{Type: stream.EventModelResponse, Data: map[string]any{
+			"agent": a.ID, "stop_reason": string(resp.StopReason),
+		}})
+	}
+
+	// Post-emission validation: guardrails and schema run on the fully streamed text.
+	if resp.Content != "" {
+		if result := a.Guardrails.CheckOutput(ctx, resp.Content); result != nil {
+			a.emitError(ctx, out, fmt.Errorf("output guardrail failed: %s", result.Reason))
+			return
+		}
+	}
+	if a.OutputSchema != nil && resp.Content != "" {
+		if valErr := validateAgainstSchema(resp.Content, a.OutputSchema); valErr != nil {
+			a.emitError(ctx, out, fmt.Errorf("output schema validation failed: %w", valErr))
+			return
+		}
+	}
+
+	// Extract memories from the conversation (scoped to the agent's tenant).
+	if mgr := a.memoryManager(); mgr != nil {
+		_ = mgr.ExtractMemories(ctx, messages)
+	}
+
+	// Emit the final summary chunk carrying usage and stop reason.
+	sendStream(ctx, out, &model.ChatResponse{
+		Role:       model.RoleAssistant,
+		Usage:      totalUsage,
+		StopReason: resp.StopReason,
+	})
+}
+
+// streamOnce issues a single streaming model call. It forwards each text delta to
+// out as it arrives while teeing the raw chunks into AggregateStream, which
+// returns the reassembled full response (content, tool calls, usage, stop reason)
+// for the caller's tool-loop decision.
+func (a *Agent) streamOnce(ctx context.Context, req *model.ChatRequest, out chan<- *model.ChatResponse) (*model.ChatResponse, error) {
+	a.debugLog("streaming %d messages to model %q (tools=%d)", len(req.Messages), a.Model.Name(), len(req.Tools))
+	ch, err := a.Model.StreamChat(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	agg := make(chan *model.ChatResponse, 64)
+	go func() {
+		defer close(agg)
+		for cr := range ch {
+			if cr == nil {
+				continue
+			}
+			// Forward live text to the consumer; tool-call fragments and usage
+			// are carried through to the aggregator only.
+			if cr.Content != "" && cr.Err == nil {
+				sendStream(ctx, out, &model.ChatResponse{
+					Role:    model.RoleAssistant,
+					Content: cr.Content,
+					Delta:   true,
+				})
+			}
+			select {
+			case agg <- cr:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	return model.AggregateStream(ctx, agg)
+}
+
+// emitError sends err as a terminal chunk on the stream.
+func (a *Agent) emitError(ctx context.Context, out chan<- *model.ChatResponse, err error) {
+	if a.Broker != nil {
+		a.Broker.Publish(stream.Event{Type: stream.EventError, Data: map[string]any{
+			"agent": a.ID, "error": err.Error(),
+		}})
+	}
+	sendStream(ctx, out, &model.ChatResponse{Role: model.RoleAssistant, Err: err})
+}
+
+// sendStream delivers cr on out unless ctx is done, so a canceled/abandoned stream
+// never blocks the producing goroutine.
+func sendStream(ctx context.Context, out chan<- *model.ChatResponse, cr *model.ChatResponse) {
+	select {
+	case out <- cr:
+	case <-ctx.Done():
+	}
+}
+
+// accumulateUsage adds a round's token counts into the running total.
+func accumulateUsage(total *model.Usage, u model.Usage) {
+	total.PromptTokens += u.PromptTokens
+	total.CompletionTokens += u.CompletionTokens
+}
+
 // handleToolCalls executes the tool calls in resp, appends the assistant
 // message and each tool result to messages, and issues the follow-up model
 // call. It returns the follow-up response together with the accumulated
@@ -450,6 +644,25 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 // further tools on subsequent rounds; dropping it would break multi-round tool
 // use.
 func (a *Agent) handleToolCalls(ctx context.Context, messages []model.Message, resp *model.ChatResponse, tools []model.ToolDefinition) (*model.ChatResponse, []model.Message, error) {
+	messages, err := a.executeToolCalls(ctx, messages, resp)
+	if err != nil {
+		return nil, messages, err
+	}
+
+	// Pass the tool definitions on the follow-up call so the model can request
+	// more tools on the next round.
+	followUp, err := a.Model.Chat(ctx, &model.ChatRequest{Messages: messages, Tools: tools})
+	if err != nil {
+		return nil, messages, err
+	}
+	return followUp, messages, nil
+}
+
+// executeToolCalls appends the assistant message and runs each requested tool,
+// appending its result to the message history. It fires tool hooks and publishes
+// broker events, but does NOT issue the follow-up model call — callers thread the
+// returned messages into the next (blocking or streaming) round themselves.
+func (a *Agent) executeToolCalls(ctx context.Context, messages []model.Message, resp *model.ChatResponse) ([]model.Message, error) {
 	messages = append(messages, model.Message{
 		Role:      model.RoleAssistant,
 		Content:   resp.Content,
@@ -471,7 +684,7 @@ func (a *Agent) handleToolCalls(ctx context.Context, messages []model.Message, r
 		// Fire tool call hooks
 		toolEvt := &hooks.Event{Type: hooks.EventToolCallBefore, Name: tc.Name, Input: args}
 		if err := a.Hooks.Before(ctx, toolEvt); err != nil {
-			return nil, messages, fmt.Errorf("hook before tool %q: %w", tc.Name, err)
+			return messages, fmt.Errorf("hook before tool %q: %w", tc.Name, err)
 		}
 
 		result, err := a.Tools.Execute(ctx, tc.Name, args)
@@ -506,14 +719,7 @@ func (a *Agent) handleToolCalls(ctx context.Context, messages []model.Message, r
 			Name:       tc.Name,
 		})
 	}
-
-	// Pass the tool definitions on the follow-up call so the model can request
-	// more tools on the next round.
-	followUp, err := a.Model.Chat(ctx, &model.ChatRequest{Messages: messages, Tools: tools})
-	if err != nil {
-		return nil, messages, err
-	}
-	return followUp, messages, nil
+	return messages, nil
 }
 
 // Execute runs the agent on a text task and returns the text response.
