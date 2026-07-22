@@ -73,8 +73,10 @@ else
 fi
 
 # 5. Tests
+# -short matches CI: skips the heavy engine/queue load/soak variants (timing-
+# sensitive load tests). Run the full soak manually: go test -run Soak ./engine/queue/
 echo "Running tests..."
-if ! go test -count=1 -timeout 120s ./... 2>&1; then
+if ! go test -count=1 -timeout 120s -short ./... 2>&1; then
     fail "Tests failed"
 fi
 pass "All tests passed"
