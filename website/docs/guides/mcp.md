@@ -26,9 +26,22 @@ This means you can plug in the growing ecosystem of MCP servers (filesystem, Git
 | Transport | Const | Status | Use case |
 |-----------|-------|--------|----------|
 | stdio | `mcp.TransportStdio` | ✅ Supported | Launch a local MCP server as a subprocess (default) |
-| HTTP SSE | `mcp.TransportSSE` | 🚧 Planned | Connect to a remote MCP server over HTTP |
+| HTTP SSE | `mcp.TransportSSE` | ✅ Supported | Connect to a **remote** MCP server over HTTP (MCP 2024-11-05) |
 
-stdio is the default. If `Transport` is empty it defaults to stdio. Requesting SSE currently returns an error.
+stdio is the default (used when `Transport` is empty). The SSE transport opens a
+long-lived Server-Sent Events stream to the server's URL, learns the endpoint the
+server advertises, and POSTs JSON-RPC requests to it — responses are correlated
+back over the stream by id. Per-call timeouts are honored and `CloseMCP` cancels
+the stream and closes idle connections.
+
+```go
+// Connect to a remote MCP server over HTTP + SSE.
+builder.AddMCPServer(mcp.ServerConfig{
+    Name:      "remote-tools",
+    Transport: mcp.TransportSSE,
+    URL:       "https://mcp.example.com/sse", // required for SSE
+})
+```
 
 ## Go builder API
 

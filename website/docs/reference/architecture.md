@@ -255,7 +255,7 @@ flowchart LR
     style RESUME fill:#e9ecef,stroke:#495057,color:#000,stroke-dasharray: 5 5
 ```
 
-Key properties (enforced by `runner_p0_test.go`):
+Key properties (enforced by `runner_durability_test.go`):
 
 - **Idempotent replay** — resume never double-executes the last completed node.
 - **Ordered latest-checkpoint** — `GetLatestCheckpoint` orders by `seq_num`, not wall-clock.
@@ -559,7 +559,162 @@ Default is `process` for developer ergonomics; production deployments must selec
 
 ---
 
-## 11. Where to go next
+## 11. Human-in-the-Loop: Pause & Resume
+
+An **interrupt node** pauses a run and persists a checkpoint. After a human decision is recorded through the approval service, `Resume` advances past that one interrupt exactly once — any *downstream* interrupt still pauses.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Human
+    participant API as ChronosOS API
+    participant AP as os/approval
+    participant R as engine/graph.Runner
+    participant S as storage.Storage
+
+    R->>S: reach interrupt → commit(checkpoint), Status=Paused
+    Note over R,S: run is now durable; the process may exit
+    Human->>API: GET /api/approval/pending
+    API->>AP: HandlePending()
+    AP-->>Human: pending approvals (session, node)
+    Human->>API: POST /api/approval/respond {approve}
+    API->>AP: HandleRespond()
+    AP->>S: record decision
+    API->>R: Resume(ctx, runID, skipFirstInterrupt=true)
+    R->>S: load latest checkpoint
+    R->>R: skip the resumed interrupt once, then run on
+    R-->>API: RunState (Running → Completed)
+```
+
+See the [`examples/durable_hitl`](https://github.com/spawn08/chronos/tree/main/examples/durable_hitl) example.
+
+---
+
+## 12. Tool Calls: Permission & Approval
+
+When the model requests a tool, the registry consults the tool's `Permission`. Auto-allowed tools run immediately; sensitive tools route through the approval service before executing.
+
+```mermaid
+flowchart TD
+    M["Model returns tool_call"] --> LOOK["Registry.lookup(name)"]
+    LOOK --> PERM{Permission?}
+    PERM -->|Allow| RUN["Handler(ctx, args)"]
+    PERM -->|RequireApproval| REQ["Approval.Request"]
+    REQ --> WAIT{Decision}
+    WAIT -->|approved| RUN
+    WAIT -->|denied| DENY["return denied result"]
+    RUN --> RES["tool result"]
+    RES --> BACK["append result → next Model.Chat"]
+    DENY --> BACK
+
+    classDef n fill:#0ca678,color:#fff,stroke:#087f5b
+    class M,LOOK,RUN,REQ,RES,BACK,DENY n
+```
+
+---
+
+## 13. MCP Transports — stdio & HTTP+SSE
+
+Chronos is an MCP **client**. It handshakes with a server, imports the advertised tools, and proxies calls. Two transports share the same client API (`Connect`, `ListTools`, `CallTool`, `Close`).
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant AG as sdk/agent.Agent
+    participant C as engine/mcp.Client
+    participant P as Server (stdio subprocess)
+    AG->>C: ConnectMCP → Connect(ctx)
+    C->>P: spawn command; JSON-RPC "initialize"
+    P-->>C: serverInfo + capabilities
+    C->>P: notify "initialized"
+    AG->>C: ListTools(ctx)
+    C->>P: "tools/list"
+    P-->>C: tools[]
+    C-->>AG: register each tool in Registry
+    AG->>C: CallTool(name, args)
+    C->>P: "tools/call"
+    P-->>C: content
+    C-->>AG: result
+```
+
+The **HTTP+SSE** transport (MCP 2024-11-05) targets *remote* servers: the client opens an SSE stream, learns the POST endpoint the server advertises, and correlates responses back over the stream by JSON-RPC id.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as engine/mcp.Client
+    participant S as Remote MCP Server
+    C->>S: GET /sse (Accept: text/event-stream)
+    S-->>C: event: endpoint · data: /messages
+    Note over C: a background reader parses the stream
+    C->>S: POST /messages {"initialize", id=1}
+    S-->>C: SSE message {id=1, result}
+    C->>S: POST /messages {"tools/call", id=2}
+    S-->>C: SSE message {id=2, result}
+    Note over C,S: per-call ctx unblocks a pending wait; Close() cancels the reader
+```
+
+See the [MCP guide](/guides/mcp) and the [`examples/mcp_sse`](https://github.com/spawn08/chronos/tree/main/examples/mcp_sse) / [`examples/mcp_agent`](https://github.com/spawn08/chronos/tree/main/examples/mcp_agent) examples.
+
+---
+
+## 14. Core Extension Interfaces
+
+Extending Chronos means implementing one of these small interfaces — the seam an adapter, provider, or plugin plugs into.
+
+```mermaid
+classDiagram
+    class Storage {
+      <<interface>>
+      +CreateSession(ctx)
+      +AppendEvent(ctx)
+      +SaveCheckpoint(ctx)
+      +ListTraces(ctx)
+      +Migrate(ctx)
+    }
+    class VectorStore {
+      <<interface>>
+      +CreateCollection(ctx)
+      +Upsert(ctx)
+      +Search(ctx)
+      +Delete(ctx)
+      +Close()
+    }
+    class Provider {
+      <<interface>>
+      +Chat(ctx, req) ChatResponse
+      +StreamChat(ctx, req) chan
+      +Name() string
+    }
+    class Guardrail {
+      <<interface>>
+      +Check(ctx, content) Result
+    }
+    class Hook {
+      <<interface>>
+      +Before(ctx, event)
+      +After(ctx, event)
+    }
+    class Sandbox {
+      <<interface>>
+      +Execute(ctx, cmd, args, timeout) Result
+      +Close()
+    }
+```
+
+| Interface | Defined in | Implement to add… |
+|---|---|---|
+| `storage.Storage` | `storage/storage.go` | a relational / NoSQL backend |
+| `storage.VectorStore` | `storage/vector.go` | a vector database |
+| `model.Provider` | `engine/model/provider.go` | a chat model backend |
+| `model.EmbeddingsProvider` | `engine/model/embeddings.go` | an embeddings backend |
+| `guardrails.Guardrail` | `engine/guardrails/guardrails.go` | input/output validation |
+| `hooks.Hook` | `engine/hooks/hooks.go` | call middleware (composed via `Chain`) |
+| `sandbox.Sandbox` | `sandbox/sandbox.go` | an isolation backend |
+
+---
+
+## 15. Where to go next
 
 - [**Real-World Agents**](/guides/real-world-agents) — walk-throughs for chat, RAG, teams, HITL, streaming with runnable Go and YAML.
 - [**CLI Reference**](/api/cli) — every subcommand with copy-paste invocations.
