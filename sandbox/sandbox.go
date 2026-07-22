@@ -38,6 +38,8 @@ func (s *ProcessSandbox) Execute(ctx context.Context, command string, args []str
 
 	cmd := exec.CommandContext(ctx, command, args...)
 	cmd.Dir = s.WorkDir
+	// Reap the whole process tree on timeout, not just the direct child.
+	isolateProcessGroup(cmd)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

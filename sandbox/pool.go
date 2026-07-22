@@ -8,14 +8,25 @@ import (
 )
 
 // ContainerPool maintains a pool of pre-warmed containers for reduced cold-start latency.
+//
+// Idle containers are reclaimed lazily: any container that has sat in the pool
+// longer than maxIdle is closed and dropped the next time the pool is touched
+// (Acquire or Release). This avoids a background goroutine while still bounding
+// how long stale containers linger.
 type ContainerPool struct {
 	mu        sync.Mutex
-	available []Sandbox
+	available []idleEntry
 	inUse     map[Sandbox]bool
 	factory   func() (Sandbox, error)
 	maxSize   int
 	maxIdle   time.Duration
 	closed    bool
+}
+
+// idleEntry is a pooled sandbox tagged with the time it became idle.
+type idleEntry struct {
+	sb        Sandbox
+	idleSince time.Time
 }
 
 // PoolConfig configures a container pool.
@@ -41,7 +52,7 @@ func NewPool(cfg PoolConfig) (*ContainerPool, error) {
 	}
 
 	return &ContainerPool{
-		available: make([]Sandbox, 0, cfg.MaxSize),
+		available: make([]idleEntry, 0, cfg.MaxSize),
 		inUse:     make(map[Sandbox]bool),
 		factory:   cfg.Factory,
 		maxSize:   cfg.MaxSize,
@@ -60,10 +71,28 @@ func (p *ContainerPool) Warmup(ctx context.Context, n int) error {
 			return fmt.Errorf("container pool warmup: %w", err)
 		}
 		p.mu.Lock()
-		p.available = append(p.available, sb)
+		p.available = append(p.available, idleEntry{sb: sb, idleSince: time.Now()})
 		p.mu.Unlock()
 	}
 	return nil
+}
+
+// evictExpiredLocked closes and removes any available container that has been
+// idle longer than maxIdle. The caller must hold p.mu.
+func (p *ContainerPool) evictExpiredLocked() {
+	if len(p.available) == 0 {
+		return
+	}
+	cutoff := time.Now().Add(-p.maxIdle)
+	kept := p.available[:0]
+	for _, e := range p.available {
+		if e.idleSince.Before(cutoff) {
+			_ = e.sb.Close()
+			continue
+		}
+		kept = append(kept, e)
+	}
+	p.available = kept
 }
 
 // Acquire returns a ready sandbox from the pool. If the pool is empty,
@@ -76,12 +105,16 @@ func (p *ContainerPool) Acquire() (Sandbox, error) {
 		return nil, fmt.Errorf("container pool: pool is closed")
 	}
 
+	// Drop stale containers before serving so a caller never gets one that has
+	// outlived maxIdle.
+	p.evictExpiredLocked()
+
 	// Return an available container
 	if len(p.available) > 0 {
-		sb := p.available[len(p.available)-1]
+		e := p.available[len(p.available)-1]
 		p.available = p.available[:len(p.available)-1]
-		p.inUse[sb] = true
-		return sb, nil
+		p.inUse[e.sb] = true
+		return e.sb, nil
 	}
 
 	// Create a new one
@@ -104,7 +137,8 @@ func (p *ContainerPool) Release(sb Sandbox) error {
 		return sb.Close()
 	}
 
-	p.available = append(p.available, sb)
+	p.evictExpiredLocked()
+	p.available = append(p.available, idleEntry{sb: sb, idleSince: time.Now()})
 	return nil
 }
 
@@ -129,8 +163,8 @@ func (p *ContainerPool) Close() error {
 
 	p.closed = true
 	var lastErr error
-	for _, sb := range p.available {
-		if err := sb.Close(); err != nil {
+	for _, e := range p.available {
+		if err := e.sb.Close(); err != nil {
 			lastErr = err
 		}
 	}

@@ -50,7 +50,7 @@ func TestFileConfig_FindAgent_NotFoundMessage(t *testing.T) {
 }
 
 func TestBuildStorage_PostgresqlWired(t *testing.T) {
-	// Postgres is now wired via the pgx driver (P0-012); the "postgresql" alias
+	// Postgres is now wired via the pgx driver; the "postgresql" alias
 	// builds a store from a valid DSN (lazy open, no live connection).
 	st, err := buildStorage(StorageConfig{Backend: "postgresql", DSN: "postgres://localhost/x"})
 	if err != nil {

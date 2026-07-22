@@ -54,7 +54,6 @@ func NewFromConfig(cfg Config) (Sandbox, error) {
 		if cfg.WASMPath == "" {
 			return nil, fmt.Errorf("sandbox: wasm backend requires wasm_path")
 		}
-		// Stub backend: fails at construction (P2-001).
 		sb, err := NewWASMSandbox(cfg.WASMPath)
 		if err != nil {
 			return nil, fmt.Errorf("sandbox: %w", err)
@@ -65,7 +64,6 @@ func NewFromConfig(cfg Config) (Sandbox, error) {
 		if cfg.Image == "" {
 			return nil, fmt.Errorf("sandbox: k8s backend requires image")
 		}
-		// Stub backend: fails at construction (P2-001).
 		sb, err := NewK8sJobSandbox(K8sJobConfig{
 			Image:          cfg.Image,
 			Namespace:      cfg.Namespace,

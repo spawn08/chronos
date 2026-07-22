@@ -11,7 +11,7 @@ import (
 )
 
 // DefaultMaxSteps bounds the number of node executions in a single run to guard
-// against cyclic graphs looping forever (P0-006).
+// against cyclic graphs looping forever.
 const DefaultMaxSteps = 1000
 
 // CheckpointCommitter is an optional interface a storage.Storage implementation
@@ -131,7 +131,7 @@ func (r *Runner) closeLocalCh() {
 }
 
 // begin marks the runner as used. It returns an error if the runner has already
-// executed, making reuse a clean error rather than a panic (P0-005).
+// executed, making reuse a clean error rather than a panic.
 func (r *Runner) begin() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -163,9 +163,9 @@ func (r *Runner) Run(ctx context.Context, sessionID string, initial State) (*Run
 // Resume continues execution from the latest checkpoint for the given session.
 //
 // The latest checkpoint records the *next* node to execute, so Resume never
-// re-runs an already-completed node (P0-002). When that node is an interrupt
+// re-runs an already-completed node. When that node is an interrupt
 // node, Resume advances past it exactly once so an approved workflow proceeds
-// instead of re-pausing forever (P0-001).
+// instead of re-pausing forever.
 func (r *Runner) Resume(ctx context.Context, sessionID string) (*RunState, error) {
 	cp, err := r.store.GetLatestCheckpoint(ctx, sessionID)
 	if err != nil {
@@ -289,7 +289,7 @@ func (r *Runner) ReplayFrom(ctx context.Context, checkpointID string) (*RunState
 // of pausing. This is how a resumed (approved) workflow advances past its own
 // pause point exactly once; a different interrupt reached later (e.g. after
 // crash-recovery resuming from a normal node, or replay/fork from a
-// non-interrupt checkpoint) still pauses for approval (P0-001).
+// non-interrupt checkpoint) still pauses for approval.
 func (r *Runner) execute(ctx context.Context, rs *RunState, skipFirstInterrupt bool) (*RunState, error) {
 	if err := r.begin(); err != nil {
 		return nil, err
@@ -315,7 +315,7 @@ func (r *Runner) execute(ctx context.Context, rs *RunState, skipFirstInterrupt b
 	steps := 0
 	// firstNode is true only while the loop processes the node the run resumed
 	// at. skipFirstInterrupt is honored solely for that node, so a downstream
-	// interrupt is never advanced past without approval (P0-001).
+	// interrupt is never advanced past without approval.
 	firstNode := true
 	for rs.Status == RunStatusRunning {
 		// Terminal marker: the checkpoint of a completed run records EndNode as
@@ -326,7 +326,7 @@ func (r *Runner) execute(ctx context.Context, rs *RunState, skipFirstInterrupt b
 			break
 		}
 
-		// Step / cycle guard (P0-006).
+		// Step / cycle guard.
 		steps++
 		if steps > r.maxSteps {
 			rs.Status = RunStatusFailed
@@ -350,7 +350,7 @@ func (r *Runner) execute(ctx context.Context, rs *RunState, skipFirstInterrupt b
 		// Check for interrupt (human-in-the-loop pause). A resume advances past
 		// the interrupt it paused at exactly once, but only when that interrupt
 		// IS the resumed node (firstNode). Any interrupt reached from a later
-		// node must still pause for approval (P0-001).
+		// node must still pause for approval.
 		if node.Interrupt && !(skipFirstInterrupt && firstNode) {
 			rs.Status = RunStatusPaused
 			r.emit(StreamEvent{Type: "interrupt", NodeID: node.ID, State: rs.State})
@@ -430,7 +430,7 @@ func (r *Runner) execute(ctx context.Context, rs *RunState, skipFirstInterrupt b
 		}
 
 		// Determine the next node BEFORE checkpointing so the checkpoint records
-		// the next node to execute, not the one that just finished (P0-002).
+		// the next node to execute, not the one that just finished.
 		next := r.findNext(rs.CurrentNode, rs.State)
 		if next == EndNode || next == "" {
 			rs.Status = RunStatusCompleted
@@ -469,7 +469,7 @@ func (r *Runner) execute(ctx context.Context, rs *RunState, skipFirstInterrupt b
 	return rs, nil
 }
 
-// callNode invokes a node function with panic recovery (P0-009). A panicking
+// callNode invokes a node function with panic recovery. A panicking
 // node fails only its own run instead of crashing the process.
 func (r *Runner) callNode(ctx context.Context, node *Node, state State) (newState State, err error) {
 	defer func() {
@@ -496,7 +496,7 @@ func (r *Runner) findNext(from string, state State) string {
 // commit persists a checkpoint (recording nodeID as the next node to execute)
 // and, when provided, its ledger event. It uses an atomic CheckpointCommitter
 // when the store supports one, otherwise falls back to two idempotent calls and
-// no longer discards the AppendEvent error (P0-004).
+// no longer discards the AppendEvent error.
 func (r *Runner) commit(ctx context.Context, rs *RunState, nodeID string, evt *storage.Event) error {
 	cp := &storage.Checkpoint{
 		// Derive the id from (session, seq) so it aligns with the

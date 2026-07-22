@@ -20,7 +20,7 @@ func (e *errMigrateMemStore) Migrate(ctx context.Context) error {
 }
 
 // TestHandleReadiness_MigrateError_Push verifies readiness no longer triggers
-// Migrate (P0-011): a store whose Migrate always fails still yields a ready 200.
+// Migrate: a store whose Migrate always fails still yields a ready 200.
 func TestHandleReadiness_MigrateError_Push(t *testing.T) {
 	base := memory.New()
 	s := New(":0", &errMigrateMemStore{Store: base})

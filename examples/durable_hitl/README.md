@@ -41,8 +41,7 @@ is one subtlety worth understanding:
 
 > If you resume against a graph where the gate is **still** an interrupt node,
 > the runner re-pauses at the gate — because the approval has not been granted
-> yet. (This is the current behavior of `engine/graph`; see PLAN.md item
-> P0-001.)
+> yet. (This is the current behavior of `engine/graph`.)
 
 To advance **past** the gate, this example resumes against an *approved variant*
 of the graph in which the gate is an ordinary node that records the human's

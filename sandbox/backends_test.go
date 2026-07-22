@@ -48,15 +48,16 @@ func TestNewFromConfig_WASM_NoPath(t *testing.T) {
 	}
 }
 
-func TestNewFromConfig_WASM_WithPath(t *testing.T) {
-	// P2-001: the WASM stub fails at construction, even with a valid path.
+func TestNewFromConfig_WASM_MissingModule(t *testing.T) {
+	// A nonexistent module path fails at construction with a read error, so a
+	// bad configuration surfaces immediately rather than at execution time.
 	_, err := NewFromConfig(Config{Backend: BackendWASM, WASMPath: "/path/to/module.wasm"})
 	if err == nil {
-		t.Fatal("expected not-implemented error for wasm backend")
+		t.Fatal("expected error for missing wasm module")
 		return
 	}
-	if !strings.Contains(err.Error(), "not implemented") {
-		t.Errorf("error = %v, want not-implemented", err)
+	if !strings.Contains(err.Error(), "read module") {
+		t.Errorf("error = %v, want a read-module error", err)
 	}
 }
 
@@ -68,15 +69,16 @@ func TestNewFromConfig_K8s_NoImage(t *testing.T) {
 	}
 }
 
-func TestNewFromConfig_K8s_WithImage(t *testing.T) {
-	// P2-001: the K8s stub fails at construction, even with a valid image.
-	_, err := NewFromConfig(Config{Backend: BackendK8sJob, Image: "alpine:latest", Namespace: "default"})
+func TestNewFromConfig_K8s_RequiresImage(t *testing.T) {
+	// The factory rejects a k8s backend without an image before touching any
+	// cluster configuration, so this assertion is environment-independent.
+	_, err := NewFromConfig(Config{Backend: BackendK8sJob, Namespace: "default"})
 	if err == nil {
-		t.Fatal("expected not-implemented error for k8s backend")
+		t.Fatal("expected error for k8s backend without image")
 		return
 	}
-	if !strings.Contains(err.Error(), "not implemented") {
-		t.Errorf("error = %v, want not-implemented", err)
+	if !strings.Contains(err.Error(), "requires image") {
+		t.Errorf("error = %v, want a requires-image error", err)
 	}
 }
 
@@ -113,48 +115,38 @@ func TestParseBackend(t *testing.T) {
 	}
 }
 
-func TestWASMSandbox_NewFailsAtConstruction(t *testing.T) {
-	// P2-001: the WASM stub fails at construction, not at execution time.
+func TestWASMSandbox_NewMissingModule(t *testing.T) {
+	// A nonexistent module path fails at construction with a read error whose
+	// message names the offending path.
 	sb, err := NewWASMSandbox("/path/to/mod.wasm")
 	if err == nil {
-		t.Fatal("expected not-implemented error at construction")
+		t.Fatal("expected read error at construction")
 		return
 	}
 	if sb != nil {
 		t.Errorf("expected nil sandbox, got %v", sb)
 	}
-	if !strings.Contains(err.Error(), "not implemented") {
-		t.Errorf("error = %v, want not-implemented", err)
+	if !strings.Contains(err.Error(), "read module") {
+		t.Errorf("error = %v, want a read-module error", err)
 	}
 	if !strings.Contains(err.Error(), "/path/to/mod.wasm") {
 		t.Errorf("error should contain module path: %v", err)
 	}
 }
 
-func TestK8sJobSandbox_NewFailsAtConstruction(t *testing.T) {
-	// P2-001: the K8s stub fails at construction, not at execution time.
-	tests := []struct {
-		name string
-		cfg  K8sJobConfig
-	}{
-		{"with namespace", K8sJobConfig{Image: "alpine", Namespace: "default"}},
-		{"image only", K8sJobConfig{Image: "myimg:v1"}},
-		{"with service account", K8sJobConfig{Image: "test", ServiceAccount: "runner"}},
+func TestK8sJobSandbox_NewRequiresImage(t *testing.T) {
+	// An empty image is rejected before any cluster discovery, so this check is
+	// environment-independent (unlike a real config load).
+	sb, err := NewK8sJobSandbox(K8sJobConfig{})
+	if err == nil {
+		t.Fatal("expected error for empty image")
+		return
 	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			sb, err := NewK8sJobSandbox(tc.cfg)
-			if err == nil {
-				t.Fatal("expected not-implemented error at construction")
-				return
-			}
-			if sb != nil {
-				t.Errorf("expected nil sandbox, got %v", sb)
-			}
-			if !strings.Contains(err.Error(), "not implemented") {
-				t.Errorf("error = %v, want not-implemented", err)
-			}
-		})
+	if sb != nil {
+		t.Errorf("expected nil sandbox, got %v", sb)
+	}
+	if !strings.Contains(err.Error(), "image is required") {
+		t.Errorf("error = %v, want an image-required error", err)
 	}
 }
 
@@ -189,22 +181,5 @@ func TestNewFromConfig_ProcessEmptyWorkDir(t *testing.T) {
 	}
 	if ps.WorkDir != "." {
 		t.Errorf("WorkDir = %q, want '.'", ps.WorkDir)
-	}
-}
-
-func TestNewFromConfig_K8sWithServiceAccount(t *testing.T) {
-	// P2-001: the K8s stub fails at construction regardless of config.
-	_, err := NewFromConfig(Config{
-		Backend:    BackendK8sJob,
-		Image:      "alpine",
-		Namespace:  "test-ns",
-		ServiceAcc: "sa-test",
-	})
-	if err == nil {
-		t.Fatal("expected not-implemented error for k8s backend")
-		return
-	}
-	if !strings.Contains(err.Error(), "not implemented") {
-		t.Errorf("error = %v, want not-implemented", err)
 	}
 }

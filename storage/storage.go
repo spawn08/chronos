@@ -82,7 +82,7 @@ type Checkpoint struct {
 
 // Storage is the primary persistence interface. All adapters must implement this.
 //
-// Multi-tenancy (P2-002): every method is scoped to the tenant carried by its
+// Multi-tenancy: every method is scoped to the tenant carried by its
 // context (see WithTenant / TenantFromContext). Adapters stamp writes with, and
 // filter reads by, the context tenant so that objects created under one tenant
 // are never visible to another — including id-addressed reads such as

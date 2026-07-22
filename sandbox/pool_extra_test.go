@@ -166,3 +166,31 @@ func TestContainerPool_Close_PropagatesCloseError(t *testing.T) {
 		t.Errorf("Close err = %v, want %v", err, errFail)
 	}
 }
+
+func TestContainerPool_EvictsIdle(t *testing.T) {
+	p, err := NewPool(PoolConfig{
+		MaxSize:     5,
+		MaxIdleTime: 20 * time.Millisecond,
+		Factory:     func() (Sandbox, error) { return &stubSandbox{}, nil },
+	})
+	if err != nil {
+		t.Fatalf("NewPool: %v", err)
+	}
+	if werr := p.Warmup(context.Background(), 2); werr != nil {
+		t.Fatalf("Warmup: %v", werr)
+	}
+	if p.Size() != 2 {
+		t.Fatalf("Size = %d, want 2", p.Size())
+	}
+	// Let the warmed containers age past MaxIdleTime, then touch the pool.
+	time.Sleep(40 * time.Millisecond)
+	sb, err := p.Acquire()
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	// Both idle containers should have been evicted; Acquire built a fresh one.
+	if p.Size() != 0 {
+		t.Errorf("Size = %d after eviction, want 0", p.Size())
+	}
+	_ = p.Release(sb)
+}

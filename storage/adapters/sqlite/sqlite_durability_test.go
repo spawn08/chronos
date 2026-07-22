@@ -23,7 +23,7 @@ func newMigratedStore(t *testing.T) *Store {
 	return st
 }
 
-// P0-003: GetLatestCheckpoint must order by seq_num, not wall-clock, so that
+// GetLatestCheckpoint must order by seq_num, not wall-clock, so that
 // same-tick timestamps still resolve deterministically to the highest seq.
 func TestGetLatestCheckpoint_OrdersBySeqNum(t *testing.T) {
 	ctx := context.Background()
@@ -70,7 +70,7 @@ func TestGetLatestCheckpoint_OrdersBySeqNum(t *testing.T) {
 	}
 }
 
-// P0-004: SaveCheckpoint is an idempotent upsert keyed by id — resaving the same
+// SaveCheckpoint is an idempotent upsert keyed by id — resaving the same
 // id must not error on the primary key and must overwrite the row.
 func TestSaveCheckpoint_IdempotentUpsert(t *testing.T) {
 	ctx := context.Background()
@@ -112,7 +112,7 @@ func TestSaveCheckpoint_IdempotentUpsert(t *testing.T) {
 	}
 }
 
-// P0-004: the UNIQUE(session_id, seq_num) index prevents two distinct rows from
+// The UNIQUE(session_id, seq_num) index prevents two distinct rows from
 // claiming the same ledger slot.
 func TestCheckpoints_UniqueSessionSeq(t *testing.T) {
 	ctx := context.Background()
@@ -136,7 +136,7 @@ func TestCheckpoints_UniqueSessionSeq(t *testing.T) {
 	}
 }
 
-// P0-004 regression (CRITICAL-Q01): re-running on an already-used session must
+// Re-running on an already-used session must
 // upsert each (session, seq) slot, not collide with uq_checkpoints_session_seq.
 // The runner derives the checkpoint id from (session, seq), so a second run —
 // which restarts seq at 0 — reuses the same ids and upserts. The previous
@@ -180,7 +180,7 @@ func TestCheckpoints_RerunSameSession_Upserts(t *testing.T) {
 	}
 }
 
-// P0-004: AppendEvent is idempotent — re-appending the same event id is a no-op
+// AppendEvent is idempotent — re-appending the same event id is a no-op
 // rather than a primary-key error, so replay does not gap or duplicate.
 func TestAppendEvent_Idempotent(t *testing.T) {
 	ctx := context.Background()
@@ -210,7 +210,7 @@ func TestAppendEvent_Idempotent(t *testing.T) {
 	}
 }
 
-// P0-004: SaveCheckpointAndEvent commits both writes atomically and is idempotent
+// SaveCheckpointAndEvent commits both writes atomically and is idempotent
 // on replay.
 func TestSaveCheckpointAndEvent_Atomic(t *testing.T) {
 	ctx := context.Background()

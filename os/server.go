@@ -365,7 +365,7 @@ func (s *Server) decodeJSONBody(w http.ResponseWriter, r *http.Request, dst any)
 // or API-key claims) and returns a context that scopes every storage operation
 // to that tenant. Because the tenant comes from the verified principal and never
 // from client-supplied ids, id-addressed reads (sessions, traces, checkpoints)
-// for another tenant's objects resolve to not-found, closing the IDOR (P2-002).
+// for another tenant's objects resolve to not-found, closing the IDOR.
 // When no principal is present (authentication disabled) the request operates
 // under storage.DefaultTenant, preserving single-tenant behavior.
 func (s *Server) tenantContext(r *http.Request) context.Context {

@@ -10,7 +10,7 @@ import (
 	"github.com/spawn08/chronos/storage/adapters/memory"
 )
 
-// TestSSEStream_SurvivesMiddlewareChain is a P0-011 regression guard. The
+// TestSSEStream_SurvivesMiddlewareChain is a regression guard. The
 // default request logger wraps the ResponseWriter in a statusRecorder; before
 // statusRecorder exposed Flush, that wrapper hid the underlying http.Flusher, so
 // SSEHandler's `w.(http.Flusher)` check failed and the event stream returned

@@ -6,7 +6,7 @@ import (
 )
 
 // TestBuildCreateBody_HardenedDefaults asserts the hardened container profile
-// (P2-001) is present in the generated Docker create body. It requires no
+// is present in the generated Docker create body. It requires no
 // running daemon.
 func TestBuildCreateBody_HardenedDefaults(t *testing.T) {
 	sb := NewContainerSandbox(ContainerConfig{})

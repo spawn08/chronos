@@ -15,6 +15,7 @@ import (
 
 	"github.com/spawn08/chronos/cli/repl"
 	"github.com/spawn08/chronos/engine/graph"
+	"github.com/spawn08/chronos/evals"
 	chronosos "github.com/spawn08/chronos/os"
 	"github.com/spawn08/chronos/sdk/agent"
 	"github.com/spawn08/chronos/sdk/team"
@@ -625,9 +626,32 @@ func evalRun(suitePath string) error {
 	if err != nil {
 		return fmt.Errorf("read eval suite: %w", err)
 	}
-	fmt.Printf("Eval suite: %s (%d bytes)\n", suitePath, len(data))
-	fmt.Println("Eval runner loaded. Define evals programmatically using the evals package.")
-	fmt.Println("Suite YAML loading will be implemented with schema definition.")
+	suite, err := evals.LoadSuite(data)
+	if err != nil {
+		return fmt.Errorf("load eval suite %s: %w", suitePath, err)
+	}
+
+	result := suite.Run(context.Background())
+
+	fmt.Printf("Running suite %q (%d cases) from %s\n\n", suite.Name, result.TotalEvals, suitePath)
+	for _, r := range result.Results {
+		status := "PASS"
+		if r.Error != "" {
+			status = "ERROR"
+		} else if !r.Passed {
+			status = "FAIL"
+		}
+		fmt.Printf("  [%-5s] %-24s score=%.2f  %s\n", status, r.Name, r.Score, r.Details)
+		if r.Error != "" {
+			fmt.Printf("           error: %s\n", r.Error)
+		}
+	}
+	fmt.Printf("\n%s\n", result.Summary())
+
+	// A non-zero exit lets CI gate on eval outcomes.
+	if result.Failed > 0 || result.Errors > 0 {
+		return fmt.Errorf("%d/%d evals passed", result.Passed, result.TotalEvals)
+	}
 	return nil
 }
 

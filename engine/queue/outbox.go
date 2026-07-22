@@ -28,7 +28,7 @@ const DefaultOutboxMaxAttempts = 10
 
 // Outbox records external effects transactionally with run progress and drains
 // them reliably. Recording an effect twice with the same idempotency key is a
-// no-op, so retries and resumes never double-emit (P1-003).
+// no-op, so retries and resumes never double-emit.
 type Outbox struct {
 	store       Store
 	now         func() time.Time

@@ -194,7 +194,7 @@ func drainChannel(ch <-chan StreamEvent, timeout time.Duration) []StreamEvent {
 	}
 }
 
-// --- P0-006 tests: Runner → SSE Broker ---
+// --- Runner → SSE Broker ---
 
 func TestRunner_EmitsToBroker(t *testing.T) {
 	store := newRunnerTestStorage()
@@ -446,7 +446,7 @@ func TestRunner_EmitTimestamp(t *testing.T) {
 	}
 }
 
-// --- P0-007 tests: Runner → trace.Collector ---
+// --- Runner → trace.Collector ---
 
 func TestRunner_TracesGraphExecution(t *testing.T) {
 	store := newRunnerTestStorage()
@@ -688,9 +688,9 @@ func TestRunner_ResumeWithTracer(t *testing.T) {
 	tracesBeforeResume := len(store.traces)
 	store.mu.Unlock()
 
-	// Resume — with the P0-001 fix, resuming advances PAST the interrupt node
-	// exactly once, so the approved workflow runs pause_node and completes
-	// instead of re-pausing forever. Additional trace spans are recorded.
+	// Resume advances PAST the interrupt node exactly once, so the approved
+	// workflow runs pause_node and completes instead of re-pausing forever.
+	// Additional trace spans are recorded.
 	runner2 := NewRunner(compiled, store).WithTracer(collector)
 	result2, err := runner2.Resume(context.Background(), "s-resume")
 	if err != nil {

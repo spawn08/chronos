@@ -58,7 +58,7 @@ func toolCallResp(id, name string) *model.ChatResponse {
 	}
 }
 
-// TestChat_MultiRoundToolContext verifies P0-007: across multiple tool-calling
+// TestChat_MultiRoundToolContext verifies that across multiple tool-calling
 // rounds the message history accumulates (prior assistant tool-call messages
 // and tool results are retained) and the tool definitions are passed on every
 // follow-up model call.
@@ -136,7 +136,7 @@ func TestChat_MultiRoundToolContext(t *testing.T) {
 	}
 }
 
-// TestChat_MaxIterationsExceededError verifies P0-007: when the iteration limit
+// TestChat_MaxIterationsExceededError verifies that when the iteration limit
 // is exceeded while tool calls remain unsatisfied, Chat returns a clear error
 // (not a partial response).
 func TestChat_MaxIterationsExceededError(t *testing.T) {

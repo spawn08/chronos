@@ -238,13 +238,24 @@ func TestBuilder_AddMCPServer_Valid(t *testing.T) {
 }
 
 func TestBuilder_AddMCPServer_Invalid(t *testing.T) {
-	// Invalid config (SSE transport not supported) should not add a client
+	// Invalid config (SSE transport with no URL) should not add a client.
 	a, _ := New("a", "A").
 		WithModel(&builderTestProvider{name: "test", model: "m", resp: "ok"}).
-		AddMCPServer(mcp.ServerConfig{Name: "test", Transport: mcp.TransportSSE, URL: "http://localhost"}).
+		AddMCPServer(mcp.ServerConfig{Name: "test", Transport: mcp.TransportSSE}).
 		Build()
 	if len(a.MCPClients) != 0 {
 		t.Errorf("MCPClients count=%d, want 0 for invalid config", len(a.MCPClients))
+	}
+}
+
+func TestBuilder_AddMCPServer_SSEValid(t *testing.T) {
+	// A well-formed SSE config (transport + URL) now registers a client.
+	a, _ := New("a", "A").
+		WithModel(&builderTestProvider{name: "test", model: "m", resp: "ok"}).
+		AddMCPServer(mcp.ServerConfig{Name: "remote", Transport: mcp.TransportSSE, URL: "http://localhost:9000/sse"}).
+		Build()
+	if len(a.MCPClients) != 1 {
+		t.Errorf("MCPClients count=%d, want 1 for valid SSE config", len(a.MCPClients))
 	}
 }
 

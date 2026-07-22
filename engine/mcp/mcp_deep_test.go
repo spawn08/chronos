@@ -9,15 +9,22 @@ import (
 	"github.com/spawn08/chronos/engine/tool"
 )
 
-func TestNewClient_UnsupportedTransport_Deep(t *testing.T) {
-	_, err := NewClient(ServerConfig{
+func TestNewClient_SSETransport_Deep(t *testing.T) {
+	// SSE with a URL constructs successfully.
+	if _, err := NewClient(ServerConfig{
 		Name:      "x",
 		Transport: TransportSSE,
 		URL:       "http://localhost",
-	})
-	if err == nil {
-		t.Fatal("expected unsupported transport error")
-		return
+	}); err != nil {
+		t.Fatalf("expected SSE client to construct, got %v", err)
+	}
+
+	// SSE without a URL is rejected.
+	if _, err := NewClient(ServerConfig{
+		Name:      "x",
+		Transport: TransportSSE,
+	}); err == nil {
+		t.Fatal("expected error for SSE transport with empty URL")
 	}
 }
 

@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// Hardened container defaults (P2-001). These are applied unless overridden by
+// Hardened container defaults. These are applied unless overridden by
 // ContainerConfig so that the container backend is safe by default.
 const (
 	// defaultContainerUser runs the workload as the unprivileged "nobody" user.
@@ -36,7 +36,7 @@ type ContainerSandbox struct {
 	MemoryBytes int64
 	CPUQuota    int64
 	NetworkMode string
-	// Hardening (P2-001)
+	// Hardening
 	User           string            // non-root user/uid:gid the workload runs as
 	PidsLimit      int64             // max processes inside the container
 	NofileLimit    int64             // RLIMIT_NOFILE (open files)
@@ -55,7 +55,7 @@ type ContainerConfig struct {
 	MemoryBytes int64
 	CPUQuota    int64
 	NetworkMode string
-	// Hardening (P2-001). Zero values fall back to hardened defaults.
+	// Hardening. Zero values fall back to hardened defaults.
 	User           string
 	PidsLimit      int64
 	NofileLimit    int64

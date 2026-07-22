@@ -252,7 +252,8 @@ func TestNewClientTransportValidation(t *testing.T) {
 		{name: "stdio ok", cfg: ServerConfig{Name: "a", Command: "echo"}},
 		{name: "default stdio ok", cfg: ServerConfig{Name: "a", Command: "echo", Transport: ""}},
 		{name: "stdio missing command", cfg: ServerConfig{Name: "a"}, wantErr: "command is required"},
-		{name: "sse rejected", cfg: ServerConfig{Name: "a", Transport: TransportSSE, URL: "http://x"}, wantErr: "SSE transport is not implemented"},
+		{name: "sse ok", cfg: ServerConfig{Name: "a", Transport: TransportSSE, URL: "http://x"}},
+		{name: "sse missing url", cfg: ServerConfig{Name: "a", Transport: TransportSSE}, wantErr: "url is required"},
 		{name: "unknown rejected", cfg: ServerConfig{Name: "a", Transport: Transport("weird")}, wantErr: "unknown transport"},
 	}
 

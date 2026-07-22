@@ -57,8 +57,8 @@ func waitClosed(t *testing.T, ch <-chan StreamEvent, timeout time.Duration) {
 	}
 }
 
-// P0-001 / P0-002: resuming a paused approval workflow advances PAST the
-// interrupt node exactly once and never re-runs the already-completed node.
+// Resuming a paused approval workflow advances PAST the interrupt node exactly
+// once and never re-runs the already-completed node.
 func TestRunner_ResumePastInterrupt_NoDoubleExecution(t *testing.T) {
 	ctx := context.Background()
 	var aCount, pauseCount, bCount int64
@@ -82,7 +82,7 @@ func TestRunner_ResumePastInterrupt_NoDoubleExecution(t *testing.T) {
 	}
 
 	// The latest checkpoint records the NEXT node to run (the interrupt node),
-	// not the just-completed node A (P0-002).
+	// not the just-completed node A.
 	cp, err := store.GetLatestCheckpoint(ctx, "sess")
 	if err != nil {
 		t.Fatalf("GetLatestCheckpoint: %v", err)
@@ -111,8 +111,8 @@ func TestRunner_ResumePastInterrupt_NoDoubleExecution(t *testing.T) {
 	}
 }
 
-// P0-002: a plain (non-interrupt) resume continues from the next node and does
-// not re-run the node captured by the checkpoint.
+// A plain (non-interrupt) resume continues from the next node and does not
+// re-run the node captured by the checkpoint.
 func TestRunner_ResumeFromCheckpoint_NoReExecution(t *testing.T) {
 	ctx := context.Background()
 	var counts sync.Map // node -> *int64
@@ -183,7 +183,7 @@ func TestRunner_ResumeFromCheckpoint_NoReExecution(t *testing.T) {
 	}
 }
 
-// P0-001 regression: resuming from a NON-interrupt checkpoint that lies upstream
+// Regression: resuming from a NON-interrupt checkpoint that lies upstream
 // of an interrupt must still pause at that interrupt. The skip-once behavior
 // applies only to the resumed node, never to a downstream gate. This models
 // crash recovery / replay landing on a normal node with an unapproved
@@ -244,7 +244,7 @@ func TestRunner_ResumeFromNormalNode_StillPausesAtDownstreamInterrupt(t *testing
 	}
 }
 
-// P0-005: the stream channel is closed on the pause exit path.
+// The stream channel is closed on the pause exit path.
 func TestRunner_ChannelClosedOnPause(t *testing.T) {
 	var a, p, b int64
 	compiled := buildApprovalGraph(&a, &p, &b)
@@ -256,7 +256,7 @@ func TestRunner_ChannelClosedOnPause(t *testing.T) {
 	waitClosed(t, ch, time.Second)
 }
 
-// P0-005: the stream channel is closed on the error exit path.
+// The stream channel is closed on the error exit path.
 func TestRunner_ChannelClosedOnError(t *testing.T) {
 	g := New("boom")
 	g.AddNode("x", func(_ context.Context, _ State) (State, error) {
@@ -274,8 +274,7 @@ func TestRunner_ChannelClosedOnError(t *testing.T) {
 	waitClosed(t, ch, time.Second)
 }
 
-// P0-005: reusing a Runner returns an error rather than panicking on a closed
-// channel.
+// Reusing a Runner returns an error rather than panicking on a closed channel.
 func TestRunner_ReuseReturnsError(t *testing.T) {
 	runner := NewRunner(buildLinearGraph("a"), newRunnerTestStorage())
 	if _, err := runner.Run(context.Background(), "s1", State{"visited": ""}); err != nil {
@@ -291,7 +290,7 @@ func TestRunner_ReuseReturnsError(t *testing.T) {
 	}
 }
 
-// P0-005: concurrent emits + broker fan-out must not panic or race.
+// Concurrent emits + broker fan-out must not panic or race.
 func TestRunner_ConcurrentEmitNoRace(t *testing.T) {
 	names := make([]string, 30)
 	for i := range names {
@@ -321,7 +320,7 @@ func TestRunner_ConcurrentEmitNoRace(t *testing.T) {
 	<-done
 }
 
-// P0-006: a cyclic graph terminates with a clear error instead of looping.
+// A cyclic graph terminates with a clear error instead of looping.
 func TestRunner_MaxStepsGuard(t *testing.T) {
 	g := New("cyclic")
 	g.AddNode("loop", func(_ context.Context, s State) (State, error) { return s, nil })
@@ -343,7 +342,7 @@ func TestRunner_MaxStepsGuard(t *testing.T) {
 	}
 }
 
-// P0-006: a node that runs longer than the per-node timeout fails the run.
+// A node that runs longer than the per-node timeout fails the run.
 func TestRunner_NodeTimeout(t *testing.T) {
 	g := New("slow")
 	g.AddNode("slow", func(ctx context.Context, s State) (State, error) {
@@ -369,8 +368,8 @@ func TestRunner_NodeTimeout(t *testing.T) {
 	}
 }
 
-// P0-009: a panicking node is converted to an error; the run fails cleanly and
-// emits an error event instead of crashing the process.
+// A panicking node is converted to an error; the run fails cleanly and emits an
+// error event instead of crashing the process.
 func TestRunner_PanicRecovery(t *testing.T) {
 	g := New("panic")
 	g.AddNode("kaboom", func(_ context.Context, _ State) (State, error) {
@@ -407,7 +406,7 @@ func TestRunner_PanicRecovery(t *testing.T) {
 	}
 }
 
-// --- P0-004 runner portion: append error surfaced; committer used when present ---
+// --- append error surfaced; committer used when present ---
 
 // failEventStore fails AppendEvent so the runner must surface (not discard) it.
 type failEventStore struct {
@@ -418,7 +417,7 @@ func (s *failEventStore) AppendEvent(_ context.Context, _ *storage.Event) error 
 	return errors.New("append failed")
 }
 
-// P0-004: the runner must not discard the AppendEvent error.
+// The runner must not discard the AppendEvent error.
 func TestRunner_AppendEventErrorSurfaced(t *testing.T) {
 	store := &failEventStore{runnerTestStorage: newRunnerTestStorage()}
 	runner := NewRunner(buildLinearGraph("a", "b"), store)
@@ -452,8 +451,8 @@ func (s *committerStore) AppendEvent(ctx context.Context, e *storage.Event) erro
 	return s.runnerTestStorage.AppendEvent(ctx, e)
 }
 
-// P0-004: when the store implements CheckpointCommitter, the runner uses the
-// atomic path and does not fall back to a separate AppendEvent call.
+// When the store implements CheckpointCommitter, the runner uses the atomic
+// path and does not fall back to a separate AppendEvent call.
 func TestRunner_UsesCheckpointCommitter(t *testing.T) {
 	store := &committerStore{runnerTestStorage: newRunnerTestStorage()}
 	// Confirm the store actually satisfies the interface the runner checks.

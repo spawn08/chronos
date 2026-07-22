@@ -13,7 +13,7 @@ import (
 
 // defaultUpsertBatch is the maximum number of points sent in one Upsert request.
 // Large corpora are chunked into batches of this size so a single request never
-// grows unbounded (P1-013).
+// grows unbounded.
 const defaultUpsertBatch = 256
 
 // Store implements storage.VectorStore using Qdrant's REST API.

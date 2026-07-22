@@ -34,7 +34,7 @@ func seedTenantData(t *testing.T, store storage.Storage, tenant, sessionID strin
 // authenticated principal (not client-supplied ids) and that a request
 // authenticated as tenant-a can never read tenant-b's session/trace/checkpoint,
 // even when it supplies tenant-b's ids — the read resolves to empty or 404,
-// closing the IDOR (P2-002).
+// closing the IDOR.
 func TestTenantIsolationHTTP(t *testing.T) {
 	store := memory.New()
 	const sessionA, sessionB = "sess-a", "sess-b"

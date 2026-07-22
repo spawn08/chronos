@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestLongTerm_TenantIsolation verifies P0-008: long-term memory is keyed by
+// TestLongTerm_TenantIsolation verifies that long-term memory is keyed by
 // (agentID, userID). Two users served by the same agent must never observe
 // each other's long-term memories, and the empty-userID (global/tenantless)
 // bucket must keep working without leaking into named tenants.

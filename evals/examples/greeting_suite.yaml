@@ -1,0 +1,20 @@
+# Example Chronos eval suite. Run with:
+#   go run ./cli/main.go eval run evals/examples/greeting_suite.yaml
+#
+# Supported eval types: exact_match, contains, accuracy.
+name: greeting-suite
+cases:
+  - eval: exact_match
+    name: exact-greeting
+    input: "hello"
+    expected: "hello"
+
+  - eval: contains
+    name: mentions-quick
+    input: "the quick brown fox"
+    expected: "quick"
+
+  - eval: accuracy
+    name: case-insensitive
+    input: "The Answer Is 42"
+    expected: "the answer is 42"

@@ -8,7 +8,7 @@ import (
 	"github.com/spawn08/chronos/engine/tool"
 )
 
-// TestShellTool_Permissions asserts P2-001: the host shell tools never
+// TestShellTool_Permissions asserts that the host shell tools never
 // auto-approve on the host, while the sandbox-backed shell may.
 func TestShellTool_Permissions(t *testing.T) {
 	tests := []struct {

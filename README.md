@@ -122,6 +122,8 @@ All examples with **No** API keys run with mock providers — no external calls.
 | [chat_with_tools](examples/chat_with_tools/) | Agent chat with calculator and lookup tools | No |
 | [fallback_provider](examples/fallback_provider/) | Provider chain with automatic failover | No |
 | [sandbox_execution](examples/sandbox_execution/) | Process sandbox with timeouts and I/O capture | No |
+| [wasm_sandbox](examples/wasm_sandbox/) | Run an untrusted WASI module in the wazero-backed sandbox | No |
+| [k8s_sandbox](examples/k8s_sandbox/) | Run a command as a hardened one-shot Kubernetes Job | No\* |
 | [durable_queue](examples/durable_queue/) | Durable work queue: leased workers, durable sleep, park/signal HITL, orphan recovery | No |
 | [durable_hitl](examples/durable_hitl/) | Human-in-the-loop approval with checkpoint + resume | No |
 | [multi_round_tools](examples/multi_round_tools/) | Multi-round sequential tool calls retaining full context | No |
@@ -136,8 +138,11 @@ All examples with **No** API keys run with mock providers — no external calls.
 | [enterprise_sso](examples/enterprise_sso/) | ChronosOS behind OIDC/JWKS SSO (Okta, Azure AD, Google, Auth0) | Yes |
 | [data_residency](examples/data_residency/) | Per-tenant storage routing (EU vs US) with a single logical agent | No |
 | [mcp_agent](examples/mcp_agent/) | Agent using MCP tools over stdio transport | Yes |
+| [mcp_sse](examples/mcp_sse/) | MCP client over the HTTP+SSE transport (self-contained demo server) | No |
 
 Run any example: `go run ./examples/<name>/`
+
+\* `k8s_sandbox` needs a reachable Kubernetes cluster; with none configured it prints setup guidance and exits cleanly.
 
 Every example that needs a real LLM (`coding_agent`, `graph_with_llm`, `mcp_agent`, `multi_agent`, `team_deploy`, `multi_provider`) resolves its provider through `examples/internal/providers.Pick()`, so any of these env combos works interchangeably:
 
@@ -162,6 +167,12 @@ OpenAI, Anthropic, Google Gemini, Mistral, Ollama, Azure OpenAI, and any OpenAI-
 ---
 
 ## Documentation
+
+In-repo feature guides (with detailed run steps) live in **[docs/](docs/)**:
+
+- [Sandbox backends](docs/sandbox-backends.md) — Process, Container, WASM (WASI), and Kubernetes Job isolation
+- [MCP transports](docs/mcp-transports.md) — connect to MCP servers over stdio and HTTP+SSE
+- [Eval suites](docs/eval-suites.md) — declare and run evaluation suites from YAML or Go
 
 Full docs at **[spawn08.github.io/chronos](https://spawn08.github.io/chronos/)**:
 

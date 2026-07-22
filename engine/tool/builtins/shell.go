@@ -14,7 +14,7 @@ import (
 
 // NewAutoShellTool creates a host shell tool.
 //
-// SECURITY (P2-001): this tool executes commands directly on the host with no
+// SECURITY: this tool executes commands directly on the host with no
 // isolation, so it defaults to tool.PermRequireApproval and never auto-runs on
 // the host — regardless of its historical name. For unsupervised autonomous
 // agents, use NewSandboxShellTool with a hardened sandbox.Sandbox: that is the

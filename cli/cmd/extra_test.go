@@ -309,7 +309,9 @@ func TestEvalRun_FileNotFound(t *testing.T) {
 func TestEvalRun_Success(t *testing.T) {
 	tmpDir := t.TempDir()
 	suiteFile := tmpDir + "/suite.yaml"
-	os.WriteFile(suiteFile, []byte("# eval suite\nname: my-suite\n"), 0o644)
+	os.WriteFile(suiteFile, []byte(
+		"name: my-suite\ncases:\n  - eval: exact_match\n    input: \"hi\"\n    expected: \"hi\"\n",
+	), 0o644)
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
@@ -320,8 +322,11 @@ func TestEvalRun_Success(t *testing.T) {
 			t.Fatalf("Execute: %v", err)
 		}
 	})
-	if !strings.Contains(output, "Eval suite") {
-		t.Errorf("expected 'Eval suite', got: %q", output)
+	if !strings.Contains(output, "my-suite") {
+		t.Errorf("expected suite name in output, got: %q", output)
+	}
+	if !strings.Contains(output, "1/1 passed") {
+		t.Errorf("expected passing summary, got: %q", output)
 	}
 }
 

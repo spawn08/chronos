@@ -41,17 +41,24 @@ func TestNewClient_DefaultTransport(t *testing.T) {
 	}
 }
 
-func TestNewClient_UnsupportedTransport(t *testing.T) {
+func TestNewClient_SSETransport(t *testing.T) {
+	// SSE with a URL now constructs successfully.
 	cfg := ServerConfig{
 		Name:      "sse",
 		Transport: TransportSSE,
 		URL:       "http://localhost:8080",
 	}
+	client, err := NewClient(cfg)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	if client.config.Transport != TransportSSE {
+		t.Errorf("transport = %q, want sse", client.config.Transport)
+	}
 
-	_, err := NewClient(cfg)
-	if err == nil {
-		t.Fatal("expected error for SSE transport")
-		return
+	// SSE without a URL is rejected at construction.
+	if _, err := NewClient(ServerConfig{Name: "sse", Transport: TransportSSE}); err == nil {
+		t.Fatal("expected error for SSE transport with empty URL")
 	}
 }
 

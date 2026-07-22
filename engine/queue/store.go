@@ -7,7 +7,7 @@ import (
 
 // OutboxEntry is an external effect recorded transactionally so it can be
 // delivered exactly once by the drainer, even across retries and resumes. The
-// IdempotencyKey is unique: enqueuing the same effect twice is a no-op (P1-003).
+// IdempotencyKey is unique: enqueuing the same effect twice is a no-op.
 type OutboxEntry struct {
 	ID             string     `json:"id"`
 	SessionID      string     `json:"session_id"`

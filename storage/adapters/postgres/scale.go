@@ -30,7 +30,7 @@ var (
 // not chunked.)
 const pgMaxBindParams = 60000
 
-// --- Pagination (P1-012) ---
+// --- Pagination ---
 
 // ListEventsPaged returns a cursor-paginated page of events after afterSeq,
 // ordered by seq_num. It fetches limit+1 rows to detect whether a further page
@@ -167,7 +167,7 @@ func (s *Store) ListTracesPaged(ctx context.Context, sessionID string, limit int
 	return page, nil
 }
 
-// --- Retention (P1-012) ---
+// --- Retention ---
 //
 // Age-based trimming compares instants. All timestamp columns are TIMESTAMPTZ,
 // which PostgreSQL stores and compares as absolute UTC instants regardless of the
@@ -221,7 +221,7 @@ func (s *Store) TrimCheckpoints(ctx context.Context, sessionID string, keep int)
 	return res.RowsAffected()
 }
 
-// --- Batch ingestion (P1-013) ---
+// --- Batch ingestion ---
 
 // AppendEvents appends many events within one transaction. It is idempotent on
 // event id (ON CONFLICT DO NOTHING). The batch is split into chunks so the

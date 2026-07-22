@@ -87,7 +87,7 @@ func withTimeFormat(dsn string) string {
 }
 
 // schema is the v1 migration: all tables and indexes for the SQLite backend,
-// including the P1-011 lookup indexes on sessions.agent_id, audit_logs.session_id
+// including the lookup indexes on sessions.agent_id, audit_logs.session_id
 // and traces.session_id.
 const schema = `
 CREATE TABLE IF NOT EXISTS sessions (
@@ -153,7 +153,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_logs(session_id);
 CREATE INDEX IF NOT EXISTS idx_traces_session ON traces(session_id, started_at);
 `
 
-// schemaTenant is the v2 migration (P2-002): it adds a tenant_id column to every
+// schemaTenant is the v2 migration: it adds a tenant_id column to every
 // table for multi-tenant isolation and composite indexes leading with tenant_id
 // so tenant-scoped reads stay index-backed. Existing rows default to
 // storage.DefaultTenant, preserving single-tenant deployments.
@@ -173,7 +173,7 @@ CREATE INDEX IF NOT EXISTS idx_checkpoints_tenant_session ON checkpoints(tenant_
 `
 
 // Migrate creates all required tables and indexes via the versioned migration
-// framework (P1-014). Migration v2 adds tenant scoping (P2-002).
+// framework. Migration v2 adds tenant scoping.
 func (s *Store) Migrate(ctx context.Context) error {
 	m := migrate.New(s.db, migrate.WithDialect(migrate.DialectSQLite))
 	m.Add(1, "initial schema", schema, "")
@@ -385,7 +385,7 @@ func (s *Store) ListTraces(ctx context.Context, sessionID string) ([]*storage.Tr
 
 // AppendEvent appends a ledger event. It is idempotent: re-appending an event
 // with an existing id is a no-op, so replay/resume cannot error on the primary
-// key or duplicate the ledger (P0-004).
+// key or duplicate the ledger.
 func (s *Store) AppendEvent(ctx context.Context, e *storage.Event) error {
 	tenant := storage.TenantFromContext(ctx)
 	payload, _ := json.Marshal(e.Payload)
@@ -423,7 +423,7 @@ func (s *Store) ListEvents(ctx context.Context, sessionID string, afterSeq int64
 
 // SaveCheckpoint persists a checkpoint. It is idempotent: saving a checkpoint
 // with an existing id overwrites it, so resuming/replaying a run cannot error on
-// the primary key (P0-004).
+// the primary key.
 func (s *Store) SaveCheckpoint(ctx context.Context, cp *storage.Checkpoint) error {
 	tenant := storage.TenantFromContext(ctx)
 	state, _ := json.Marshal(cp.State)
@@ -436,7 +436,7 @@ func (s *Store) SaveCheckpoint(ctx context.Context, cp *storage.Checkpoint) erro
 
 // SaveCheckpointAndEvent persists a checkpoint and its ledger event atomically in
 // a single transaction, satisfying graph.CheckpointCommitter. A crash cannot
-// leave the checkpoint and event ledger out of sync (P0-004).
+// leave the checkpoint and event ledger out of sync.
 func (s *Store) SaveCheckpointAndEvent(ctx context.Context, cp *storage.Checkpoint, evt *storage.Event) error {
 	tenant := storage.TenantFromContext(ctx)
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -484,7 +484,7 @@ func (s *Store) GetCheckpoint(ctx context.Context, id string) (*storage.Checkpoi
 func (s *Store) GetLatestCheckpoint(ctx context.Context, sessionID string) (*storage.Checkpoint, error) {
 	tenant := storage.TenantFromContext(ctx)
 	// Order by seq_num (monotonic) rather than wall-clock: same-tick timestamps
-	// would otherwise make the "latest" checkpoint non-deterministic (P0-003).
+	// would otherwise make the "latest" checkpoint non-deterministic.
 	row := s.db.QueryRowContext(ctx,
 		`SELECT id, tenant_id, session_id, run_id, node_id, state, seq_num, created_at FROM checkpoints WHERE tenant_id=? AND session_id=? ORDER BY seq_num DESC LIMIT 1`,
 		tenant, sessionID,

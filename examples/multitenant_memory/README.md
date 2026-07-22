@@ -17,7 +17,7 @@ Chronos long-term memory (`memory.Store` and `memory.Manager`) is keyed by the
 **Store's agent id**. `SetLongTerm` writes a record id of the form
 `mem_<agentID>_lt_<key>`, and `ListLongTerm` / `GetUserMemories` read every
 long-term record for that agent id. (The `userID` passed to `memory.NewManager`
-is not yet used as an isolation key — see PLAN.md item P0-008.)
+is not yet used as an isolation key.)
 
 To isolate memory per user today, construct a Store whose id is **namespaced
 with the user id**:

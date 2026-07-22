@@ -294,7 +294,7 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 		}
 	}
 
-	// P0-004: Inject past run history from storage
+	// Inject past run history from storage
 	if a.NumHistoryRuns > 0 && a.Storage != nil {
 		historyMsgs := a.loadHistoryRuns(ctx)
 		if len(historyMsgs) > 0 {
@@ -318,7 +318,7 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 		Messages: messages,
 	}
 
-	// P0-005: Apply output schema — pass the full JSON Schema, not just json_object mode
+	// Apply output schema — pass the full JSON Schema, not just json_object mode
 	applyOutputSchema(req, a.OutputSchema)
 
 	// Add tool definitions if any are registered
@@ -425,7 +425,7 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 		}
 	}
 
-	// P0-005: Validate response against output schema
+	// Validate response against output schema
 	if a.OutputSchema != nil && resp != nil && resp.Content != "" {
 		if valErr := validateAgainstSchema(resp.Content, a.OutputSchema); valErr != nil {
 			return nil, fmt.Errorf("output schema validation failed: %w", valErr)

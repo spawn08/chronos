@@ -11,12 +11,11 @@
 //
 // Capabilities:
 //   - Leased dequeue (Postgres FOR UPDATE SKIP LOCKED; SQLite atomic UPDATE).
-//   - Heartbeat, lease expiry, and orphan recovery (P1-001, P1-002).
-//   - Idempotency keys and a reliable outbox for external effects (P1-003).
+//   - Heartbeat, lease expiry, and orphan recovery.
+//   - Idempotency keys and a reliable outbox for external effects.
 //   - Durable timers/sleeps and external signals, including webhook-as-signal
-//     for human-in-the-loop approval (P1-004).
-//   - Global admission control / back-pressure with reject or park policies
-//     (P1-005).
+//     for human-in-the-loop approval.
+//   - Global admission control / back-pressure with reject or park policies.
 package queue
 
 import (

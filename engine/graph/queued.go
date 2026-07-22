@@ -35,7 +35,7 @@ func SingleGraphResolver(g *CompiledGraph) GraphResolver {
 }
 
 // QueuedExecutor bridges the durable work queue to the existing graph Runner. It
-// implements the intake/execution split for P1-001: producers enqueue runs and
+// implements the intake/execution split: producers enqueue runs and
 // this executor — invoked by any queue.Worker — runs or resumes the graph via a
 // freshly constructed Runner, exactly as a synchronous caller would. The public
 // Runner API is unchanged; this only calls it.

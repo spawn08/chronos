@@ -395,7 +395,7 @@ func TestParseErrorStrategy(t *testing.T) {
 	}
 }
 
-// --- P0-009: Config set/model tests ---
+// --- Config set/model tests ---
 
 func TestConfigSet(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -637,7 +637,7 @@ func TestExecuteConfigUnknownSubcommand(t *testing.T) {
 	}
 }
 
-// --- P0-008: Sessions resume tests ---
+// --- Sessions resume tests ---
 
 func TestSessionsResume_NonResumableState(t *testing.T) {
 	store := newTestStore(t)

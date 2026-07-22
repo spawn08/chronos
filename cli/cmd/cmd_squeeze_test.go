@@ -789,7 +789,9 @@ func TestRunConfig_ShowWithAgentsFile_Squeeze(t *testing.T) {
 func TestExecute_EvalRun_Squeeze(t *testing.T) {
 	tmp := t.TempDir()
 	f := filepath.Join(tmp, "suite.yaml")
-	if err := os.WriteFile(f, []byte("suite: test\n"), 0o644); err != nil {
+	if err := os.WriteFile(f, []byte(
+		"name: squeeze-suite\ncases:\n  - eval: contains\n    input: \"the quick brown fox\"\n    expected: \"quick\"\n",
+	), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	oldArgs := os.Args
@@ -801,7 +803,7 @@ func TestExecute_EvalRun_Squeeze(t *testing.T) {
 			t.Fatalf("Execute: %v", err)
 		}
 	})
-	if !strings.Contains(out, "Eval suite") {
+	if !strings.Contains(out, "squeeze-suite") {
 		t.Fatalf("output: %q", out)
 	}
 }

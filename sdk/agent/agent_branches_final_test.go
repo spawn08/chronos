@@ -284,7 +284,7 @@ func TestChat_MaxIterationsStopsToolLoop(t *testing.T) {
 		},
 	})
 
-	// P0-007: exceeding MaxIterations with unsatisfied tool calls must return a
+	// Exceeding MaxIterations with unsatisfied tool calls must return a
 	// clear error rather than silently returning a partial tool-call response.
 	resp, err := a.Chat(context.Background(), "go")
 	if err == nil {

@@ -26,7 +26,7 @@ var (
 // both atomicity and the ON CONFLICT/OR IGNORE idempotency semantics.
 const sqliteMaxBindParams = 900
 
-// --- Pagination (P1-012) ---
+// --- Pagination ---
 
 // ListEventsPaged returns a cursor-paginated page of events after afterSeq,
 // ordered by seq_num. It fetches limit+1 rows to detect whether a further page
@@ -164,7 +164,7 @@ func (s *Store) ListTracesPaged(ctx context.Context, sessionID string, limit int
 	return page, nil
 }
 
-// --- Retention (P1-012) ---
+// --- Retention ---
 //
 // Age-based trimming compares instants, not raw text. The SQLite driver
 // stores time.Time as a string that carries the value's timezone offset
@@ -222,7 +222,7 @@ func (s *Store) TrimCheckpoints(ctx context.Context, sessionID string, keep int)
 	return res.RowsAffected()
 }
 
-// --- Batch ingestion (P1-013) ---
+// --- Batch ingestion ---
 
 // AppendEvents appends many events within one transaction. It is idempotent on
 // event id (INSERT OR IGNORE). The batch is split into chunks so the per-statement

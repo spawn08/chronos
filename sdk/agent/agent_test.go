@@ -191,7 +191,7 @@ func newTestAgent(id string, provider model.Provider) *Agent {
 	}
 }
 
-// --- P0-004: NumHistoryRuns Tests ---
+// --- NumHistoryRuns Tests ---
 
 func TestChat_WithNumHistoryRuns(t *testing.T) {
 	store := newTestStorage()
@@ -336,7 +336,7 @@ func TestLoadHistoryRuns_FiltersRoles(t *testing.T) {
 	}
 }
 
-// --- P0-005: OutputSchema Tests ---
+// --- OutputSchema Tests ---
 
 func TestChat_WithOutputSchema(t *testing.T) {
 	schema := map[string]any{
@@ -838,7 +838,7 @@ func searchString(s, substr string) bool {
 	return false
 }
 
-// --- P0-006/007: Broker & Tracer wiring tests ---
+// --- Broker & Tracer wiring tests ---
 
 func TestBuilder_WithBroker(t *testing.T) {
 	br := stream.NewBroker()

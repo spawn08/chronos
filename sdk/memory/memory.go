@@ -131,7 +131,7 @@ func (s *Store) Get(ctx context.Context, key string) (any, error) {
 	// Fall back to the raw key for short-term (session) records, which are
 	// stored un-namespaced. Long-term records resolve only through the
 	// tenant-scoped key above, so the fallback must never return a long_term
-	// record — doing so would reopen a cross-tenant/legacy read path (P0-008).
+	// record — doing so would reopen a cross-tenant/legacy read path.
 	if rec, rawErr := s.backend.GetMemory(ctx, s.agentID, key); rawErr == nil && rec.Kind != "long_term" {
 		return rec.Value, nil
 	}
