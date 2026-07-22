@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 func TestRateLimit_AllowsWithinLimit(t *testing.T) {
@@ -154,12 +154,12 @@ func TestDefaultRateLimitConfig(t *testing.T) {
 func sqlLimiterDSN(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "ratelimit.db")
-	return path + "?_busy_timeout=5000&_journal_mode=WAL&_txlock=immediate"
+	return path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_txlock=immediate"
 }
 
 func openSQLLimiter(t *testing.T, dsn string) *SQLLimiter {
 	t.Helper()
-	db, err := sql.Open("sqlite3", dsn)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}

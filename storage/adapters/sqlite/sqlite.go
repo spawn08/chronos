@@ -6,9 +6,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 
 	"github.com/spawn08/chronos/storage"
 	"github.com/spawn08/chronos/storage/migrate"
@@ -48,7 +49,7 @@ func WithConnMaxLifetime(d time.Duration) Option {
 
 // New opens a SQLite database at the given DSN (file path or ":memory:").
 func New(dsn string, opts ...Option) (*Store, error) {
-	db, err := sql.Open("sqlite3", dsn)
+	db, err := sql.Open("sqlite", withTimeFormat(dsn))
 	if err != nil {
 		return nil, fmt.Errorf("sqlite open: %w", err)
 	}
@@ -66,6 +67,23 @@ func New(dsn string, opts ...Option) (*Store, error) {
 		db.SetConnMaxLifetime(cfg.connMaxLifetime)
 	}
 	return &Store{db: db}, nil
+}
+
+// withTimeFormat ensures the modernc SQLite DSN writes time.Time values in a
+// julianday-parseable format (SQLite datefunc format 4: "YYYY-MM-DD
+// HH:MM:SS.SSS±HH:MM"). Without it modernc defaults to the time.Time.String()
+// representation, which SQLite's date functions cannot parse — that would break
+// the julianday()-based retention comparisons in scale.go. It is a no-op when
+// the caller has already set _time_format.
+func withTimeFormat(dsn string) string {
+	if strings.Contains(dsn, "_time_format=") {
+		return dsn
+	}
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	return dsn + sep + "_time_format=sqlite"
 }
 
 // schema is the v1 migration: all tables and indexes for the SQLite backend,

@@ -7,11 +7,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 func TestSQLTool_WITHQuery_Boost(t *testing.T) {
-	db, err := sql.Open("sqlite3", ":memory:")
+	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestSQLTool_WITHQuery_Boost(t *testing.T) {
 }
 
 func TestSQLTool_ExecInsert_Boost(t *testing.T) {
-	db, err := sql.Open("sqlite3", ":memory:")
+	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestSQLTool_ExecInsert_Boost(t *testing.T) {
 }
 
 func TestSQLTool_OperationDenied_Boost(t *testing.T) {
-	db, _ := sql.Open("sqlite3", ":memory:")
+	db, _ := sql.Open("sqlite", ":memory:")
 	defer db.Close()
 	def := NewSQLTool(db, []string{"SELECT"})
 	h := def.Handler
@@ -69,7 +69,7 @@ func TestSQLTool_OperationDenied_Boost(t *testing.T) {
 }
 
 func TestSQLTool_DefaultAllowsSelectOnly_Boost(t *testing.T) {
-	db, _ := sql.Open("sqlite3", ":memory:")
+	db, _ := sql.Open("sqlite", ":memory:")
 	defer db.Close()
 	def := NewSQLTool(db, nil)
 	if def.Handler == nil {

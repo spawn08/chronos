@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 
 	"github.com/spawn08/chronos/engine/queue"
 	"github.com/spawn08/chronos/storage/adapters/sqlite"
@@ -30,7 +30,7 @@ func newCheckpointStore(t *testing.T) *sqlite.Store {
 
 func newQueue(t *testing.T) *queue.Queue {
 	t.Helper()
-	db, err := sql.Open("sqlite3", filepath.Join(t.TempDir(), "q.db")+"?_busy_timeout=5000&_journal_mode=WAL")
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "q.db")+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
 	if err != nil {
 		t.Fatalf("open queue db: %v", err)
 	}

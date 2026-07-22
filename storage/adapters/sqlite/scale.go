@@ -166,8 +166,8 @@ func (s *Store) ListTracesPaged(ctx context.Context, sessionID string, limit int
 
 // --- Retention (P1-012) ---
 //
-// Age-based trimming compares instants, not raw text. The go-sqlite3 driver
-// stores time.Time as an RFC3339 string that carries the value's timezone offset
+// Age-based trimming compares instants, not raw text. The SQLite driver
+// stores time.Time as a string that carries the value's timezone offset
 // (e.g. "…Z", "…+05:30", "…-08:00"), so a plain lexical `created_at < ?` compares
 // the wall-clock text and mis-orders rows written in different timezones — the
 // same reason ListTracesPaged keysets on the stable id PK instead of started_at.

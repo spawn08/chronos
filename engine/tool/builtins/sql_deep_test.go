@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 func TestSQL_SelectSyntaxError_Deep(t *testing.T) {

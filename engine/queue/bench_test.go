@@ -114,8 +114,8 @@ func BenchmarkDequeueEmpty(b *testing.B) {
 func newBenchStore(b *testing.B) *SQLStore {
 	b.Helper()
 	path := filepath.Join(b.TempDir(), "queue.db")
-	dsn := path + "?_busy_timeout=5000&_journal_mode=WAL&_txlock=immediate&_foreign_keys=on"
-	db, err := sql.Open("sqlite3", dsn)
+	dsn := path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_txlock=immediate&_pragma=foreign_keys(on)"
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		b.Fatalf("open sqlite: %v", err)
 	}

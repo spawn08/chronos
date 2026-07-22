@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"testing"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 func TestMigrate_OutOfOrderVersions_AppliesSorted(t *testing.T) {
@@ -54,7 +54,7 @@ func TestMigrate_ClosedDB(t *testing.T) {
 }
 
 func TestRollback_ClosedDB(t *testing.T) {
-	db, err := sql.Open("sqlite3", ":memory:")
+	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}

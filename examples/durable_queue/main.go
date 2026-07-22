@@ -30,7 +30,7 @@ import (
 	"sync"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 
 	"github.com/spawn08/chronos/engine/queue"
 )
@@ -57,7 +57,7 @@ func run() error {
 	dbPath := filepath.Join(os.TempDir(), fmt.Sprintf("chronos_queue_demo_%d.db", time.Now().UnixNano()))
 	defer func() { _ = os.Remove(dbPath) }()
 
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return fmt.Errorf("open db: %w", err)
 	}

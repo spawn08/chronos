@@ -4,14 +4,12 @@ FROM golang:1.25-alpine AS builder
 ARG VERSION=dev
 ARG COMMIT=unknown
 
-RUN apk add --no-cache gcc musl-dev sqlite-dev
-
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=1 go build \
+RUN CGO_ENABLED=0 go build \
     -ldflags "-s -w \
       -X github.com/spawn08/chronos/cli/cmd.Version=${VERSION} \
       -X github.com/spawn08/chronos/cli/cmd.Commit=${COMMIT}" \
@@ -20,7 +18,7 @@ RUN CGO_ENABLED=1 go build \
 # ── Runtime stage ────────────────────────────────────────────
 FROM alpine:3.21
 
-RUN apk add --no-cache sqlite-libs ca-certificates tzdata
+RUN apk add --no-cache ca-certificates tzdata
 
 COPY --from=builder /chronos /usr/local/bin/chronos
 

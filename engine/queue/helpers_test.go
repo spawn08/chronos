@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 // sqliteDSN returns a shared, WAL-mode SQLite DSN under the test's temp dir.
@@ -15,13 +15,13 @@ import (
 func sqliteDSN(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "queue.db")
-	return path + "?_busy_timeout=5000&_journal_mode=WAL&_txlock=immediate&_foreign_keys=on"
+	return path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_txlock=immediate&_pragma=foreign_keys(on)"
 }
 
 // openStore opens an independent SQLStore over the given DSN.
 func openStore(t *testing.T, dsn string) *SQLStore {
 	t.Helper()
-	db, err := sql.Open("sqlite3", dsn)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}

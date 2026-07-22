@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 // sharedDSN returns a WAL-mode SQLite DSN so multiple independent *sql.DB
@@ -20,12 +20,12 @@ import (
 func sharedDSN(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "approval.db")
-	return path + "?_busy_timeout=5000&_journal_mode=WAL&_txlock=immediate"
+	return path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_txlock=immediate"
 }
 
 func openApprovalStore(t *testing.T, dsn string) *SQLStore {
 	t.Helper()
-	db, err := sql.Open("sqlite3", dsn)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
