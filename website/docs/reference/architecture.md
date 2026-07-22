@@ -5,6 +5,10 @@ title: "Architecture"
 
 # Architecture
 
+:::tip Interactive explorer
+Prefer a richer, visual walkthrough? Open the **[interactive Architecture Explorer](pathname:///architecture/)** — a custom UI with the layer stack, key concepts, and tabbed sequence-flow diagrams. This page is the reference companion to it.
+:::
+
 Chronos is organised into four horizontal layers, each with a strict responsibility. Every arrow in the diagrams below is a real dependency in the Go module graph — the layers below never import from the ones above.
 
 ## 1. Layer Stack

@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chronos · Architecture Explorer</title>
+<meta name="description" content="Interactive architecture explorer for Chronos — layers, key concepts, and runtime sequence flows.">
+<link rel="icon" href="/chronos/img/logo.svg">
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#12161f; --panel2:#171c28; --line:#232a39; --line2:#2c3546;
+    --text:#e7edf5; --muted:#93a1b5; --dim:#6b7686;
+    --violet:#8b5cf6; --cyan:#22d3ee; --grad:linear-gradient(100deg,#8b5cf6,#22d3ee);
+    --os:#a78bfa; --engine:#38bdf8; --sdk:#34d399; --storage:#fbbf24; --sandbox:#fb7185;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --shadow:0 1px 0 rgba(255,255,255,.03),0 18px 40px -20px rgba(0,0,0,.7);
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.6;
+    background-image:radial-gradient(900px 500px at 82% -8%,rgba(139,92,246,.14),transparent 60%),
+      radial-gradient(760px 460px at -6% 4%,rgba(34,211,238,.10),transparent 55%);}
+  a{color:var(--cyan);text-decoration:none}
+  code{font-family:var(--mono);font-size:.86em;background:#0e1420;border:1px solid var(--line);
+    padding:.08em .4em;border-radius:5px;color:#c9d5e6}
+
+  /* Layout */
+  .app{display:grid;grid-template-columns:256px 1fr;min-height:100vh}
+  aside{position:sticky;top:0;height:100vh;border-right:1px solid var(--line);
+    background:linear-gradient(180deg,#0d111a,#0b0e14);padding:22px 16px;overflow-y:auto}
+  .brand{display:flex;align-items:center;gap:11px;font-weight:800;font-size:1.12rem;letter-spacing:.3px;margin:2px 6px 4px}
+  .brand .mark{width:26px;height:26px;border-radius:8px;background:var(--grad);
+    box-shadow:0 0 20px rgba(139,92,246,.55);display:grid;place-items:center;color:#0b0e14;font-weight:900;font-size:.9rem}
+  .brand small{display:block;font-weight:500;font-size:.68rem;color:var(--muted);letter-spacing:.14em;text-transform:uppercase}
+  nav.side{margin-top:20px;display:flex;flex-direction:column;gap:2px}
+  nav.side a{color:var(--muted);padding:8px 12px;border-radius:9px;font-size:.9rem;display:flex;gap:10px;align-items:center;border:1px solid transparent}
+  nav.side a .i{width:20px;text-align:center;opacity:.85}
+  nav.side a:hover{color:var(--text);background:var(--panel)}
+  nav.side a.active{color:var(--text);background:var(--panel2);border-color:var(--line2);box-shadow:inset 2px 0 0 var(--violet)}
+  .side-foot{margin-top:22px;padding:12px;border:1px solid var(--line);border-radius:11px;background:var(--panel);font-size:.8rem;color:var(--muted)}
+  .side-foot a{display:block;margin-top:6px}
+
+  main{padding:0 clamp(20px,4vw,64px) 120px;max-width:1080px}
+  .progress{position:fixed;top:0;left:256px;right:0;height:3px;background:transparent;z-index:20}
+  .progress > i{display:block;height:100%;width:0;background:var(--grad)}
+
+  section{padding-top:56px;scroll-margin-top:20px}
+  .eyebrow{font-size:.72rem;letter-spacing:.18em;text-transform:uppercase;color:var(--violet);font-weight:800;margin:0 0 8px}
+  h1{font-size:clamp(1.9rem,4vw,2.7rem);line-height:1.08;letter-spacing:-.02em;margin:0 0 14px;
+    background:linear-gradient(180deg,#fff,#b9c6d8);-webkit-background-clip:text;background-clip:text;color:transparent}
+  h2{font-size:1.6rem;letter-spacing:-.01em;margin:0 0 6px;display:flex;align-items:center;gap:11px}
+  h2 .num{font-family:var(--mono);font-size:.78rem;color:var(--violet);border:1px solid var(--line2);border-radius:7px;padding:2px 8px;background:var(--panel)}
+  .lead{font-size:1.12rem;color:var(--muted);max-width:70ch}
+  p{color:#c7d0dd}
+  .muted{color:var(--muted)}
+
+  /* Hero */
+  .hero{padding-top:52px}
+  .chips{display:flex;flex-wrap:wrap;gap:10px;margin:22px 0 4px}
+  .chip{border:1px solid var(--line2);background:var(--panel);border-radius:11px;padding:10px 14px;min-width:120px}
+  .chip b{display:block;font-size:1.5rem;line-height:1;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .chip span{font-size:.78rem;color:var(--muted)}
+
+  /* Layer stack */
+  .stack{display:flex;flex-direction:column;gap:14px;margin:26px 0 6px}
+  .layer{position:relative;border:1px solid var(--line);border-radius:14px;background:linear-gradient(180deg,var(--panel2),var(--panel));
+    padding:16px 18px;box-shadow:var(--shadow);overflow:hidden}
+  .layer::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--c)}
+  .layer .lh{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+  .layer .lh .badge{font-family:var(--mono);font-size:.72rem;color:#0b0e14;background:var(--c);padding:2px 8px;border-radius:6px;font-weight:700}
+  .layer .lh h3{margin:0;font-size:1.06rem}
+  .layer .lh .role{color:var(--muted);font-size:.86rem}
+  .mods{display:flex;flex-wrap:wrap;gap:8px}
+  .mods span{font-size:.8rem;color:#cdd7e5;background:#0e1420;border:1px solid var(--line);border-radius:8px;padding:5px 10px}
+  .flowarrow{align-self:center;color:var(--dim);font-size:1.1rem;line-height:0}
+  .layer.os{--c:var(--os)} .layer.engine{--c:var(--engine)} .layer.sdk{--c:var(--sdk)}
+  .layer.storage{--c:var(--storage)} .layer.sandbox{--c:var(--sandbox)}
+  .sidenote{margin-top:14px;font-size:.9rem;color:var(--muted);border-left:3px solid var(--line2);padding:2px 0 2px 14px}
+
+  /* Cards */
+  .grid{display:grid;gap:14px}
+  .g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+  .g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+  .card{border:1px solid var(--line);border-radius:13px;background:var(--panel);padding:16px 16px 14px;box-shadow:var(--shadow);transition:.18s}
+  .card:hover{border-color:var(--line2);transform:translateY(-2px)}
+  .card h3{margin:0 0 6px;font-size:1.02rem;display:flex;align-items:center;gap:9px}
+  .card h3 .dot{width:9px;height:9px;border-radius:50%;background:var(--grad);box-shadow:0 0 10px var(--violet)}
+  .card p{margin:0;font-size:.92rem;color:var(--muted)}
+  .card .k{font-family:var(--mono);font-size:.72rem;color:var(--dim);margin-top:10px;display:block}
+
+  /* Tabs (flows) */
+  .tabs{display:flex;flex-wrap:wrap;gap:8px;margin:22px 0 14px}
+  .tabs button{font:inherit;font-size:.88rem;color:var(--muted);background:var(--panel);border:1px solid var(--line);
+    border-radius:10px;padding:8px 14px;cursor:pointer;transition:.15s}
+  .tabs button:hover{color:var(--text);border-color:var(--line2)}
+  .tabs button.active{color:#0b0e14;background:var(--grad);border-color:transparent;font-weight:700}
+  .flow{display:none;animation:fade .25s ease}
+  .flow.active{display:block}
+  @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  .flow > .cap{font-size:.86rem;color:var(--muted);margin:0 0 8px}
+  .diagram{border:1px solid var(--line);border-radius:14px;background:#0c111b;padding:18px;overflow-x:auto}
+  .mermaid{display:flex;justify-content:center}
+
+  /* Tables */
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:.9rem}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);text-transform:uppercase;font-size:.72rem;letter-spacing:.06em}
+  tbody tr:hover{background:var(--panel)}
+  td code{white-space:nowrap}
+  .ok{color:#34d399;font-weight:700}
+
+  .backlink{position:fixed;right:18px;bottom:18px;z-index:30;background:var(--panel2);border:1px solid var(--line2);
+    color:var(--text);border-radius:999px;padding:10px 16px;font-size:.85rem;box-shadow:var(--shadow)}
+  .backlink:hover{border-color:var(--violet)}
+
+  @media (max-width:900px){
+    .app{grid-template-columns:1fr}
+    aside{position:static;height:auto;border-right:none;border-bottom:1px solid var(--line)}
+    nav.side{flex-direction:row;flex-wrap:wrap}
+    .progress{left:0}
+    main{padding-bottom:80px}
+  }
+</style>
+</head>
+<body>
+<div class="progress"><i id="prog"></i></div>
+<div class="app">
+  <aside>
+    <div class="brand">
+      <span class="mark">C</span>
+      <span>Chronos<small>Architecture</small></span>
+    </div>
+    <nav class="side" id="nav">
+      <a href="#overview"><span class="i">◆</span> Overview</a>
+      <a href="#layers"><span class="i">▤</span> Layer Architecture</a>
+      <a href="#concepts"><span class="i">✦</span> Key Concepts</a>
+      <a href="#flows"><span class="i">⇄</span> Sequence Flows</a>
+      <a href="#interfaces"><span class="i">⌘</span> Interfaces</a>
+      <a href="#backends"><span class="i">▣</span> Backends</a>
+      <a href="#deploy"><span class="i">☁</span> Deployment</a>
+    </nav>
+    <div class="side-foot">
+      Runtime for durable, scalable AI agents in Go.
+      <a href="/chronos/reference/architecture">↳ Reference (Markdown)</a>
+      <a href="https://github.com/spawn08/chronos">↳ GitHub</a>
+    </div>
+  </aside>
+
+  <main>
+    <!-- OVERVIEW -->
+    <section id="overview" class="hero">
+      <p class="eyebrow">Interactive Architecture Explorer</p>
+      <h1>How Chronos is built</h1>
+      <p class="lead">Chronos is a Go framework for agentic systems that survive restarts, scale horizontally, and stay observable. Four cooperating layers — a control plane, a durable runtime, a user-facing SDK, and pluggable storage — connected only through small interfaces.</p>
+      <div class="chips">
+        <div class="chip"><b>4</b><span>architecture layers</span></div>
+        <div class="chip"><b>14</b><span>storage adapters</span></div>
+        <div class="chip"><b>9+</b><span>model providers</span></div>
+        <div class="chip"><b>4</b><span>sandbox backends</span></div>
+        <div class="chip"><b>2</b><span>MCP transports</span></div>
+      </div>
+    </section>
+
+    <!-- LAYERS -->
+    <section id="layers">
+      <h2><span class="num">01</span> Layer Architecture</h2>
+      <p class="muted">Dependencies flow strictly downward — each layer imports only the ones beneath it, never the reverse.</p>
+      <div class="stack">
+        <div class="layer os">
+          <div class="lh"><span class="badge">os/</span><h3>ChronosOS · Control Plane</h3><span class="role">auth · tracing · approval · API</span></div>
+          <div class="mods"><span>Auth / RBAC</span><span>Tracing + Audit</span><span>Approval (HITL)</span><span>HTTP API + SSE</span><span>Scheduler</span><span>Metrics</span></div>
+        </div>
+        <div class="flowarrow">▼</div>
+        <div class="layer engine">
+          <div class="lh"><span class="badge">engine/</span><h3>Engine · Runtime</h3><span class="role">the durable execution core</span></div>
+          <div class="mods"><span>StateGraph Runner</span><span>Model Providers</span><span>Tool Registry</span><span>Hooks + Guardrails</span><span>Durable Queue</span><span>MCP Client</span><span>Stream Broker</span></div>
+        </div>
+        <div class="flowarrow">▼</div>
+        <div class="layer sdk">
+          <div class="lh"><span class="badge">sdk/</span><h3>SDK · User-Facing</h3><span class="role">what developers compose</span></div>
+          <div class="mods"><span>Agent Builder</span><span>Teams</span><span>Memory</span><span>Knowledge (RAG)</span><span>Skills</span><span>Protocol Bus</span></div>
+        </div>
+        <div class="flowarrow">▼</div>
+        <div class="layer storage">
+          <div class="lh"><span class="badge">storage/</span><h3>Storage · Persistence</h3><span class="role">pluggable, swapped by config</span></div>
+          <div class="mods"><span>SQL: SQLite · Postgres</span><span>NoSQL: Mongo · Dynamo · Redis</span><span>Vector: Qdrant · pgvector · Pinecone · …</span></div>
+        </div>
+        <div class="layer sandbox" style="margin-top:6px">
+          <div class="lh"><span class="badge">sandbox/</span><h3>Sandbox · Isolation</h3><span class="role">the engine runs untrusted code here</span></div>
+          <div class="mods"><span>Process</span><span>Container (hardened Docker)</span><span>WASM (wazero)</span><span>Kubernetes Job</span></div>
+        </div>
+      </div>
+      <p class="sidenote">Enforced rule: <code>os/</code> → <code>sdk/</code> → <code>engine/</code> → <code>storage/</code>, with zero cycles. <code>storage/</code> is the sink.</p>
+    </section>
+
+    <!-- CONCEPTS -->
+    <section id="concepts">
+      <h2><span class="num">02</span> Key Concepts</h2>
+      <p class="muted">The ideas that define how Chronos behaves under load and failure.</p>
+      <div class="grid g3">
+        <div class="card"><h3><span class="dot"></span>Durable by default</h3><p>Every graph step writes a checkpoint and an ordered ledger event in one transaction — a crash resumes exactly where it stopped.</p><span class="k">engine/graph/runner.go</span></div>
+        <div class="card"><h3><span class="dot"></span>Human-in-the-loop</h3><p>Interrupt nodes pause a run and persist it; a recorded approval resumes it, skipping that interrupt exactly once.</p><span class="k">engine/graph · os/approval</span></div>
+        <div class="card"><h3><span class="dot"></span>Exactly-once work</h3><p>Leased workers with heartbeats, orphan recovery, idempotency keys, and a reliable outbox — at-least-once effects without duplication.</p><span class="k">engine/queue</span></div>
+        <div class="card"><h3><span class="dot"></span>Adapter everywhere</h3><p>Backends are chosen by config and swapped with no code change — SQLite in dev, Postgres in prod, five vector stores for RAG.</p><span class="k">storage/adapters</span></div>
+        <div class="card"><h3><span class="dot"></span>Safe execution</h3><p>Untrusted tool code runs behind one <code>Sandbox</code> interface with hardened container, WASM, and Kubernetes Job backends.</p><span class="k">sandbox/</span></div>
+        <div class="card"><h3><span class="dot"></span>Multi-tenant</h3><p>Tenant identity rides on <code>context</code>, is stamped on writes and enforced on reads; cross-tenant id lookups resolve to not-found.</p><span class="k">storage/tenant.go</span></div>
+        <div class="card"><h3><span class="dot"></span>Observable</h3><p>The runner emits stream events and opens spans around the graph and every node; the control plane exposes them over SSE + Prometheus.</p><span class="k">engine/stream · os/trace</span></div>
+        <div class="card"><h3><span class="dot"></span>Composable middleware</h3><p>Hooks (retry, rate-limit, cache, cost, metrics) and guardrails wrap every model and tool call through a <code>Chain</code>.</p><span class="k">engine/hooks · guardrails</span></div>
+        <div class="card"><h3><span class="dot"></span>Interface segregation</h3><p>Relational <code>Storage</code> is separate from <code>VectorStore</code>; providers, guardrails, hooks, sandboxes are all small seams.</p><span class="k">storage · engine</span></div>
+      </div>
+    </section>
+
+    <!-- FLOWS -->
+    <section id="flows">
+      <h2><span class="num">03</span> Sequence Flows</h2>
+      <p class="muted">The real runtime paths, drawn from the code. Switch between them:</p>
+      <div class="tabs" id="tabs">
+        <button class="active" data-flow="chat">Agent Chat</button>
+        <button data-flow="graph">StateGraph</button>
+        <button data-flow="hitl">Human-in-the-loop</button>
+        <button data-flow="tool">Tool Approval</button>
+        <button data-flow="mcp">MCP (stdio + SSE)</button>
+        <button data-flow="queue">Durable Queue</button>
+      </div>
+
+      <div class="flow active" data-flow="chat">
+        <p class="cap">One turn of <code>Agent.Chat</code> — context assembly, guardrails, the traced/hooked model call, the tool loop, and memory extraction.</p>
+        <div class="diagram"><pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant U as Caller
+    participant A as Agent
+    participant M as Memory
+    participant K as Knowledge
+    participant G as Guardrails
+    participant H as Hooks
+    participant P as Model
+    participant T as Tools
+    U->>A: Chat(ctx, message)
+    A->>M: GetUserMemories(ctx)
+    A->>K: Search(ctx, msg, top 5)
+    A->>A: load history + input guardrail
+    A->>H: Before(model call)
+    A->>P: Chat(ctx, req)
+    P-->>A: response
+    A->>H: After(model call) — retry may replace output
+    loop while tool_call (<= MaxIterations)
+        A->>T: Execute(tool, args)
+        T-->>A: result
+        A->>P: Chat(ctx, msgs + results)
+        P-->>A: response
+    end
+    A->>G: CheckOutput + validate schema
+    A->>M: ExtractMemories(ctx)
+    A-->>U: response
+        </pre></div>
+      </div>
+
+      <div class="flow" data-flow="graph">
+        <p class="cap">The durable runner loop. The next node is computed <em>before</em> the checkpoint, and checkpoint + ledger event are written together.</p>
+        <div class="diagram"><pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant R as Runner
+    participant N as Node fn
+    participant TR as Tracer
+    participant S as Storage
+    R->>TR: StartSpan(graph)
+    loop while Running
+        alt interrupt node
+            R->>S: commit(checkpoint = this node)
+            R-->>R: Status = Paused
+        else executable node
+            R->>N: callNode (panic-recovered)
+            N-->>R: newState
+            R->>R: next = findNext(state)
+            R->>S: commit(checkpoint = next, event)
+        end
+    end
+    R->>TR: EndSpan(graph)
+        </pre></div>
+      </div>
+
+      <div class="flow" data-flow="hitl">
+        <p class="cap">An interrupt persists a checkpoint; a recorded decision resumes the run, skipping that interrupt once.</p>
+        <div class="diagram"><pre class="mermaid">
+sequenceDiagram
+    autonumber
+    actor Human
+    participant API as ChronosOS
+    participant AP as Approval
+    participant R as Runner
+    participant S as Storage
+    R->>S: interrupt → commit(checkpoint), Paused
+    Note over R,S: run is durable; process may exit
+    Human->>API: GET /api/approval/pending
+    API->>AP: HandlePending()
+    Human->>API: POST /api/approval/respond
+    AP->>S: record decision
+    API->>R: Resume(skipFirstInterrupt=true)
+    R->>S: load latest checkpoint
+    R-->>API: RunState (Running → Completed)
+        </pre></div>
+      </div>
+
+      <div class="flow" data-flow="tool">
+        <p class="cap">The registry consults each tool's permission; sensitive tools route through approval before executing.</p>
+        <div class="diagram"><pre class="mermaid">
+flowchart TD
+    M["Model returns tool_call"] --> LOOK["Registry.lookup"]
+    LOOK --> PERM{Permission?}
+    PERM -->|Allow| RUN["Handler(ctx, args)"]
+    PERM -->|RequireApproval| REQ["Approval.Request"]
+    REQ --> WAIT{Decision}
+    WAIT -->|approved| RUN
+    WAIT -->|denied| DENY["denied result"]
+    RUN --> RES["tool result"]
+    RES --> BACK["append → next Model.Chat"]
+    DENY --> BACK
+        </pre></div>
+      </div>
+
+      <div class="flow" data-flow="mcp">
+        <p class="cap">Chronos is an MCP client. stdio launches a subprocess; HTTP+SSE talks to a remote server, correlating responses by id.</p>
+        <div class="diagram"><pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant C as MCP Client
+    participant P as Server (stdio)
+    participant S as Remote (SSE)
+    C->>P: spawn + "initialize"
+    P-->>C: capabilities
+    C->>P: "tools/list" / "tools/call"
+    P-->>C: tools / content
+    Note over C,S: — or, remote transport —
+    C->>S: GET /sse (text/event-stream)
+    S-->>C: event: endpoint → /messages
+    C->>S: POST /messages {id, "tools/call"}
+    S-->>C: SSE message {id, result}
+        </pre></div>
+      </div>
+
+      <div class="flow" data-flow="queue">
+        <p class="cap">Runs are leased to workers; heartbeats keep the lease, and expired leases are recovered so no work is lost.</p>
+        <div class="diagram"><pre class="mermaid">
+stateDiagram-v2
+    [*] --> Queued: Enqueue
+    Queued --> Leased: Dequeue(owner, lease)
+    Leased --> Leased: Heartbeat
+    Leased --> Sleeping: Sleep(delay)
+    Sleeping --> Queued: delay elapses
+    Leased --> Parked: Park(signal)
+    Parked --> Queued: signal
+    Leased --> Queued: Retry / lease expires
+    Leased --> Done: Complete
+    Done --> [*]
+        </pre></div>
+      </div>
+    </section>
+
+    <!-- INTERFACES -->
+    <section id="interfaces">
+      <h2><span class="num">04</span> Extension Interfaces</h2>
+      <p class="muted">Extending Chronos means implementing one small interface — the seam an adapter or plugin plugs into.</p>
+      <table>
+        <thead><tr><th>Interface</th><th>Defined in</th><th>Implement to add…</th></tr></thead>
+        <tbody>
+          <tr><td><code>storage.Storage</code></td><td><code>storage/storage.go</code></td><td>a relational / NoSQL backend (sessions, memory, audit, traces, events, checkpoints)</td></tr>
+          <tr><td><code>storage.VectorStore</code></td><td><code>storage/vector.go</code></td><td>a vector database for embeddings</td></tr>
+          <tr><td><code>model.Provider</code></td><td><code>engine/model/provider.go</code></td><td>a chat model backend (<code>Chat</code> + <code>StreamChat</code>)</td></tr>
+          <tr><td><code>model.EmbeddingsProvider</code></td><td><code>engine/model/embeddings.go</code></td><td>an embeddings backend</td></tr>
+          <tr><td><code>knowledge.Knowledge</code></td><td><code>sdk/knowledge/knowledge.go</code></td><td>a RAG source</td></tr>
+          <tr><td><code>guardrails.Guardrail</code></td><td><code>engine/guardrails/guardrails.go</code></td><td>input/output validation</td></tr>
+          <tr><td><code>hooks.Hook</code></td><td><code>engine/hooks/hooks.go</code></td><td>call middleware (composed via <code>Chain</code>)</td></tr>
+          <tr><td><code>sandbox.Sandbox</code></td><td><code>sandbox/sandbox.go</code></td><td>an isolation backend</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- BACKENDS -->
+    <section id="backends">
+      <h2><span class="num">05</span> Backends at a Glance</h2>
+      <div class="grid g2">
+        <div class="card">
+          <h3><span class="dot"></span>Storage &amp; Vector</h3>
+          <p><b style="color:var(--text)">Relational / NoSQL:</b> SQLite (pure-Go), PostgreSQL, MongoDB, DynamoDB, Redis.<br>
+          <b style="color:var(--text)">Vector:</b> Qdrant, pgvector, Pinecone, Weaviate, Milvus, Redis-vector, Chroma, LanceDB.</p>
+          <span class="k">14 adapters · storage.Storage + storage.VectorStore</span>
+        </div>
+        <div class="card">
+          <h3><span class="dot"></span>Models &amp; Embeddings</h3>
+          <p><b style="color:var(--text)">Chat:</b> OpenAI, Anthropic, Gemini, Azure, Vertex, Bedrock, Mistral, Ollama, any OpenAI-compatible.<br>
+          <b style="color:var(--text)">Embeddings:</b> OpenAI, Ollama, Azure, Google, Cohere.</p>
+          <span class="k">engine/model</span>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>Sandbox backend</th><th>Isolation</th><th>Dependency</th><th>Best for</th></tr></thead>
+        <tbody>
+          <tr><td>Process</td><td>OS process + timeout + process group</td><td>none (stdlib)</td><td>trusted local commands, dev</td></tr>
+          <tr><td>Container</td><td>Docker: non-root, caps dropped, seccomp, read-only rootfs; optional gVisor/Kata</td><td>Docker</td><td>untrusted code on one host</td></tr>
+          <tr><td>WASM (WASI)</td><td>Linear-memory sandbox; no host access unless granted</td><td>wazero (pure Go)</td><td>portable, deterministic modules</td></tr>
+          <tr><td>Kubernetes Job</td><td>One-shot hardened Job per run; TTL GC</td><td>client-go + cluster</td><td>scale-out, multi-tenant clusters</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- DEPLOY -->
+    <section id="deploy">
+      <h2><span class="num">06</span> Deployment Topology</h2>
+      <p class="muted">From a single binary to a Kubernetes fleet — no code changes.</p>
+      <div class="diagram"><pre class="mermaid">
+flowchart LR
+    subgraph Dev["Single binary"]
+        b[chronos] --- f[(SQLite)]
+    end
+    subgraph Prod["Multi-replica"]
+        lb{{Ingress}} --> r1[chronos-1] & r2[chronos-2] & r3[chronos-3]
+        r1 & r2 & r3 --> pg[(PostgreSQL)]
+        r1 & r2 & r3 --> vec[(Qdrant)]
+        r1 & r2 & r3 -.metrics.-> obs[[Prometheus + OTel]]
+    end
+    subgraph K8s["Kubernetes"]
+        dep[Deployment x3] --- hpa[HPA] --- pdb[PDB] --- sm[ServiceMonitor]
+    end
+      </pre></div>
+      <p class="muted">Helm chart ships Deployment, Service, Ingress, HPA, Secret/ExternalSecret, PDB, and ServiceMonitor.</p>
+    </section>
+  </main>
+</div>
+
+<a class="backlink" href="/chronos/reference/architecture">Docs reference →</a>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({
+    startOnLoad:true, theme:'dark',
+    themeVariables:{
+      fontFamily:'ui-sans-serif, system-ui, sans-serif', fontSize:'13px',
+      background:'#0c111b', primaryColor:'#171c28', primaryBorderColor:'#8b5cf6',
+      primaryTextColor:'#e7edf5', lineColor:'#6b7686', secondaryColor:'#12161f',
+      actorBkg:'#1a1f2e', actorBorder:'#8b5cf6', actorTextColor:'#e7edf5',
+      noteBkgColor:'#1f2a1a', noteBorderColor:'#34d399', noteTextColor:'#e7edf5'
+    },
+    flowchart:{curve:'basis',useMaxWidth:true},
+    sequence:{useMaxWidth:true,mirrorActors:false,wrap:true}
+  });
+
+  // Tabs
+  const tabs = document.getElementById('tabs');
+  tabs.addEventListener('click', e => {
+    const btn = e.target.closest('button'); if(!btn) return;
+    const flow = btn.dataset.flow;
+    tabs.querySelectorAll('button').forEach(b => b.classList.toggle('active', b===btn));
+    document.querySelectorAll('.flow').forEach(f => f.classList.toggle('active', f.dataset.flow===flow));
+  });
+
+  // Scrollspy + progress bar
+  const links = [...document.querySelectorAll('nav.side a')];
+  const sections = links.map(a => document.querySelector(a.getAttribute('href')));
+  const prog = document.getElementById('prog');
+  function onScroll(){
+    const y = window.scrollY + 120;
+    let active = sections[0];
+    for(const s of sections){ if(s && s.offsetTop <= y) active = s; }
+    links.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#'+active.id));
+    const h = document.body.scrollHeight - window.innerHeight;
+    prog.style.width = (h>0 ? (window.scrollY/h*100) : 0) + '%';
+  }
+  window.addEventListener('scroll', onScroll, {passive:true});
+  window.addEventListener('load', onScroll);
+</script>
+</body>
+</html>

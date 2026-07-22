@@ -100,6 +100,13 @@ const config: Config = {
           position: 'left',
         },
         {
+          // Rich standalone HTML explorer served from static/. The pathname://
+          // protocol bypasses the SPA router/link-checker; baseUrl is auto-prepended.
+          to: 'pathname:///architecture/',
+          label: 'Architecture',
+          position: 'left',
+        },
+        {
           href: 'https://github.com/spawn08/chronos',
           label: 'GitHub',
           position: 'right',
