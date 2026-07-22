@@ -41,12 +41,21 @@ teams:
 **Run it:**
 
 ```bash
+# Point the CLI at your config with -c (the file can be named anything).
 # Chat with an individual agent
-chronos agent chat researcher
+chronos -c my-agents.yaml agent chat researcher
 
 # Run a team on a task
-chronos team run pipeline "Write about electric vehicles"
+chronos -c my-agents.yaml team run pipeline "Write about electric vehicles"
 ```
+
+:::info How the CLI finds your config
+`pipeline` and `researcher` above are **ids defined inside the file** — not filenames.
+The CLI locates the file in this order: **`-c <file>`** (or `--config`) → **`CHRONOS_CONFIG`** env var
+→ **`.chronos/agents.yaml`** in the current directory → **`~/.chronos/agents.yaml`**.
+So `chronos team show pipeline` only works if the file is at one of the default paths;
+otherwise pass it explicitly: `chronos -c content-pipeline.yaml team show pipeline`.
+:::
 
 ---
 
@@ -557,6 +566,17 @@ Every agent's `model:` block selects an LLM provider. Below is the exact YAML fo
 each supported provider — drop any of these into an agent (or into `defaults.model`).
 All values support `${ENV_VAR}` expansion.
 
+:::tip Ready-to-run per-provider files
+Each provider below is also a standalone, single-agent config under
+[`examples/yaml-configs/providers/`](https://github.com/spawn08/chronos/tree/main/examples/yaml-configs/providers)
+— run any of them directly, e.g.:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+chronos -c examples/yaml-configs/providers/anthropic.yaml run "Hello"
+```
+:::
+
 | Provider | `provider:` value | Auth env var |
 |----------|-------------------|--------------|
 | OpenAI | `openai` | `OPENAI_API_KEY` |
@@ -704,6 +724,41 @@ prompt out to OpenAI, Claude, Gemini, Azure, and Grok at once — see
 
 ---
 
+## Streaming output
+
+The CLI commands (`chronos run`, `agent chat`, `team run`) **return the complete
+response when the run finishes** — they don't print tokens as they arrive. So:
+
+```bash
+chronos -c content-pipeline.yaml team run pipeline "what can you do?"
+# → prints the final composed answer once the pipeline completes
+```
+
+Chronos does support real-time streaming, through two mechanisms — both used from
+Go rather than the CLI:
+
+**1. Token streaming — `Provider.StreamChat`.** Every model provider returns a channel
+of partial responses you can print as they arrive:
+
+```go
+ch, _ := agent.Model.StreamChat(ctx, &model.ChatRequest{
+    Messages: []model.Message{{Role: model.RoleUser, Content: "what can you do?"}},
+})
+for chunk := range ch {
+    fmt.Print(chunk.Content) // print each delta as it streams in
+}
+```
+
+**2. Run-event streaming — the SSE `Broker`.** The `StateGraph` runner publishes
+node/graph/model events to a `stream.Broker`, which `chronos serve` exposes over
+Server-Sent Events at `/api/events/stream` for dashboards and web clients.
+
+The runnable [`examples/streaming_sse`](https://github.com/spawn08/chronos/tree/main/examples/streaming_sse)
+example wires both together (run it with `go run ./examples/streaming_sse/`), and the
+[Streaming &amp; SSE guide](/guides/streaming/) covers the full API.
+
+---
+
 ## Team Strategies Reference
 
 | Strategy | How it works | Best for |
@@ -764,16 +819,24 @@ chronos team run <team-id> "your task description"
 
 ### Specifying a config file
 
-By default, the CLI looks for `.chronos/agents.yaml` in the current directory. To use a different file:
+A config file named anything (e.g. `content-pipeline.yaml`) is **not** auto-discovered —
+only `.chronos/agents.yaml` (project) and `~/.chronos/agents.yaml` (global) are. For any
+other filename, point the CLI at it:
 
 ```bash
-# Option 1: Environment variable
+# Option 1 (recommended): the -c / --config flag — works anywhere on the line
+chronos -c /path/to/your-config.yaml team run my-team "do something"
+chronos team show my-team --config content-pipeline.yaml
+
+# Option 2: the CHRONOS_CONFIG environment variable
 export CHRONOS_CONFIG=/path/to/your-config.yaml
 chronos team run my-team "do something"
 
-# Option 2: Inline for a single command
+# Option 3: inline for a single command
 CHRONOS_CONFIG=my-config.yaml chronos team run my-team "do something"
 ```
+
+Resolution order: `-c/--config` → `CHRONOS_CONFIG` → `./.chronos/agents.yaml` → `~/.chronos/agents.yaml`.
 
 ---
 

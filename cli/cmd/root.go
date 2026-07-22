@@ -32,6 +32,7 @@ var (
 
 // Execute runs the root CLI command.
 func Execute() error {
+	stripConfigFlag()
 	if len(os.Args) < 2 {
 		return printUsage()
 	}
@@ -71,11 +72,42 @@ func Execute() error {
 	}
 }
 
+// stripConfigFlag extracts a global config-file flag — `-c <path>`,
+// `--config <path>`, or the `--config=<path>` / `-c=<path>` forms — from
+// os.Args and exposes it via the CHRONOS_CONFIG environment variable, which
+// every subcommand already honors. It runs before command dispatch so the flag
+// can appear anywhere on the line, and removing the tokens keeps each
+// subcommand's positional argument indexing (os.Args[2], os.Args[3], …) intact.
+func stripConfigFlag() {
+	kept := os.Args[:1] // preserve the program name
+	rest := os.Args[1:]
+	for i := 0; i < len(rest); i++ {
+		arg := rest[i]
+		switch {
+		case arg == "-c" || arg == "--config":
+			if i+1 < len(rest) {
+				_ = os.Setenv("CHRONOS_CONFIG", rest[i+1])
+				i++ // consume the value token
+			}
+		case strings.HasPrefix(arg, "--config="):
+			_ = os.Setenv("CHRONOS_CONFIG", strings.TrimPrefix(arg, "--config="))
+		case strings.HasPrefix(arg, "-c="):
+			_ = os.Setenv("CHRONOS_CONFIG", strings.TrimPrefix(arg, "-c="))
+		default:
+			kept = append(kept, arg)
+		}
+	}
+	os.Args = kept
+}
+
 func printUsage() error {
 	fmt.Println(`Chronos CLI — Agentic Framework
 
 Usage:
-  chronos <command> [subcommand] [options]
+  chronos [-c <file.yaml>] <command> [subcommand] [options]
+
+Global options:
+  -c, --config <file>       Path to the agents YAML config (same as CHRONOS_CONFIG)
 
 Commands:
   repl                      Start interactive REPL (loads agent from YAML config)
@@ -100,8 +132,12 @@ Commands:
   help                      Show this help
 
 Agent Configuration:
-  Define agents in .chronos/agents.yaml (project-level) or
-  ~/.chronos/agents.yaml (global). See 'chronos agent list' for loaded agents.
+  The config file is resolved in this order:
+    1. -c/--config <file>  or  CHRONOS_CONFIG=<file>
+    2. ./.chronos/agents.yaml  (project-level)
+    3. ~/.chronos/agents.yaml  (global)
+  Note: in "team show pipeline", 'pipeline' is a team ID, not a filename — point
+  the CLI at your file with -c. Example: chronos -c content-pipeline.yaml team show pipeline
 
 Environment:
   CHRONOS_CONFIG    Path to agents YAML config file

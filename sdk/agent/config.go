@@ -524,7 +524,9 @@ func readConfigFile(path string) (data []byte, resolvedPath string, err error) {
 	if path != "" {
 		return nil, path, fmt.Errorf("config file not found: %s", path)
 	}
-	return nil, "", fmt.Errorf("no agent config found (looked in: %s)", strings.Join(candidates, ", "))
+	return nil, "", fmt.Errorf("no agent config found (looked in: %s). "+
+		"Pass a file with `-c <file.yaml>` or set CHRONOS_CONFIG=<file.yaml>",
+		strings.Join(candidates, ", "))
 }
 
 // expandEnvInConfig replaces ${VAR} references with environment variable values.
