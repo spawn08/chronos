@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chronos Architecture — Sequence Diagrams</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="inner">
+    <span class="brand"><span class="dot"></span>Chronos</span>
+    <nav>
+      <a href="index.html">Overview</a>
+      <a href="features.html">Features</a>
+      <a class="active" href="flows.html">Sequence Diagrams</a>
+      <a href="internals.html">Internals</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="hero">
+    <p class="eyebrow">Runtime Flows</p>
+    <h1>Sequence Diagrams</h1>
+    <p class="lead">The exact runtime paths through Chronos, drawn from the code. Each diagram names the real methods and the order in which they fire.</p>
+  </div>
+
+  <section id="chat">
+    <h2>Agent chat lifecycle</h2>
+    <p class="desc">One turn of <code>Agent.Chat</code>: context assembly, guardrails, the traced/hooked model call, the tool-calling loop, output validation, and memory extraction.</p>
+    <div class="diagram">
+      <p class="cap">sdk/agent/agent.go — Chat()</p>
+      <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant U as Caller
+    participant A as Agent
+    participant M as MemoryManager
+    participant K as Knowledge (RAG)
+    participant G as Guardrails
+    participant H as Hooks Chain
+    participant P as Model Provider
+    participant T as Tool Registry
+    participant TR as Tracer / Broker
+
+    U->>A: Chat(ctx, userMessage)
+    A->>A: build system prompt + examples
+    A->>M: GetUserMemories(ctx)
+    M-->>A: long-term memory context
+    A->>K: Search(ctx, msg, top 5)
+    K-->>A: relevant passages
+    A->>A: load NumHistoryRuns from storage
+    A->>G: CheckInput(ctx, userMessage)
+    G-->>A: pass / block
+    A->>A: applyOutputSchema + attach tool defs
+    A->>H: Before(EventModelCallBefore)
+    A->>TR: StartSpan("model:…") + Publish(EventModelCall)
+    A->>P: Chat(ctx, req)
+    P-->>A: ChatResponse
+    A->>H: After(EventModelCallAfter) — retry hook may replace output
+    A->>TR: EndSpan + Publish(EventModelResponse)
+    loop while StopReason == tool_call (≤ MaxIterations)
+        A->>T: Execute(tool, args)  [hooks Before/After]
+        T-->>A: tool result
+        A->>P: Chat(ctx, messages + results)
+        P-->>A: ChatResponse
+    end
+    A->>G: CheckOutput(ctx, content)
+    A->>A: validate against OutputSchema
+    A->>M: ExtractMemories(ctx, messages)
+    A-->>U: ChatResponse
+      </pre>
+    </div>
+    <div class="note">The retry hook is special: if <code>Model.Chat</code> errors but the <code>After</code> hook clears the error and supplies a replacement <code>ChatResponse</code>, the agent uses it and continues — this is how transparent retries work.</div>
+  </section>
+
+  <section id="graph">
+    <h2>StateGraph execution &amp; checkpointing</h2>
+    <p class="desc">The durable runner loop. The key durability invariant: the next node is computed <em>before</em> the checkpoint, and the checkpoint plus its ledger event are written together — so a crash resumes at the node that had not yet run.</p>
+    <div class="diagram">
+      <p class="cap">engine/graph/runner.go — run loop</p>
+      <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant R as Runner
+    participant N as Node fn
+    participant TR as Tracer
+    participant B as Broker
+    participant S as Storage
+
+    R->>TR: StartSpan("graph:…")
+    loop while Status == Running
+        alt CurrentNode is EndNode / ""
+            R->>B: emit "completed"
+        else step guard tripped
+            R->>B: emit "error (max steps)"
+            R-->>R: fail (possible cycle)
+        else interrupt node (and not resuming past it)
+            R->>B: emit "interrupt"
+            R->>S: commit(checkpoint = this node, no event)
+            R-->>R: return Status=Paused
+        else executable node
+            R->>TR: StartSpan("node:…")
+            R->>N: callNode(ctx, node, state) [panic-recovered]
+            N-->>R: newState
+            R->>B: emit "node_end"
+            R->>TR: EndSpan(node)
+            R->>R: next = findNext(current, state)
+            R->>S: commit(checkpoint = next, event "node_executed")
+            R->>B: emit "edge_transition" / "completed"
+        end
+    end
+    R->>TR: EndSpan(graph)
+      </pre>
+    </div>
+    <div class="grid cols-3">
+      <div class="card"><h3>Atomic commit</h3><p><code>commit()</code> persists the checkpoint and appends the ordered ledger event in one operation, keeping state and history in sync.</p></div>
+      <div class="card"><h3>Panic recovery</h3><p><code>callNode</code> recovers panics so a bad node fails only its own run — never the process.</p></div>
+      <div class="card"><h3>Cycle guard</h3><p>A step counter bounds the loop; exceeding <code>maxSteps</code> fails the run instead of spinning forever.</p></div>
+    </div>
+  </section>
+
+  <section id="hitl">
+    <h2>Human-in-the-loop: pause &amp; resume</h2>
+    <p class="desc">An interrupt node pauses the run and persists a checkpoint. After a human decision is recorded, <code>Resume</code> advances past that one interrupt exactly once; any downstream interrupt still pauses.</p>
+    <div class="diagram">
+      <p class="cap">engine/graph + os/approval</p>
+      <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    actor Human
+    participant API as ChronosOS API
+    participant AP as Approval Service
+    participant R as Runner
+    participant S as Storage
+
+    R->>S: reach interrupt → commit(checkpoint), Status=Paused
+    Note over R,S: run is now durable; process may exit
+    Human->>API: GET /api/approval/pending
+    API->>AP: HandlePending()
+    AP-->>Human: pending approvals (session, node)
+    Human->>API: POST /api/approval/respond {approve}
+    API->>AP: HandleRespond()
+    AP->>S: record decision
+    API->>R: Resume(ctx, runID, skipFirstInterrupt=true)
+    R->>S: load latest checkpoint
+    R->>R: skip the resumed interrupt once, then run on
+    R-->>API: RunState (Running → Completed)
+      </pre>
+    </div>
+  </section>
+
+  <section id="tools">
+    <h2>Tool call with permission &amp; approval</h2>
+    <p class="desc">When the model requests a tool, the registry consults the tool's permission. Auto-allowed tools run immediately; sensitive tools route through the approval service before executing.</p>
+    <div class="diagram">
+      <p class="cap">engine/tool + os/approval</p>
+      <pre class="mermaid">
+flowchart TD
+    M["Model returns<br/>tool_call"] --> LOOK["Registry.lookup(name)"]
+    LOOK --> PERM{"Permission?"}
+    PERM -->|Allow| RUN["Handler(ctx, args)"]
+    PERM -->|RequireApproval| REQ["Approval.Request"]
+    REQ --> WAIT{"Decision"}
+    WAIT -->|approved| RUN
+    WAIT -->|denied| DENY["return denied result"]
+    RUN --> RES["tool result"]
+    RES --> BACK["append result →<br/>next Model.Chat"]
+    DENY --> BACK
+    classDef n fill:#eff6ff,stroke:#2563eb,color:#1e3a8a;
+    class M,LOOK,RUN,REQ,RES,BACK,DENY n;
+      </pre>
+    </div>
+  </section>
+
+  <section id="mcp">
+    <h2>MCP: connecting to a tool server</h2>
+    <p class="desc">Chronos is an MCP client. It handshakes with a server, imports the advertised tools into the registry, and proxies calls. Two transports share the same client API.</p>
+
+    <h3>stdio transport (local subprocess)</h3>
+    <div class="diagram">
+      <p class="cap">engine/mcp/client.go — TransportStdio</p>
+      <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant AG as Agent
+    participant C as MCP Client
+    participant P as Server process (stdio)
+    AG->>C: ConnectMCP → Connect(ctx)
+    C->>P: spawn command; JSON-RPC "initialize"
+    P-->>C: serverInfo + capabilities
+    C->>P: notify "initialized"
+    AG->>C: ListTools(ctx)
+    C->>P: "tools/list"
+    P-->>C: tools[]
+    C-->>AG: register each tool in Registry
+    AG->>C: CallTool(name, args)
+    C->>P: "tools/call"
+    P-->>C: content
+    C-->>AG: result
+      </pre>
+    </div>
+
+    <h3>HTTP + SSE transport (remote)</h3>
+    <div class="diagram">
+      <p class="cap">engine/mcp/client.go — TransportSSE (MCP 2024-11-05)</p>
+      <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant C as MCP Client
+    participant S as Remote MCP Server
+    C->>S: GET /sse (Accept: text/event-stream)
+    S-->>C: event: endpoint · data: /messages
+    Note over C: background reader parses the stream
+    C->>S: POST /messages {jsonrpc "initialize", id=1}
+    S-->>C: SSE message {id=1, result} (correlated by id)
+    C->>S: POST /messages {"tools/call", id=2}
+    S-->>C: SSE message {id=2, result}
+    Note over C,S: per-call ctx unblocks a pending wait;<br/>Close() cancels the reader + closes idle conns
+      </pre>
+    </div>
+  </section>
+
+  <section id="queue">
+    <h2>Durable work queue</h2>
+    <p class="desc">Runs are enqueued and leased to workers. Heartbeats keep a lease alive; a worker can sleep, park for a signal, retry, or complete. Expired leases are recovered so no run is lost when a worker dies.</p>
+    <div class="diagram">
+      <p class="cap">engine/queue/queue.go</p>
+      <pre class="mermaid">
+stateDiagram-v2
+    [*] --> Queued: Enqueue(run)
+    Queued --> Leased: Dequeue(owner, lease)
+    Leased --> Leased: Heartbeat(extend lease)
+    Leased --> Sleeping: Sleep(delay, patch)
+    Sleeping --> Queued: delay elapses
+    Leased --> Parked: Park(waitSignal, patch)
+    Parked --> Queued: signal / ReleaseAdmissionParked
+    Leased --> Queued: Retry(delay, patch)
+    Leased --> Done: Complete(status)
+    Leased --> Queued: lease expires (orphan recovery)
+    Done --> [*]
+      </pre>
+    </div>
+    <div class="grid cols-2">
+      <div class="card"><h3>Idempotency</h3><p>An idempotency key makes enqueuing the same effect twice a no-op, so retries and resumes never double-emit.</p></div>
+      <div class="card"><h3>Reliable outbox</h3><p>External effects are recorded in an outbox and delivered once, decoupling side effects from the run transaction.</p></div>
+    </div>
+  </section>
+
+  <section id="sandbox">
+    <h2>Sandboxed execution</h2>
+    <p class="desc">All four backends satisfy one interface — <code>Execute(ctx, command, args, timeout) (*Result, error)</code> — so the caller is identical regardless of isolation strength.</p>
+    <div class="diagram">
+      <p class="cap">sandbox/ — NewFromConfig → Execute</p>
+      <pre class="mermaid">
+flowchart LR
+    CFG["Config{Backend}"] --> F{"NewFromConfig"}
+    F -->|process| PR["ProcessSandbox<br/>timeout + process group"]
+    F -->|container| CO["ContainerSandbox<br/>hardened Docker"]
+    F -->|wasm| WA["WASMSandbox<br/>wazero / WASI"]
+    F -->|k8s| K8["K8sJobSandbox<br/>one-shot Job"]
+    PR & CO & WA & K8 --> EX["Execute(ctx, cmd, args, timeout)"]
+    EX --> R["Result{Stdout, Stderr, ExitCode}"]
+    classDef n fill:#eff6ff,stroke:#2563eb,color:#1e3a8a;
+    class PR,CO,WA,K8,EX,R n;
+      </pre>
+    </div>
+  </section>
+
+  <section id="request">
+    <h2>ChronosOS request &amp; tenant isolation</h2>
+    <p class="desc">Requests pass through the middleware chain, where the tenant is derived from the authenticated principal — never from client input — and is then enforced on every storage read.</p>
+    <div class="diagram">
+      <p class="cap">os/server.go — Handler() middleware chain</p>
+      <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    actor Client
+    participant MW as Middleware (auth · tenant · rate-limit · logging)
+    participant Mux as HTTP Mux
+    participant Store as Storage (tenant-scoped)
+    participant Br as Broker
+
+    Client->>MW: HTTP request (+ credentials)
+    MW->>MW: authenticate → principal → WithTenant(ctx)
+    MW->>Mux: dispatch
+    Mux->>Store: query filtered by tenant
+    Store-->>Mux: rows for this tenant only
+    Note over Mux,Store: cross-tenant id lookups resolve to not-found (IDOR closed)
+    Mux-->>Client: JSON
+    Client->>Mux: GET /api/events/stream
+    Mux->>Br: SSEHandler subscribe
+    Br-->>Client: server-sent events
+      </pre>
+    </div>
+  </section>
+</main>
+
+<footer>Chronos architecture documentation · <code>github.com/spawn08/chronos</code></footer>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({
+    startOnLoad: true, theme: 'base',
+    themeVariables: { fontFamily: 'ui-sans-serif, system-ui, sans-serif', primaryColor:'#eef1f5',
+      primaryBorderColor:'#6d28d9', lineColor:'#8892a0', fontSize:'13px',
+      actorBkg:'#f5f0ff', actorBorder:'#7c3aed', actorTextColor:'#3b0764',
+      noteBkgColor:'#fffbeb', noteBorderColor:'#d97706' },
+    sequence: { useMaxWidth: true, mirrorActors: false, wrap: true },
+    flowchart: { curve: 'basis', useMaxWidth: true }
+  });
+</script>
+</body>
+</html>

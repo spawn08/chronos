@@ -170,6 +170,7 @@ OpenAI, Anthropic, Google Gemini, Mistral, Ollama, Azure OpenAI, and any OpenAI-
 
 In-repo feature guides (with detailed run steps) live in **[docs/](docs/)**:
 
+- [Architecture site (HTML)](docs/architecture/index.html) — illustrated layer diagram, sequence diagrams, and internals (open in a browser)
 - [Sandbox backends](docs/sandbox-backends.md) — Process, Container, WASM (WASI), and Kubernetes Job isolation
 - [MCP transports](docs/mcp-transports.md) — connect to MCP servers over stdio and HTTP+SSE
 - [Eval suites](docs/eval-suites.md) — declare and run evaluation suites from YAML or Go

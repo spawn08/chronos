@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chronos Architecture — Overview</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="inner">
+    <span class="brand"><span class="dot"></span>Chronos</span>
+    <nav>
+      <a class="active" href="index.html">Overview</a>
+      <a href="features.html">Features</a>
+      <a href="flows.html">Sequence Diagrams</a>
+      <a href="internals.html">Internals</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="hero">
+    <p class="eyebrow">Architecture Guide</p>
+    <h1>Chronos — Durable, Scalable AI Agents in Go</h1>
+    <p class="lead">Chronos is a Go framework for building agentic systems that survive restarts, scale horizontally, and stay observable. It is organised as four cooperating layers — a control plane, a durable runtime, a user-facing SDK, and pluggable storage.</p>
+  </div>
+
+  <section id="layers">
+    <h2>The Four Layers</h2>
+    <p class="desc">Each layer depends only on the layer below it through interfaces. You can swap any implementation — storage backend, model provider, sandbox — without touching the layers above.</p>
+
+    <div class="diagram">
+      <p class="cap">Top-down layer architecture and the interfaces that connect them</p>
+      <pre class="mermaid">
+flowchart TB
+    subgraph OS["🛡️ ChronosOS · os/ — Control Plane"]
+      direction LR
+      AUTH["Auth / RBAC"]:::os
+      TRACE["Tracing + Audit"]:::os
+      APPR["Approval (HITL)"]:::os
+      API["HTTP API + SSE"]:::os
+      SCHED["Scheduler"]:::os
+    end
+    subgraph ENGINE["⚙️ Engine · engine/ — Runtime"]
+      direction LR
+      GRAPH["StateGraph Runner"]:::engine
+      MODEL["Model Providers"]:::engine
+      TOOLS["Tool Registry"]:::engine
+      HOOKS["Hooks + Guardrails"]:::engine
+      QUEUE["Durable Queue"]:::engine
+      MCP["MCP Client"]:::engine
+      STREAM["Stream Broker"]:::engine
+    end
+    subgraph SDK["🧩 SDK · sdk/ — User-Facing"]
+      direction LR
+      AGENT["Agent Builder"]:::sdk
+      TEAM["Teams"]:::sdk
+      MEM["Memory"]:::sdk
+      KNOW["Knowledge (RAG)"]:::sdk
+      SKILL["Skills"]:::sdk
+    end
+    subgraph STORE["💾 Storage · storage/ — Persistence"]
+      direction LR
+      SQL["SQL: SQLite / Postgres"]:::storage
+      NOSQL["NoSQL: Mongo / Dynamo / Redis"]:::storage
+      VEC["Vector: Qdrant / pgvector / Pinecone …"]:::storage
+    end
+
+    OS --> ENGINE --> SDK
+    ENGINE --> STORE
+    SDK --> STORE
+    SANDBOX["🔒 Sandbox · sandbox/<br/>Process · Container · WASM · K8s Job"]:::engine
+    ENGINE -.runs untrusted code.-> SANDBOX
+
+    classDef os fill:#f5f0ff,stroke:#7c3aed,color:#4c1d95;
+    classDef engine fill:#eff6ff,stroke:#2563eb,color:#1e3a8a;
+    classDef sdk fill:#ecfdf5,stroke:#059669,color:#065f46;
+    classDef storage fill:#fffbeb,stroke:#d97706,color:#92400e;
+      </pre>
+    </div>
+
+    <div class="grid cols-4">
+      <div class="card layer-os"><span class="pill os">os/</span><h3>ChronosOS</h3><p>Control plane: authentication, RBAC, span/audit tracing, human approval, the dashboard HTTP API, SSE streaming, and scheduling.</p></div>
+      <div class="card layer-engine"><span class="pill engine">engine/</span><h3>Engine</h3><p>The runtime: durable StateGraph execution, model providers, the tool registry, hooks/guardrails, the durable work queue, MCP, and the event broker.</p></div>
+      <div class="card layer-sdk"><span class="pill sdk">sdk/</span><h3>SDK</h3><p>What developers touch: the fluent agent builder, multi-agent teams, short/long-term memory, RAG knowledge, and versioned skills.</p></div>
+      <div class="card layer-storage"><span class="pill storage">storage/</span><h3>Storage</h3><p>Pluggable persistence behind two interfaces — <code>Storage</code> (relational) and <code>VectorStore</code> (embeddings) — with 14 adapters.</p></div>
+    </div>
+  </section>
+
+  <section id="lifecycle">
+    <h2>Request Lifecycle</h2>
+    <p class="desc">A high-level view of how a single request flows from the control plane through the runtime and back, touching persistence and streaming along the way.</p>
+    <div class="diagram">
+      <p class="cap">End-to-end path of an agent request</p>
+      <pre class="mermaid">
+flowchart LR
+    C([Client]) --> API["ChronosOS<br/>HTTP API"]
+    API -->|authenticated<br/>principal → tenant| MW["Middleware<br/>auth · tenant · rate-limit"]
+    MW --> AG["Agent.Chat / Run"]
+    AG --> GR["StateGraph<br/>Runner"]
+    GR --> NODE["Node fn"]
+    NODE --> MODEL["Model Provider"]
+    NODE --> TOOLS["Tools"]
+    GR -->|checkpoint +<br/>event ledger| ST[("Storage")]
+    GR -->|events| BR["Stream Broker"]
+    BR -->|SSE| C
+    AG -.spans.-> TR["Trace Collector"]
+    TR --> ST
+    classDef n fill:#eff6ff,stroke:#2563eb,color:#1e3a8a;
+    class API,MW,AG,GR,NODE,MODEL,TOOLS,BR,TR n;
+      </pre>
+    </div>
+  </section>
+
+  <section id="packages">
+    <h2>Package Map</h2>
+    <p class="desc">Where each capability lives in the module <code>github.com/spawn08/chronos</code>.</p>
+    <table>
+      <thead><tr><th>Capability</th><th>Package</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td>Agent builder</td><td><code>sdk/agent/</code></td><td>Fluent <code>agent.New().WithModel().Build()</code> API</td></tr>
+        <tr><td>Teams</td><td><code>sdk/team/</code></td><td>Sequential, parallel, router, coordinator orchestration + protocol bus</td></tr>
+        <tr><td>Memory</td><td><code>sdk/memory/</code></td><td>Short/long-term memory and an LLM-powered manager</td></tr>
+        <tr><td>Knowledge</td><td><code>sdk/knowledge/</code></td><td>RAG: <code>Knowledge</code> interface + <code>VectorKnowledge</code></td></tr>
+        <tr><td>StateGraph</td><td><code>engine/graph/</code></td><td>Durable graph runtime: nodes, edges, checkpoints, resume</td></tr>
+        <tr><td>Models</td><td><code>engine/model/</code></td><td><code>Provider</code>, <code>EmbeddingsProvider</code>, caching</td></tr>
+        <tr><td>Tools</td><td><code>engine/tool/</code></td><td>Registry with permissions + approval hooks</td></tr>
+        <tr><td>Hooks / Guardrails</td><td><code>engine/hooks/</code>, <code>engine/guardrails/</code></td><td>Middleware chain; input/output validation</td></tr>
+        <tr><td>Durable queue</td><td><code>engine/queue/</code></td><td>Leased workers, heartbeats, outbox, idempotency</td></tr>
+        <tr><td>MCP client</td><td><code>engine/mcp/</code></td><td>Model Context Protocol over stdio and HTTP+SSE</td></tr>
+        <tr><td>Streaming</td><td><code>engine/stream/</code></td><td>SSE event <code>Broker</code></td></tr>
+        <tr><td>Control plane</td><td><code>os/</code></td><td>HTTP server, auth, tracing, approval, scheduler, metrics</td></tr>
+        <tr><td>Sandbox</td><td><code>sandbox/</code></td><td>Process, Container, WASM, and Kubernetes Job isolation</td></tr>
+        <tr><td>Storage</td><td><code>storage/</code></td><td><code>Storage</code> + <code>VectorStore</code> interfaces and 14 adapters</td></tr>
+        <tr><td>CLI</td><td><code>cli/</code></td><td>Interactive REPL + headless commands</td></tr>
+        <tr><td>Evals</td><td><code>evals/</code></td><td>Accuracy, performance, reliability suites (YAML or Go)</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="principles">
+    <h2>Design Principles</h2>
+    <div class="grid cols-3">
+      <div class="card accent-top"><h3>Durable by default</h3><p>Every graph step writes a checkpoint and an ordered event to the ledger in one transaction, so a run resumes exactly where it stopped after a crash.</p></div>
+      <div class="card accent-top"><h3>Interface segregation</h3><p>Relational <code>Storage</code> is separate from <code>VectorStore</code>; providers, guardrails, hooks, and sandboxes are all small interfaces you can implement.</p></div>
+      <div class="card accent-top"><h3>Adapter everywhere</h3><p>Backends are chosen by config and swapped without code changes — SQLite in dev, Postgres in prod, any of five vector stores for RAG.</p></div>
+      <div class="card accent-top"><h3>Safe execution</h3><p>Untrusted tool/skill code runs behind the <code>Sandbox</code> interface with hardened container, WASM, and Kubernetes Job backends.</p></div>
+      <div class="card accent-top"><h3>Observable</h3><p>The runner emits stream events and opens trace spans around the graph and every node; the control plane exposes them over SSE and Prometheus.</p></div>
+      <div class="card accent-top"><h3>Multi-tenant</h3><p>Tenant identity is carried in <code>context</code>, stamped on every write, and enforced on reads — cross-tenant id lookups resolve to not-found.</p></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  Chronos architecture documentation · <code>github.com/spawn08/chronos</code> · generated for the repository <code>docs/architecture/</code>.
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+      primaryColor: '#eef1f5', primaryBorderColor: '#6d28d9', primaryTextColor: '#1f2328',
+      lineColor: '#8892a0', fontSize: '14px'
+    },
+    flowchart: { curve: 'basis', useMaxWidth: true },
+    sequence: { useMaxWidth: true, mirrorActors: false }
+  });
+</script>
+</body>
+</html>
