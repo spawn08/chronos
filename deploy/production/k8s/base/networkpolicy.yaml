@@ -1,0 +1,85 @@
+# Default-deny for the namespace, then explicit allows. Requires a CNI that
+# enforces NetworkPolicy (Calico, Cilium, Azure NPM, GKE dataplane v2, etc.).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: chronos
+  labels:
+    app.kubernetes.io/name: chronos
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress", "Egress"]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: chronos-os-allow
+  namespace: chronos
+  labels:
+    app.kubernetes.io/name: chronos
+    app: chronos-os
+spec:
+  podSelector:
+    matchLabels:
+      app: chronos-os
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    # Ingress controller traffic to :8420.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - port: 8420
+          protocol: TCP
+    # Prometheus scraping /metrics.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+      ports:
+        - port: 8420
+          protocol: TCP
+  egress:
+    # DNS.
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Postgres (CNPG) and its pooler.
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: chronos-cluster
+      ports:
+        - port: 5432
+          protocol: TCP
+    # Redis.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - port: 6379
+          protocol: TCP
+    # OTLP export to the collector in the observability namespace.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+      ports:
+        - port: 4318
+          protocol: TCP
+    # HTTPS egress for JWKS fetch / external IdP.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.169.254/32   # block cloud metadata endpoint
+      ports:
+        - port: 443
+          protocol: TCP

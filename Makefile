@@ -124,6 +124,36 @@ docker-run: ## Run the Docker container locally
 	docker run --rm -p 8420:8420 $(DOCKER_IMAGE):$(DOCKER_TAG)
 
 # ──────────────────────────────────────────────────────────────
+# Local development
+# ──────────────────────────────────────────────────────────────
+
+COMPOSE_LOCAL := deploy/local/docker-compose.yml
+
+.PHONY: dev-up
+dev-up: ## Build + start the local stack (chronos+postgres+prometheus+grafana)
+	docker compose -f $(COMPOSE_LOCAL) up -d --build
+
+.PHONY: dev-down
+dev-down: ## Stop and remove the local stack (keeps data volumes)
+	docker compose -f $(COMPOSE_LOCAL) down
+
+.PHONY: dev-logs
+dev-logs: ## Tail logs from the local stack
+	docker compose -f $(COMPOSE_LOCAL) logs -f
+
+.PHONY: dev-ps
+dev-ps: ## List local stack containers
+	docker compose -f $(COMPOSE_LOCAL) ps
+
+.PHONY: dev-restart
+dev-restart: ## Restart the local stack (pick up .env changes)
+	docker compose -f $(COMPOSE_LOCAL) restart
+
+.PHONY: dev-clean
+dev-clean: ## Stop the local stack and remove named volumes (wipe data)
+	docker compose -f $(COMPOSE_LOCAL) down -v
+
+# ──────────────────────────────────────────────────────────────
 # Release
 # ──────────────────────────────────────────────────────────────
 

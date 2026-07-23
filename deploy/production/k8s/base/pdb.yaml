@@ -1,0 +1,16 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: chronos-os
+  namespace: chronos
+  labels:
+    app.kubernetes.io/name: chronos
+    app: chronos-os
+spec:
+  # Keep at least 75% of pods running during voluntary disruptions (node
+  # drains, cluster upgrades). Combined with maxUnavailable:0 rollouts, this
+  # guarantees zero-downtime maintenance.
+  minAvailable: 75%
+  selector:
+    matchLabels:
+      app: chronos-os

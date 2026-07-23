@@ -1,0 +1,21 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: chronos-os
+  namespace: chronos
+  labels:
+    app.kubernetes.io/name: chronos
+    app: chronos-os
+    # Match kube-prometheus-stack's serviceMonitorSelector.
+    release: kube-prometheus-stack
+spec:
+  namespaceSelector:
+    matchNames: ["chronos"]
+  selector:
+    matchLabels:
+      app: chronos-os
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s

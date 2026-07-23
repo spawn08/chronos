@@ -59,13 +59,17 @@ flowchart TB
 ## Installation
 
 ```bash
-# Build from source
-make build
-# Binary available at bin/chronos
+# Recommended: install the released binary onto your PATH
+curl -fsSL https://raw.githubusercontent.com/spawn08/chronos/main/install.sh | bash
 
-# Or run directly
-go run ./cli/main.go help
+# Or build from source
+make install          # installs `chronos` to $GOPATH/bin
+make build            # or just build a local binary at bin/chronos
+
+chronos help
 ```
+
+See [Installation](/getting-started/installation/) for all options.
 
 ## Commands
 

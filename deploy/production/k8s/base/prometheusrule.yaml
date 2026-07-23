@@ -1,0 +1,60 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: chronos-os
+  namespace: chronos
+  labels:
+    app.kubernetes.io/name: chronos
+    app: chronos-os
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: chronos.slo
+      rules:
+        - alert: ChronosHighErrorRate
+          expr: |
+            sum(rate(chronos_http_requests_total{namespace="chronos",code=~"5.."}[5m]))
+              / sum(rate(chronos_http_requests_total{namespace="chronos"}[5m])) > 0.01
+          for: 5m
+          labels: {severity: critical}
+          annotations:
+            summary: "ChronosOS 5xx error rate > 1%"
+            description: "5xx ratio {{ $value | humanizePercentage }} over 5m."
+        - alert: ChronosHighLatencyP99
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(chronos_http_request_duration_seconds_bucket{namespace="chronos"}[5m])) by (le)
+            ) > 0.3
+          for: 10m
+          labels: {severity: critical}
+          annotations:
+            summary: "ChronosOS p99 latency > 300ms"
+            description: "p99 request latency is {{ $value }}s over 10m."
+        - alert: ChronosPodsNotReady
+          expr: |
+            sum(kube_deployment_status_replicas_ready{namespace="chronos",deployment="chronos-os"})
+              / sum(kube_deployment_spec_replicas{namespace="chronos",deployment="chronos-os"}) < 0.75
+          for: 5m
+          labels: {severity: critical}
+          annotations:
+            summary: "Less than 75% of ChronosOS pods ready"
+        - alert: ChronosScheduleBacklog
+          expr: chronos_scheduler_due_backlog{namespace="chronos"} > 50
+          for: 5m
+          labels: {severity: critical}
+          annotations:
+            summary: "ChronosOS scheduler backlog building"
+            description: "Due schedules not being claimed/fired (store-backed scheduler stalled)."
+        - alert: ChronosDBPoolSaturation
+          expr: pgbouncer_pools_client_waiting_connections{namespace="chronos"} > 0
+          for: 5m
+          labels: {severity: warning}
+          annotations:
+            summary: "PgBouncer clients waiting for a server connection"
+            description: "Increase pooler default_pool_size or Postgres max_connections."
+        - alert: ChronosRedisDown
+          expr: redis_up{namespace="chronos"} == 0
+          for: 2m
+          labels: {severity: warning}
+          annotations:
+            summary: "Redis (shared rate-limit/scheduler-lease/approval) unreachable"

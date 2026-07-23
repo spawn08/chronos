@@ -18,7 +18,7 @@ Both `.yaml` and `.yml` extensions are supported. To force a specific file:
 
 ```bash
 export CHRONOS_CONFIG=/path/to/agents.yaml
-go run ./cli/main.go repl
+chronos repl
 ```
 
 ## Full YAML structure
@@ -113,6 +113,37 @@ teams:
 |-------|-------------|
 | `backend` | `sqlite` or `postgres` |
 | `dsn` | Connection string or file path (e.g., `chronos.db` for SQLite) |
+
+## Server storage environment variables
+
+`chronos serve` (ChronosOS) selects its storage backend from environment
+variables. The server uses **exactly one backend at a time**.
+
+| Variable | Values / example | Purpose |
+|----------|------------------|---------|
+| `CHRONOS_STORAGE_BACKEND` | `sqlite` (default), `postgres`, `redis` | Which storage backend the server uses |
+| `CHRONOS_DB_PATH` | `chronos.db` | SQLite file path (when backend = `sqlite`) |
+| `CHRONOS_STORAGE_DSN` | `postgres://user:pass@host:5432/chronos?sslmode=disable` | Postgres connection string (when backend = `postgres`) |
+| `CHRONOS_REDIS_URL` | `redis://host:6379/0` | Redis connection URL (when backend = `redis`) |
+
+:::note Redis is a storage backend only
+When `CHRONOS_STORAGE_BACKEND=redis`, Redis is used **only** as a durable-storage
+backend. It is **not** used for scheduling or rate limiting.
+:::
+
+### Shared state (scheduler + rate limiter)
+
+`CHRONOS_SHARED_STATE` controls whether the server uses store-backed shared
+coordination: a scheduler where each cron job fires **exactly once across all
+replicas**, and a **cluster-wide** SQL rate limiter.
+
+| Backend | Default | Behaviour |
+|---------|---------|-----------|
+| `postgres` | on | Store-backed exactly-once scheduler + shared SQL rate limiter, automatically. Set `CHRONOS_SHARED_STATE=false` to opt out. |
+| `sqlite` | off | Single-node. Set `CHRONOS_SHARED_STATE=true` to enable it. |
+| `redis` | n/a | Never gets the shared scheduler or rate limiter, regardless of this value. |
+
+For a ready-to-run local Postgres stack, see [Local Development](/getting-started/local-development/).
 
 ## MCP servers (`mcp_servers`)
 

@@ -146,7 +146,7 @@ GOOGLE_CLOUD_PROJECT=my-project GOOGLE_ACCESS_TOKEN=$(gcloud auth print-access-t
   go run ./examples/team_deploy/
 
 # Or via the CLI:
-go run ./cli/main.go deploy examples/team_deploy/deploy.yaml "Add error handling to the API"
+chronos deploy examples/team_deploy/deploy.yaml "Add error handling to the API"
 ```
 
 **Demonstrates:**

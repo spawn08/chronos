@@ -1,0 +1,29 @@
+# Copy to terraform.tfvars and edit. Targets an EXISTING managed cluster.
+
+kubeconfig_path = "~/.kube/config"
+kube_context    = "my-prod-aks"        # e.g. arn:aws:eks:...:cluster/prod, gke_proj_zone_prod
+
+namespace = "chronos"
+
+chronos_image_repository = "ghcr.io/spawn08/chronos"
+chronos_image_tag        = "0.1.0"
+chronos_host             = "chronos.prod.example.com"
+
+# Set false if your platform team manages operators centrally.
+install_operators = true
+
+# Use KEDA (RPS-primary autoscaling). false => plain HPA fallback.
+enable_keda = true
+
+manifests_path = "../k8s"
+
+# Pinned chart versions (override only to bump deliberately).
+chart_versions = {
+  ingress_nginx         = "4.11.3"
+  cert_manager          = "v1.16.2"
+  external_secrets      = "0.10.5"
+  keda                  = "2.16.0"
+  cloudnative_pg        = "0.22.1"
+  redis                 = "20.2.1"
+  kube_prometheus_stack = "65.5.1"
+}

@@ -1,0 +1,37 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: chronos-os
+  namespace: chronos
+  labels:
+    app.kubernetes.io/name: chronos
+    app: chronos-os
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # Mirror the server's 1 MiB body limit at the edge.
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+    # SSE (/api/events/stream) needs buffering off and long read timeouts.
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    # Coarse edge DoS shield (app-level shared limit is the real quota).
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/limit-connections: "50"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - chronos.example.com
+      secretName: chronos-tls
+  rules:
+    - host: chronos.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: chronos-os
+                port:
+                  number: 8420

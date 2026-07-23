@@ -1,0 +1,16 @@
+# Daily base backup at 02:00 UTC. Combined with continuous WAL archiving this
+# gives RPO ~ minutes and point-in-time recovery within the 30d retention.
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: chronos-daily-backup
+  namespace: chronos
+  labels:
+    app.kubernetes.io/name: chronos
+    app.kubernetes.io/component: database
+spec:
+  schedule: "0 0 2 * * *"   # CNPG uses 6-field cron (sec min hour dom mon dow)
+  backupOwnerReference: self
+  cluster:
+    name: chronos-cluster
+  method: barmanObjectStore

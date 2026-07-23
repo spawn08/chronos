@@ -1,0 +1,14 @@
+# Grafana dashboard provisioning — auto-loads JSON from the mounted folder.
+apiVersion: 1
+
+providers:
+  - name: chronos-local
+    orgId: 1
+    folder: Chronos
+    type: file
+    disableDeletion: false
+    allowUiUpdates: true
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false

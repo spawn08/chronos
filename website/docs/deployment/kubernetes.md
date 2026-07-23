@@ -155,6 +155,17 @@ helm install chronos deploy/helm/chronos/ \
 | Logging | Structured JSON logs to stdout |
 | Monitoring | Export metrics via `/metrics` endpoint |
 
+## Production example
+
+A complete, opinionated production manifest set — PostgreSQL storage, JWT/JWKS
+authentication, TLS termination at the ingress, HPA, and liveness/readiness
+probes wired to `/health/live` and `/health/ready` — lives in
+[`deploy/production/`](https://github.com/spawn08/chronos/tree/main/deploy/production)
+in the repository. Start from it rather than duplicating the Helm values above.
+See [The ChronosOS Server](/guides/server) and
+[Authentication & Authorization](/guides/authentication) for what those manifests
+configure.
+
 ## Upgrading
 
 ```bash

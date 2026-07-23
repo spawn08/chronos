@@ -36,15 +36,18 @@ go get github.com/spawn08/chronos
 ```bash
 git clone https://github.com/spawn08/chronos.git
 cd chronos
-make build    # outputs to bin/chronos
+make install  # installs the `chronos` binary to $GOPATH/bin (on your PATH)
 ```
 
-Or directly:
+Or build a local binary without installing:
 
 ```bash
-go build -o chronos ./cli/main.go
-./chronos version
+make build       # outputs to bin/chronos
+./bin/chronos version
 ```
+
+Ensure `$GOPATH/bin` (usually `~/go/bin`) is on your `PATH` so the `chronos`
+command resolves after `make install`.
 
 ## Verify
 

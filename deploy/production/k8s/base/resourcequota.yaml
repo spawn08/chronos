@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: chronos-quota
+  namespace: chronos
+  labels:
+    app.kubernetes.io/name: chronos
+spec:
+  hard:
+    # Sized for maxReplicas=90 app pods (2 CPU / 1Gi limit each) plus PG/Redis
+    # headroom. Adjust with your capacity plan.
+    requests.cpu: "60"
+    requests.memory: 80Gi
+    limits.cpu: "200"
+    limits.memory: 160Gi
+    pods: "200"
+    persistentvolumeclaims: "20"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: chronos-limits
+  namespace: chronos
+  labels:
+    app.kubernetes.io/name: chronos
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: "1"
+        memory: 512Mi
+      defaultRequest:
+        cpu: 250m
+        memory: 256Mi
+      max:
+        cpu: "4"
+        memory: 2Gi

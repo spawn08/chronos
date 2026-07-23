@@ -1,0 +1,50 @@
+# PgBouncer connection poolers (CloudNativePG Pooler). Transaction mode
+# multiplexes thousands of short app transactions onto a small server pool.
+#
+# Two poolers: -rw (writes → primary) and -ro (reads → replicas). The app DSN
+# points at chronos-pooler-rw; the optional read-offload DSN points at
+# chronos-pooler-ro. See README §6/§7.
+apiVersion: postgresql.cnpg.io/v1
+kind: Pooler
+metadata:
+  name: chronos-pooler-rw
+  namespace: chronos
+  labels:
+    app.kubernetes.io/name: chronos
+    app.kubernetes.io/component: db-pooler
+spec:
+  cluster:
+    name: chronos-cluster
+  instances: 3
+  type: rw
+  pgbouncer:
+    poolMode: transaction
+    parameters:
+      max_client_conn: "2000"
+      default_pool_size: "25"
+      reserve_pool_size: "5"
+      reserve_pool_timeout: "3"
+      server_idle_timeout: "120"
+  monitoring:
+    enablePodMonitor: true
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Pooler
+metadata:
+  name: chronos-pooler-ro
+  namespace: chronos
+  labels:
+    app.kubernetes.io/name: chronos
+    app.kubernetes.io/component: db-pooler
+spec:
+  cluster:
+    name: chronos-cluster
+  instances: 2
+  type: ro
+  pgbouncer:
+    poolMode: transaction
+    parameters:
+      max_client_conn: "2000"
+      default_pool_size: "25"
+  monitoring:
+    enablePodMonitor: true

@@ -1,0 +1,80 @@
+# CloudNativePG Cluster: 1 primary + 2 replicas across 3 AZs, continuous WAL
+# archiving to object storage, Prometheus monitoring. Cloud-neutral: swap the
+# barmanObjectStore endpoint/credentials per cloud (S3 / GCS / Azure Blob).
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: chronos-cluster
+  namespace: chronos
+  labels:
+    app.kubernetes.io/name: chronos
+    app.kubernetes.io/component: database
+spec:
+  instances: 3
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.4
+
+  primaryUpdateStrategy: unsupervised
+
+  postgresql:
+    parameters:
+      max_connections: "200"
+      shared_buffers: 4GB
+      effective_cache_size: 12GB
+      work_mem: 16MB
+      maintenance_work_mem: 512MB
+      wal_compression: "on"
+      max_wal_size: 4GB
+      # Async replication (RPO ~ seconds). For zero-RPO writes on critical
+      # paths, set synchronous_commit=on and configure a sync standby below.
+      synchronous_commit: "on"
+
+  # Spread instances across zones + nodes.
+  affinity:
+    topologyKey: topology.kubernetes.io/zone
+    podAntiAffinityType: required
+
+  bootstrap:
+    initdb:
+      database: chronos
+      owner: chronos
+      # Credentials come from a Secret managed by ExternalSecrets, not here.
+      secret:
+        name: chronos-db-app
+
+  storage:
+    size: 100Gi
+    storageClass: ""   # use the cluster default (portable); set per cloud if needed
+
+  walStorage:
+    size: 20Gi
+
+  resources:
+    requests:
+      cpu: "2"
+      memory: 8Gi
+    limits:
+      cpu: "4"
+      memory: 16Gi
+
+  monitoring:
+    enablePodMonitor: true
+
+  # Continuous backup: WAL + base backups to object storage. See README for the
+  # per-cloud destinationPath / credentials wiring.
+  backup:
+    retentionPolicy: "30d"
+    barmanObjectStore:
+      destinationPath: "s3://chronos-pg-backups/chronos-cluster"
+      # endpointURL: set for GCS/Azure/S3-compatible; omit for native AWS S3.
+      s3Credentials:
+        accessKeyId:
+          name: chronos-backup-creds
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: chronos-backup-creds
+          key: SECRET_ACCESS_KEY
+      wal:
+        compression: gzip
+        maxParallel: 4
+      data:
+        compression: gzip

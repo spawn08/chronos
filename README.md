@@ -189,6 +189,32 @@ Full docs at **[spawn08.github.io/chronos](https://spawn08.github.io/chronos/)**
 
 ---
 
+## Server & API
+
+`chronos serve [addr]` (default `:8420`) starts **ChronosOS** — the control-plane
+HTTP server. It exposes a REST API over sessions, checkpoints, traces, schedules,
+and human-in-the-loop approvals, plus a live SSE event stream, Prometheus metrics,
+health/readiness probes, and an interactive **Swagger UI**. It is hardened by
+default (timeouts, body limits, panic recovery, CORS, rate limiting, graceful
+shutdown) and stateless, so you can run many replicas behind a load balancer.
+
+```bash
+chronos serve :8420
+open http://localhost:8420/swagger/     # interactive API explorer
+```
+
+Authentication is **opt-in** (`CHRONOS_AUTH=none|jwt|apikey`) with JWT
+(HS256/RS256/JWKS/OIDC) or API keys and per-tenant isolation. Role enforcement is
+opt-in too (`CHRONOS_RBAC=true` → `admin > user > viewer`), and the Swagger UI can
+be disabled on hardened deployments with `CHRONOS_SWAGGER=false`.
+
+- [ChronosOS Server](https://spawn08.github.io/chronos/guides/server/) — start, configure, and operate the control plane
+- [REST API Reference](https://spawn08.github.io/chronos/api/rest-api/) — every endpoint with curl examples
+- [Authentication & Authorization](https://spawn08.github.io/chronos/guides/authentication/) — JWT, API keys, RBAC, tenants
+- **Swagger UI** at `/swagger/` · OpenAPI JSON at `/swagger/doc.json`
+
+---
+
 ## Roadmap
 
 Active development tracked in [ROADMAP.md](ROADMAP.md). Key upcoming work:

@@ -1,0 +1,167 @@
+# ──────────────────────────────────────────────────────────────
+# Chronos — local development + deployment stack
+#
+# One-command local mirror of the production platform: the real
+# chronos server running on Postgres (which unlocks the cross-replica
+# store-backed scheduler + shared SQL rate limiter), plus a local
+# observability stack (Prometheus + Grafana).
+#
+#   cp .env.example .env
+#   docker compose -f deploy/local/docker-compose.yml up -d --build
+#     (or: make dev-up)
+#
+# See README.md in this directory for details.
+# ──────────────────────────────────────────────────────────────
+
+name: chronos-local
+
+services:
+  # ── Chronos server (Postgres-backed by default) ───────────────
+  chronos:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        VERSION: local
+        COMMIT: dev
+    image: chronos:local
+    container_name: chronos
+    restart: unless-stopped
+    ports:
+      - "8420:8420"
+    env_file:
+      # Optional: the stack runs on the inline defaults below without a .env.
+      # Copy .env.example to .env to override (auth, backend, credentials).
+      - path: .env
+        required: false
+    environment:
+      # Defaults here are a safety net if .env is missing a key; .env wins.
+      CHRONOS_STORAGE_BACKEND: ${CHRONOS_STORAGE_BACKEND:-postgres}
+      CHRONOS_STORAGE_DSN: ${CHRONOS_STORAGE_DSN:-postgres://chronos:chronos@postgres:5432/chronos?sslmode=disable}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # The runtime image is alpine (see deploy/docker/Dockerfile) which ships
+    # BusyBox `wget`, so we probe /health/ready over HTTP. There is no
+    # `chronos health` subcommand.
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8420/health/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    # Graceful drain: server shuts down cleanly on SIGTERM.
+    stop_signal: SIGTERM
+    stop_grace_period: 30s
+    networks:
+      - chronos
+    labels:
+      com.chronos.stack: local
+      com.chronos.role: server
+
+  # ── Postgres (primary storage backend) ────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: chronos-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-chronos}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chronos}
+      POSTGRES_DB: ${POSTGRES_DB:-chronos}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-chronos} -d ${POSTGRES_DB:-chronos}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - chronos
+    labels:
+      com.chronos.stack: local
+      com.chronos.role: database
+
+  # ── Redis (ALTERNATIVE storage backend — opt-in via profile) ──
+  # Redis is a FULL STORAGE BACKEND ONLY in Chronos: it does NOT provide
+  # the shared scheduler or shared rate limiter (those need Postgres).
+  # It is not used alongside Postgres. Enable with `--profile redis` and
+  # set CHRONOS_STORAGE_BACKEND=redis + CHRONOS_REDIS_URL in .env.
+  redis:
+    image: redis:7-alpine
+    container_name: chronos-redis
+    restart: unless-stopped
+    profiles: ["redis"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - chronos
+    labels:
+      com.chronos.stack: local
+      com.chronos.role: cache-backend
+
+  # ── Prometheus (scrapes chronos:8420/metrics) ─────────────────
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: chronos-prometheus
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=7d"
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      - chronos
+    networks:
+      - chronos
+    labels:
+      com.chronos.stack: local
+      com.chronos.role: metrics
+
+  # ── Grafana (provisioned datasource + dashboard) ──────────────
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: chronos-grafana
+    restart: unless-stopped
+    environment:
+      # DEV ONLY — anonymous-friendly admin/admin. Do not use in production.
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - chronos
+    labels:
+      com.chronos.stack: local
+      com.chronos.role: dashboards
+
+networks:
+  chronos:
+    name: chronos-local
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+  prometheus-data:
+  grafana-data:

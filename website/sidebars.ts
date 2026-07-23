@@ -14,6 +14,7 @@ const sidebars: SidebarsConfig = {
         'getting-started/installation',
         'getting-started/cli-install',
         'getting-started/quickstart',
+        'getting-started/local-development',
         'getting-started/configuration',
       ],
     },
@@ -65,6 +66,8 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Deployment',
       items: [
+        'guides/server',
+        'guides/authentication',
         'guides/scaling-best-practices',
         'deployment/docker',
         'deployment/kubernetes',
@@ -83,7 +86,7 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'API Reference',
-      items: ['api/interfaces', 'api/agent-builder', 'api/cli'],
+      items: ['api/interfaces', 'api/agent-builder', 'api/cli', 'api/rest-api'],
     },
   ],
 };

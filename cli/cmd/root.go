@@ -21,7 +21,11 @@ import (
 	"github.com/spawn08/chronos/sdk/agent"
 	"github.com/spawn08/chronos/sdk/team"
 	"github.com/spawn08/chronos/storage"
+	"github.com/spawn08/chronos/storage/adapters/postgres"
+	"github.com/spawn08/chronos/storage/adapters/redis"
 	"github.com/spawn08/chronos/storage/adapters/sqlite"
+
+	goredis "github.com/redis/go-redis/v9"
 )
 
 // Build-time variables set via -ldflags.
@@ -142,8 +146,33 @@ Agent Configuration:
 
 Environment:
   CHRONOS_CONFIG    Path to agents YAML config file
-  CHRONOS_DB_PATH   SQLite database path (default: chronos.db)
-  CHRONOS_API_KEY   Default API key for model providers`)
+  CHRONOS_API_KEY   Default API key for model providers
+
+Storage (default: SQLite — fully backward compatible):
+  CHRONOS_STORAGE_BACKEND  sqlite (default) | postgres | redis
+  CHRONOS_DB_PATH          SQLite database path (default: chronos.db) [sqlite]
+  CHRONOS_STORAGE_DSN      Postgres DSN [postgres]; redis URL fallback [redis]
+  CHRONOS_REDIS_URL        redis://[user:pass@]host:port/db [redis backend]
+
+Cross-replica scheduling & rate limiting (serve):
+  CHRONOS_SHARED_STATE  For SQL backends, use a store-backed scheduler (cron
+                        fires exactly once across replicas) and a shared SQL
+                        rate limiter (cluster-wide limits). Enabled by default
+                        for postgres; set true to opt SQLite in, false to opt
+                        postgres out. Redis has no SQL-backed shared limiter,
+                        so it keeps per-replica in-process limits.
+
+Serve auth (opt-in; default is no auth):
+  CHRONOS_AUTH          none | jwt | apikey (default: none)
+  CHRONOS_JWT_SECRET    HS256 shared secret (jwt mode)
+  CHRONOS_JWT_ISSUER    Enforced "iss" claim (jwt mode, optional)
+  CHRONOS_JWT_AUDIENCE  Enforced "aud" claim (jwt mode, optional)
+  CHRONOS_JWT_JWKS_URL  OIDC/JWKS endpoint for RS256 (jwt mode)
+  CHRONOS_API_KEYS      Comma list of "key:role:tenant" (apikey mode; key must not contain ':' or ',')
+  CHRONOS_CORS_ORIGINS  Comma list of allowed CORS origins
+  CHRONOS_RBAC          true = enforce role checks on /api/* (GET=viewer, writes=user; needs auth)
+  CHRONOS_SWAGGER       false = disable the /swagger UI + OpenAPI spec (default: enabled)
+  Swagger UI is served at /swagger/ (reachable without auth) unless disabled.`)
 	return nil
 }
 
@@ -156,14 +185,130 @@ func printVersion() error {
 	return nil
 }
 
-func openStore() (*sqlite.Store, error) {
-	dbPath := os.Getenv("CHRONOS_DB_PATH")
-	if dbPath == "" {
-		dbPath = "chronos.db"
+// Storage-selection environment variables. openStore reads them via the
+// injected map in resolveStorageConfig so backend selection stays pure and
+// unit-testable without opening a real database.
+const (
+	envStorageBackend = "CHRONOS_STORAGE_BACKEND" // sqlite (default) | postgres | redis
+	envDBPath         = "CHRONOS_DB_PATH"         // SQLite file path (sqlite backend)
+	envStorageDSN     = "CHRONOS_STORAGE_DSN"     // Postgres DSN (postgres); redis URL fallback
+	envRedisURL       = "CHRONOS_REDIS_URL"       // redis://user:pass@host:port/db (redis backend)
+)
+
+// storageBackend enumerates the supported storage backends.
+type storageBackend string
+
+const (
+	backendSQLite   storageBackend = "sqlite"
+	backendPostgres storageBackend = "postgres"
+	backendRedis    storageBackend = "redis"
+)
+
+// storageConfig is the resolved, backend-specific configuration produced from
+// the environment by resolveStorageConfig. Only the fields relevant to the
+// selected backend are populated.
+type storageConfig struct {
+	backend storageBackend
+	// sqlite
+	sqlitePath string
+	// postgres
+	dsn string
+	// redis
+	redisAddr     string
+	redisPassword string
+	redisDB       int
+}
+
+// resolveStorageConfig maps the storage environment variables to a concrete
+// backend choice and its connection parameters. It is a pure function of the
+// supplied env map (redis URL parsing via go-redis is itself pure, doing no
+// network I/O), so backend selection can be unit tested without a real
+// database. Unknown backends and a missing/invalid config yield a wrapped
+// error. The default (unset CHRONOS_STORAGE_BACKEND) is SQLite, preserving
+// backward-compatible behavior.
+func resolveStorageConfig(env map[string]string) (storageConfig, error) {
+	backend := storageBackend(strings.ToLower(strings.TrimSpace(env[envStorageBackend])))
+	switch backend {
+	case "", backendSQLite:
+		path := strings.TrimSpace(env[envDBPath])
+		if path == "" {
+			path = "chronos.db"
+		}
+		return storageConfig{backend: backendSQLite, sqlitePath: path}, nil
+
+	case backendPostgres:
+		dsn := strings.TrimSpace(env[envStorageDSN])
+		if dsn == "" {
+			return storageConfig{}, fmt.Errorf("resolve storage config: %s=postgres requires %s to be set", envStorageBackend, envStorageDSN)
+		}
+		return storageConfig{backend: backendPostgres, dsn: dsn}, nil
+
+	case backendRedis:
+		raw := strings.TrimSpace(env[envRedisURL])
+		if raw == "" {
+			raw = strings.TrimSpace(env[envStorageDSN])
+		}
+		if raw == "" {
+			return storageConfig{}, fmt.Errorf("resolve storage config: %s=redis requires %s (or %s) to be set", envStorageBackend, envRedisURL, envStorageDSN)
+		}
+		opts, err := goredis.ParseURL(raw)
+		if err != nil {
+			return storageConfig{}, fmt.Errorf("resolve storage config: parse %s: %w", envRedisURL, err)
+		}
+		return storageConfig{
+			backend:       backendRedis,
+			redisAddr:     opts.Addr,
+			redisPassword: opts.Password,
+			redisDB:       opts.DB,
+		}, nil
+
+	default:
+		return storageConfig{}, fmt.Errorf("resolve storage config: unknown %s=%q (want sqlite, postgres, or redis)", envStorageBackend, backend)
 	}
-	store, err := sqlite.New(dbPath)
+}
+
+// storageEnv snapshots the storage-selection environment into a map so the pure
+// resolveStorageConfig can be unit tested in isolation.
+func storageEnv() map[string]string {
+	keys := []string{envStorageBackend, envDBPath, envStorageDSN, envRedisURL}
+	env := make(map[string]string, len(keys))
+	for _, k := range keys {
+		env[k] = os.Getenv(k)
+	}
+	return env
+}
+
+// openStore selects a storage backend from the environment, opens it, runs its
+// migrations, and returns it as a storage.Storage. The default backend is
+// SQLite at CHRONOS_DB_PATH (or chronos.db).
+func openStore() (storage.Storage, error) {
+	cfg, err := resolveStorageConfig(storageEnv())
 	if err != nil {
-		return nil, fmt.Errorf("open storage: %w", err)
+		return nil, err
+	}
+	return openStoreFromConfig(cfg)
+}
+
+// openStoreFromConfig constructs the concrete adapter for the resolved config,
+// migrates it, and returns it as a storage.Storage. On a migration failure the
+// store is closed before the error is returned.
+func openStoreFromConfig(cfg storageConfig) (storage.Storage, error) {
+	var (
+		store storage.Storage
+		err   error
+	)
+	switch cfg.backend {
+	case backendSQLite:
+		store, err = sqlite.New(cfg.sqlitePath)
+	case backendPostgres:
+		store, err = postgres.New(cfg.dsn)
+	case backendRedis:
+		store, err = redis.New(cfg.redisAddr, cfg.redisPassword, cfg.redisDB)
+	default:
+		return nil, fmt.Errorf("open storage: unknown backend %q", cfg.backend)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("open storage (%s): %w", cfg.backend, err)
 	}
 	if err := store.Migrate(context.Background()); err != nil {
 		store.Close()
@@ -284,14 +429,68 @@ func runServe() error {
 	if len(os.Args) > 2 {
 		addr = os.Args[2]
 	}
-	store, err := openStore()
+
+	// Build auth/CORS options from the environment. The default (no
+	// CHRONOS_AUTH) is unchanged: no authentication.
+	opts, mode, err := buildServeOptions(serveEnv())
+	if err != nil {
+		return err
+	}
+
+	cfg, err := resolveStorageConfig(storageEnv())
+	if err != nil {
+		return err
+	}
+
+	store, err := openStoreFromConfig(cfg)
 	if err != nil {
 		return err
 	}
 	defer store.Close()
-	srv := chronosos.New(addr, store)
-	log.Printf("Starting ChronosOS on %s", addr)
+	log.Printf("Storage backend: %s", cfg.backend)
+
+	// For SQL-backed, shared storage (Postgres, or SQLite with an explicit
+	// opt-in), wire a store-backed scheduler and shared SQL rate limiter so cron
+	// fires exactly once and rate limits hold across replicas. Redis and plain
+	// SQLite dev usage keep the in-process defaults untouched.
+	sharedOpts, sharedClose, err := buildSharedStateOptions(cfg, serveSharedEnv())
+	if err != nil {
+		return err
+	}
+	if sharedClose != nil {
+		defer func() { _ = sharedClose() }()
+	}
+	opts = append(opts, sharedOpts...)
+
+	srv := chronosos.NewWithOptions(addr, store, opts...)
+	log.Printf("Starting ChronosOS on %s (auth: %s)", addr, mode)
+	if v, ok := parseBool(os.Getenv(envSwagger)); !ok || v {
+		log.Printf("Swagger UI available at http://%s/swagger/", swaggerHost(addr))
+	}
 	return srv.Start(context.Background())
+}
+
+// serveEnv snapshots the serve-related environment variables into a map so the
+// pure buildServeOptions builder can be unit tested in isolation.
+func serveEnv() map[string]string {
+	keys := []string{
+		envAuthMode, envJWTSecret, envJWTIssuer, envJWTAudience, envJWTJWKSURL,
+		envAPIKeys, envCORSOrigins, envSwagger, envRBAC,
+	}
+	env := make(map[string]string, len(keys))
+	for _, k := range keys {
+		env[k] = os.Getenv(k)
+	}
+	return env
+}
+
+// swaggerHost renders a browser-friendly host for the startup log line,
+// defaulting a bare ":port" listen address to localhost.
+func swaggerHost(addr string) string {
+	if strings.HasPrefix(addr, ":") {
+		return "localhost" + addr
+	}
+	return addr
 }
 
 func runAgent() error {
@@ -1126,10 +1325,11 @@ func runConfig() error {
 	switch sub {
 	case "show":
 		fmt.Println("Chronos Configuration:")
-		fmt.Printf("  CHRONOS_CONFIG:    %s\n", envOrDefault("CHRONOS_CONFIG", "(auto-detect)"))
-		fmt.Printf("  CHRONOS_DB_PATH:   %s\n", envOrDefault("CHRONOS_DB_PATH", "chronos.db"))
-		fmt.Printf("  CHRONOS_API_KEY:   %s\n", maskEnv("CHRONOS_API_KEY"))
-		fmt.Printf("  CHRONOS_MODEL:     %s\n", envOrDefault("CHRONOS_MODEL", "gpt-4o"))
+		fmt.Printf("  CHRONOS_CONFIG:          %s\n", envOrDefault("CHRONOS_CONFIG", "(auto-detect)"))
+		fmt.Printf("  CHRONOS_STORAGE_BACKEND: %s\n", envOrDefault(envStorageBackend, "sqlite"))
+		fmt.Printf("  CHRONOS_DB_PATH:         %s\n", envOrDefault("CHRONOS_DB_PATH", "chronos.db"))
+		fmt.Printf("  CHRONOS_API_KEY:         %s\n", maskEnv("CHRONOS_API_KEY"))
+		fmt.Printf("  CHRONOS_MODEL:           %s\n", envOrDefault("CHRONOS_MODEL", "gpt-4o"))
 		fmt.Println()
 		// Try to show loaded agents
 		fc, err := loadAgentConfig()

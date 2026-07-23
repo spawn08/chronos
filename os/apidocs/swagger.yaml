@@ -1,0 +1,474 @@
+basePath: /
+info:
+  contact: {}
+  description: 'Control plane HTTP API for the Chronos agentic framework: sessions,
+    traces, live event streaming, human-in-the-loop approvals, schedules, health,
+    and metrics.'
+  title: Chronos ChronosOS API
+  version: "1.0"
+paths:
+  /api/approval/pending:
+    get:
+      description: Lists human-in-the-loop approval requests awaiting a decision.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: pending approvals
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      - ApiKeyAuth: []
+      summary: List pending approvals
+      tags:
+      - Approval
+  /api/approval/respond:
+    post:
+      consumes:
+      - application/json
+      description: Records an approve or deny decision for a pending approval request.
+      parameters:
+      - description: Approval decision
+        in: body
+        name: body
+        required: true
+        schema:
+          additionalProperties: true
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: decision recorded
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: bad request
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      - ApiKeyAuth: []
+      summary: Respond to an approval
+      tags:
+      - Approval
+  /api/events/stream:
+    get:
+      description: Streams execution events as Server-Sent Events. With no query params
+        it is a firehose across all sessions; ?session scopes to one session and ?topic
+        filters by topic.
+      parameters:
+      - description: Scope the stream to a single session id
+        in: query
+        name: session
+        type: string
+      - description: Filter events by topic
+        in: query
+        name: topic
+        type: string
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: SSE event stream
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      - ApiKeyAuth: []
+      summary: Stream events (SSE)
+      tags:
+      - Events
+  /api/schedules:
+    get:
+      consumes:
+      - application/json
+      description: GET lists all schedules. POST creates a new cron schedule for an
+        agent.
+      parameters:
+      - description: 'Schedule spec: {agent_id, cron_expr, input, new_session} (POST
+          only)'
+        in: body
+        name: body
+        schema:
+          additionalProperties: true
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: schedules (GET)
+          schema:
+            additionalProperties: true
+            type: object
+        "201":
+          description: created schedule (POST)
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: bad request
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      - ApiKeyAuth: []
+      summary: List or create schedules
+      tags:
+      - Schedules
+    post:
+      consumes:
+      - application/json
+      description: GET lists all schedules. POST creates a new cron schedule for an
+        agent.
+      parameters:
+      - description: 'Schedule spec: {agent_id, cron_expr, input, new_session} (POST
+          only)'
+        in: body
+        name: body
+        schema:
+          additionalProperties: true
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: schedules (GET)
+          schema:
+            additionalProperties: true
+            type: object
+        "201":
+          description: created schedule (POST)
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: bad request
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      - ApiKeyAuth: []
+      summary: List or create schedules
+      tags:
+      - Schedules
+  /api/schedules/{id}:
+    delete:
+      description: GET returns a schedule; DELETE removes it; GET on the /history
+        sub-path returns past runs.
+      parameters:
+      - description: Schedule id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: schedule, deletion result, or history
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: not found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      - ApiKeyAuth: []
+      summary: Get, delete, or get history of a schedule
+      tags:
+      - Schedules
+    get:
+      description: GET returns a schedule; DELETE removes it; GET on the /history
+        sub-path returns past runs.
+      parameters:
+      - description: Schedule id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: schedule, deletion result, or history
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: not found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      - ApiKeyAuth: []
+      summary: Get, delete, or get history of a schedule
+      tags:
+      - Schedules
+  /api/schedules/{id}/history:
+    get:
+      description: GET returns a schedule; DELETE removes it; GET on the /history
+        sub-path returns past runs.
+      parameters:
+      - description: Schedule id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: schedule, deletion result, or history
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: not found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      - ApiKeyAuth: []
+      summary: Get, delete, or get history of a schedule
+      tags:
+      - Schedules
+  /api/sessions:
+    get:
+      description: Lists persisted sessions, optionally filtered by agent, with pagination.
+      parameters:
+      - description: Filter by agent id
+        in: query
+        name: agent_id
+        type: string
+      - description: Max results (default 50)
+        in: query
+        name: limit
+        type: integer
+      - description: Result offset (default 0)
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: sessions
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: internal error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      - ApiKeyAuth: []
+      summary: List sessions
+      tags:
+      - Sessions
+  /api/sessions/state:
+    get:
+      consumes:
+      - application/json
+      description: GET returns the latest checkpoint state for a session. POST merges
+        the supplied state into the latest checkpoint.
+      parameters:
+      - description: Session id
+        in: query
+        name: session_id
+        required: true
+        type: string
+      - description: 'State patch: {\'
+        in: body
+        name: body
+        schema:
+          additionalProperties: true
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: session state
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: bad request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: session not found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: internal error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      - ApiKeyAuth: []
+      summary: Get or update session state
+      tags:
+      - Sessions
+    post:
+      consumes:
+      - application/json
+      description: GET returns the latest checkpoint state for a session. POST merges
+        the supplied state into the latest checkpoint.
+      parameters:
+      - description: Session id
+        in: query
+        name: session_id
+        required: true
+        type: string
+      - description: 'State patch: {\'
+        in: body
+        name: body
+        schema:
+          additionalProperties: true
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: session state
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: bad request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: session not found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: internal error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      - ApiKeyAuth: []
+      summary: Get or update session state
+      tags:
+      - Sessions
+  /api/traces:
+    get:
+      description: Returns execution traces (spans) for a given session.
+      parameters:
+      - description: Session id
+        in: query
+        name: session_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: traces
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: internal error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      - ApiKeyAuth: []
+      summary: List traces
+      tags:
+      - Traces
+  /health:
+    get:
+      description: Reports overall service health.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: status ok
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Health check
+      tags:
+      - Health
+  /health/live:
+    get:
+      description: Reports whether the process is alive.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: status alive
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Liveness probe
+      tags:
+      - Health
+  /health/ready:
+    get:
+      description: Reports whether the server is ready to accept traffic.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: status ready
+          schema:
+            additionalProperties: true
+            type: object
+        "503":
+          description: not ready
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Readiness probe
+      tags:
+      - Health
+  /metrics:
+    get:
+      description: Exposes the Prometheus metrics registry in text exposition format.
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: metrics exposition
+          schema:
+            type: string
+      summary: Prometheus metrics
+      tags:
+      - Metrics
+securityDefinitions:
+  ApiKeyAuth:
+    description: Static API key sent in the X-Api-Key header.
+    in: header
+    name: X-Api-Key
+    type: apiKey
+  BearerAuth:
+    description: 'JWT bearer token. Send as "Authorization: Bearer <token>".'
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

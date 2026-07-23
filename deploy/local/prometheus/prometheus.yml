@@ -1,0 +1,21 @@
+# Prometheus scrape config for the local Chronos stack.
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+  external_labels:
+    stack: chronos-local
+
+scrape_configs:
+  # Chronos server — golden-signal + Go runtime metrics.
+  - job_name: chronos
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["chronos:8420"]
+        labels:
+          service: chronos
+
+  # Prometheus self-monitoring.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

@@ -1,0 +1,54 @@
+# kube-prometheus-stack Helm values (Prometheus + Alertmanager + Grafana).
+# Install into the `observability` namespace. release name: kube-prometheus-stack
+# (referenced by ServiceMonitor/PrometheusRule label `release:` selectors and by
+# the KEDA trigger serverAddress).
+
+fullnameOverride: kube-prometheus-stack
+
+prometheus:
+  prometheusSpec:
+    retention: 15d
+    retentionSize: "45GB"
+    # Discover ServiceMonitors/PrometheusRules cluster-wide, not just those with
+    # the release label, so the chronos namespace objects are picked up.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    resources:
+      requests: {cpu: "1", memory: 4Gi}
+      limits:   {cpu: "2", memory: 8Gi}
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          resources:
+            requests:
+              storage: 50Gi
+    # Enable remote-write receiver so the OTel Collector can push OTLP-derived
+    # metrics into Prometheus.
+    enableRemoteWriteReceiver: true
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits:   {cpu: 500m, memory: 512Mi}
+
+grafana:
+  adminPassword: ""   # set via existingSecret in real deployments
+  admin:
+    existingSecret: grafana-admin
+  defaultDashboardsEnabled: true
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      searchNamespace: ALL
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits:   {cpu: "1",  memory: 1Gi}
+
+# Node/kubelet/etc. exporters left at chart defaults.
+kubeStateMetrics:
+  enabled: true
+nodeExporter:
+  enabled: true

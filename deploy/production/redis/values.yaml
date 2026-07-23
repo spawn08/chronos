@@ -1,0 +1,68 @@
+# Bitnami Redis Helm values — HA (replication + Sentinel) across 3 AZs.
+# Chart: bitnami/redis (pinned in top-level Makefile/README).
+#
+# Role in Chronos: shared low-latency layer for the store-backed subsystems —
+#   * rate-limit counters (INCR/EXPIRE fixed window)   → global limits (README §5/§10)
+#   * scheduler leader lease (SET NX PX)               → exactly-once firing gate
+#   * approval / event fan-out
+# Redis holds EPHEMERAL, rebuildable state; Postgres remains the source of truth.
+
+architecture: replication
+
+auth:
+  enabled: true
+  # Password sourced from an existing Secret (populated by ExternalSecrets),
+  # NOT inline. Key must be `redis-password`.
+  existingSecret: chronos-redis-auth
+  existingSecretPasswordKey: redis-password
+
+# Sentinel gives automatic failover with a stable discovery endpoint.
+sentinel:
+  enabled: true
+  quorum: 2
+  masterSet: chronos
+
+master:
+  count: 1
+  resources:
+    requests: {cpu: 500m, memory: 1Gi}
+    limits:   {cpu: "2",  memory: 2Gi}
+  persistence:
+    enabled: true
+    size: 8Gi
+  podAntiAffinityPreset: hard
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
+
+replica:
+  replicaCount: 2
+  resources:
+    requests: {cpu: 500m, memory: 1Gi}
+    limits:   {cpu: "2",  memory: 2Gi}
+  persistence:
+    enabled: true
+    size: 8Gi
+  podAntiAffinityPreset: hard
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
+
+# AOF for durability of counters/leases (still treated as rebuildable).
+commonConfiguration: |-
+  appendonly yes
+  maxmemory-policy noeviction
+
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    namespace: chronos
+    additionalLabels:
+      release: kube-prometheus-stack
+
+networkPolicy:
+  enabled: true
+  allowExternal: false

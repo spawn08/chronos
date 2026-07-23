@@ -1,0 +1,46 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: chronos
+
+resources:
+  - ../../base
+  # Prod uses KEDA (RPS-primary) instead of the plain HPA.
+  - keda-scaledobject.yaml
+
+# Remove the plain HPA so KEDA is the sole autoscaler (KEDA creates its own HPA).
+patches:
+  - target:
+      group: autoscaling
+      version: v2
+      kind: HorizontalPodAutoscaler
+      name: chronos-os
+    patch: |
+      $patch: delete
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: chronos-os
+  # Harden zone spread: DoNotSchedule so pods cannot pile into one AZ.
+  - target:
+      kind: Deployment
+      name: chronos-os
+    patch: |
+      - op: replace
+        path: /spec/template/spec/topologySpreadConstraints/0/whenUnsatisfiable
+        value: DoNotSchedule
+  # Prod host + TLS.
+  - target:
+      kind: Ingress
+      name: chronos-os
+    patch: |
+      - op: replace
+        path: /spec/rules/0/host
+        value: chronos.prod.example.com
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: chronos.prod.example.com
+
+images:
+  - name: ghcr.io/spawn08/chronos
+    newTag: 0.1.0

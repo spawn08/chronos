@@ -1,0 +1,34 @@
+# ChronosOS is a stateless HTTP control plane and does NOT talk to the
+# Kubernetes API in normal operation. This Role is intentionally minimal
+# (least privilege): read-only on its own ConfigMap for optional runtime
+# config reloads. Grant nothing cluster-scoped.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: chronos-os
+  namespace: chronos
+  labels:
+    app.kubernetes.io/name: chronos
+    app: chronos-os
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["chronos-os-config"]
+    verbs: ["get", "watch", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: chronos-os
+  namespace: chronos
+  labels:
+    app.kubernetes.io/name: chronos
+    app: chronos-os
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: chronos-os
+subjects:
+  - kind: ServiceAccount
+    name: chronos-os
+    namespace: chronos

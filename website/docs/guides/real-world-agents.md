@@ -199,7 +199,7 @@ agents:
 
 ```bash
 export OPENAI_API_KEY=sk-...
-go run ./cli/main.go run "What are the three laws of thermodynamics?"
+chronos run "What are the three laws of thermodynamics?"
 ```
 
 ---
@@ -556,7 +556,7 @@ teams:
 ```bash
 export OPENAI_API_KEY=sk-...
 CHRONOS_CONFIG=examples/yaml-configs/graph-agent.yaml \
-  go run ./cli/main.go team run classifier-team "What are goroutines?"
+  chronos team run classifier-team "What are goroutines?"
 ```
 
 ---
@@ -638,7 +638,7 @@ agents:
 
 ```bash
 export OPENAI_API_KEY=sk-...
-go run ./cli/main.go repl
+chronos repl
 # Now type messages — the agent remembers across turns
 ```
 
@@ -746,7 +746,7 @@ teams:
 ```bash
 export OPENAI_API_KEY=sk-...
 CHRONOS_CONFIG=examples/yaml-configs/content-pipeline.yaml \
-  go run ./cli/main.go team run pipeline "Write about AI in healthcare"
+  chronos team run pipeline "Write about AI in healthcare"
 ```
 
 ---
@@ -1051,7 +1051,7 @@ teams:
 
 ```bash
 export OPENAI_API_KEY=sk-...
-go run ./cli/main.go deploy deploy-config.yaml "Create a hello world HTTP server in Go"
+chronos deploy deploy-config.yaml "Create a hello world HTTP server in Go"
 ```
 
 ---

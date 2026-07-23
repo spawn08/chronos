@@ -1,0 +1,115 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "title": "ChronosOS — RED + Saturation",
+  "uid": "chronos-os-red",
+  "tags": ["chronos", "control-plane", "slo"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "namespace",
+        "type": "constant",
+        "query": "chronos",
+        "current": { "text": "chronos", "value": "chronos" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Request rate (RPS) by code",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "reqps" } },
+      "targets": [
+        {
+          "expr": "sum(rate(chronos_http_requests_total{namespace=\"$namespace\"}[1m])) by (code)",
+          "legendFormat": "{{code}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Error rate (5xx %)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "max": 0.05 } },
+      "targets": [
+        {
+          "expr": "sum(rate(chronos_http_requests_total{namespace=\"$namespace\",code=~\"5..\"}[5m])) / sum(rate(chronos_http_requests_total{namespace=\"$namespace\"}[5m]))",
+          "legendFormat": "5xx ratio"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Latency p50 / p95 / p99",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(chronos_http_request_duration_seconds_bucket{namespace=\"$namespace\"}[5m])) by (le))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(chronos_http_request_duration_seconds_bucket{namespace=\"$namespace\"}[5m])) by (le))",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(chronos_http_request_duration_seconds_bucket{namespace=\"$namespace\"}[5m])) by (le))",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Pods ready / desired",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum(kube_deployment_status_replicas_ready{namespace=\"$namespace\",deployment=\"chronos-os\"})",
+          "legendFormat": "ready"
+        },
+        {
+          "expr": "sum(kube_deployment_spec_replicas{namespace=\"$namespace\",deployment=\"chronos-os\"})",
+          "legendFormat": "desired"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "CPU utilisation vs request",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "fieldConfig": { "defaults": { "unit": "percentunit" } },
+      "targets": [
+        {
+          "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"$namespace\",pod=~\"chronos-os.*\",container!=\"\"}[5m])) / sum(kube_pod_container_resource_requests{namespace=\"$namespace\",pod=~\"chronos-os.*\",resource=\"cpu\"})",
+          "legendFormat": "cpu vs request"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "PgBouncer waiting clients (pool saturation)",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "expr": "sum(pgbouncer_pools_client_waiting_connections{namespace=\"$namespace\"})",
+          "legendFormat": "waiting"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Scheduler due backlog",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 16 },
+      "targets": [
+        {
+          "expr": "chronos_scheduler_due_backlog{namespace=\"$namespace\"}",
+          "legendFormat": "backlog"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+# Portable HPA fallback for clusters without KEDA. In prod we drive scaling with
+# the KEDA ScaledObject (RPS-primary); if you use KEDA, DISABLE this HPA (it is
+# excluded from the prod overlay's kustomization to avoid two controllers
+# fighting over the same Deployment).
+#
+# Custom RPS metric note: the CPU/memory targets below are the portable, always-
+# available signals. To scale on request rate without KEDA you need
+# prometheus-adapter exposing e.g. `chronos_http_requests_per_second` as an
+# External/Pods metric, then add a metrics entry of type Pods targeting ~300.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: chronos-os
+  namespace: chronos
+  labels:
+    app.kubernetes.io/name: chronos
+    app: chronos-os
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: chronos-os
+  minReplicas: 12
+  maxReplicas: 90
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+        - type: Pods
+          value: 8
+          periodSeconds: 15
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+      selectPolicy: Min

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/spawn08/chronos/engine/stream"
+	_ "github.com/spawn08/chronos/os/apidocs" // registers the generated OpenAPI spec with the swag registry
 	"github.com/spawn08/chronos/os/approval"
 	"github.com/spawn08/chronos/os/auth"
 	"github.com/spawn08/chronos/os/logging"
@@ -25,6 +27,7 @@ import (
 	"github.com/spawn08/chronos/os/scheduler"
 	"github.com/spawn08/chronos/os/trace"
 	"github.com/spawn08/chronos/storage"
+	httpSwagger "github.com/swaggo/http-swagger/v2"
 )
 
 // Default server hardening values. These are applied by New and can be
@@ -65,6 +68,8 @@ type Server struct {
 	disableCORS      bool
 	disableRateLimit bool
 	enableRecovery   bool
+	swaggerEnabled   bool            // serve the /swagger UI + OpenAPI spec (default true)
+	rbacEnabled      bool            // enforce method-based RBAC on /api/* (requires auth)
 	logger           *log.Logger     // nil => request logging disabled
 	structuredLogger *logging.Logger // nil => structured JSON logging disabled
 
@@ -122,6 +127,23 @@ func WithRateLimit(cfg middleware.RateLimitConfig) Option {
 // WithoutRateLimit disables the rate-limit middleware.
 func WithoutRateLimit() Option {
 	return func(s *Server) { s.disableRateLimit = true }
+}
+
+// WithSwagger enables or disables the Swagger UI and OpenAPI spec endpoints
+// (/swagger, /swagger/, /swagger/doc.json). It defaults to enabled. Disable it
+// on hardened production control planes where the API schema and interactive
+// console should not be exposed anonymously.
+func WithSwagger(enabled bool) Option {
+	return func(s *Server) { s.swaggerEnabled = enabled }
+}
+
+// WithRBAC enforces role-based authorization on /api/* routes when
+// authentication is enabled: read requests (GET/HEAD) require the viewer role,
+// mutating requests require the user role. Roles come from the authenticated
+// principal's claims. It is a no-op when authentication is disabled (there is no
+// principal to authorize) and defaults to off.
+func WithRBAC(enabled bool) Option {
+	return func(s *Server) { s.rbacEnabled = enabled }
 }
 
 // WithLogger sets the request logger. A nil logger disables request logging.
@@ -190,13 +212,76 @@ func WithMaxBodyBytes(n int64) Option {
 // defaultAuthSkipPaths lists endpoints that must remain reachable without
 // authentication (liveness/readiness probes and metrics scraping).
 func defaultAuthSkipPaths() []string {
-	return []string{"/healthz", "/health", "/health/live", "/health/ready", "/metrics"}
+	return []string{
+		"/healthz", "/health", "/health/live", "/health/ready", "/metrics",
+		"/swagger", "/swagger/", "/swagger/doc.json", "/swagger/index.html",
+	}
+}
+
+// swaggerPathPrefix is the mount point for the Swagger UI and its assets.
+const swaggerPathPrefix = "/swagger"
+
+// isSwaggerPath reports whether the request targets the Swagger UI, its static
+// assets, or the generated OpenAPI JSON. These are served without
+// authentication so the docs remain reachable when auth is enabled. Callers
+// pass an already-canonicalized path (see cleanRequestPath).
+func isSwaggerPath(p string) bool {
+	return p == swaggerPathPrefix || strings.HasPrefix(p, swaggerPathPrefix+"/")
+}
+
+// cleanRequestPath canonicalizes a request path (resolving "." and ".."
+// segments) so an auth-bypass decision cannot be tricked by traversal such as
+// /swagger/../api/sessions. path.Clean collapses a trailing slash, so
+// "/swagger/" becomes "/swagger", which isSwaggerPath still matches.
+func cleanRequestPath(p string) string {
+	if p == "" {
+		return "/"
+	}
+	return path.Clean(p)
+}
+
+// rbacMiddleware enforces coarse method-based authorization on /api/* routes
+// using the authenticated principal's roles: read requests require the viewer
+// role, mutating requests require the user role. It assumes an upstream auth
+// middleware has already placed UserClaims in the request context.
+func (s *Server) rbacMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			required := auth.RoleUser
+			if r.Method == http.MethodGet || r.Method == http.MethodHead {
+				required = auth.RoleViewer
+			}
+			claims, ok := auth.UserFromContext(r.Context())
+			if !ok || claims == nil {
+				http.Error(w, `{"error":"unauthenticated"}`, http.StatusUnauthorized)
+				return
+			}
+			if !s.Auth.CheckPermission(claims, required) {
+				http.Error(w, fmt.Sprintf(`{"error":"insufficient permissions, requires %s"}`, required), http.StatusForbidden)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // New creates a new ChronosOS server with safe defaults: no authentication,
 // CORS and rate limiting enabled, panic recovery enabled, and hardened
 // http.Server timeouts. The signature is stable; use NewWithOptions to
 // customize behavior.
+//
+// @title                      Chronos ChronosOS API
+// @version                    1.0
+// @description                Control plane HTTP API for the Chronos agentic framework: sessions, traces, live event streaming, human-in-the-loop approvals, schedules, health, and metrics.
+// @BasePath                   /
+// @securityDefinitions.apikey BearerAuth
+// @in                         header
+// @name                       Authorization
+// @description                JWT bearer token. Send as "Authorization: Bearer <token>".
+// @securityDefinitions.apikey ApiKeyAuth
+// @in                         header
+// @name                       X-Api-Key
+// @description                Static API key sent in the X-Api-Key header.
 func New(addr string, store storage.Storage) *Server {
 	return NewWithOptions(addr, store)
 }
@@ -220,6 +305,7 @@ func NewWithOptions(addr string, store storage.Storage, opts ...Option) *Server 
 		corsCfg:           middleware.DefaultCORSConfig(),
 		rateLimitCfg:      middleware.DefaultRateLimitConfig(),
 		enableRecovery:    true,
+		swaggerEnabled:    true,
 		logger:            log.Default(),
 		readTimeout:       defaultReadTimeout,
 		readHeaderTimeout: defaultReadHeaderTimeout,
@@ -243,7 +329,29 @@ func (s *Server) Handler() http.Handler {
 
 	// Wrap innermost-first so the outermost wrapper runs first at request time.
 	if s.authMW != nil {
-		h = s.authMW(h)
+		// RBAC (when enabled) sits between auth and the mux so the authenticated
+		// principal's claims are already in context when roles are checked.
+		var inner http.Handler = s.mux
+		if s.rbacEnabled {
+			inner = s.rbacMiddleware(s.mux)
+		}
+		authed := s.authMW(inner)
+		// Route Swagger UI/assets/doc.json around the auth middleware so the API
+		// docs stay reachable even when authentication is enabled. Exact-match
+		// SkipPaths cannot cover the UI's arbitrary asset sub-paths, so we branch
+		// on the /swagger prefix here (still inside rate-limit/CORS/recovery).
+		//
+		// The path is canonicalized with path.Clean before the prefix test so a
+		// traversal like /swagger/../api/sessions cannot ride the bypass around
+		// auth: it normalizes to /api/sessions and takes the authenticated path.
+		// This keeps the guarantee independent of the router's own cleaning.
+		h = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if s.swaggerEnabled && isSwaggerPath(cleanRequestPath(r.URL.Path)) {
+				s.mux.ServeHTTP(w, r)
+				return
+			}
+			authed.ServeHTTP(w, r)
+		})
 	}
 	if !s.disableRateLimit {
 		h = middleware.RateLimit(s.rateLimitCfg)(h)
@@ -293,22 +401,48 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/traces", s.handleListTraces)
 	// Empty default topic = firehose: a client with no ?session/?topic sees all
 	// sessions' events (dashboard/monitor); ?session=<id> scopes to one session.
-	s.mux.HandleFunc("/api/events/stream", streaming(s.Broker.SSEHandler("")))
-	s.mux.HandleFunc("/api/approval/pending", s.Approval.HandlePending)
-	s.mux.HandleFunc("/api/approval/respond", s.Approval.HandleRespond)
-	s.mux.Handle("/metrics", s.Metrics.Handler())
+	s.mux.HandleFunc("/api/events/stream", s.handleEventsStream)
+	s.mux.HandleFunc("/api/approval/pending", s.handleApprovalPending)
+	s.mux.HandleFunc("/api/approval/respond", s.handleApprovalRespond)
+	s.mux.HandleFunc("/metrics", s.handleMetrics)
 
 	// Scheduler API
 	s.mux.HandleFunc("/api/schedules", s.handleSchedules)
 	s.mux.HandleFunc("/api/schedules/", s.handleScheduleByID)
+
+	// Swagger UI + OpenAPI spec. Served under /swagger/ (index.html, doc.json,
+	// and the UI assets). /swagger redirects to /swagger/. Disabled via
+	// WithSwagger(false) on hardened deployments.
+	if s.swaggerEnabled {
+		s.mux.HandleFunc("/swagger", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/swagger/", http.StatusMovedPermanently)
+		})
+		s.mux.Handle("/swagger/", httpSwagger.Handler(httpSwagger.URL("/swagger/doc.json")))
+	}
 }
 
+// handleHealth reports overall service health.
+//
+// @Summary     Health check
+// @Description Reports overall service health.
+// @Tags        Health
+// @Produce     json
+// @Success     200 {object} map[string]interface{} "status ok"
+// @Router      /health [get]
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintln(w, `{"status":"ok"}`)
 }
 
+// handleLiveness is the Kubernetes liveness probe.
+//
+// @Summary     Liveness probe
+// @Description Reports whether the process is alive.
+// @Tags        Health
+// @Produce     json
+// @Success     200 {object} map[string]interface{} "status alive"
+// @Router      /health/live [get]
 func (s *Server) handleLiveness(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -318,6 +452,14 @@ func (s *Server) handleLiveness(w http.ResponseWriter, _ *http.Request) {
 // handleReadiness is a cheap liveness-of-readiness check: it only reports the
 // in-memory ready flag. Storage migration is performed once at startup (Start),
 // not on every probe.
+//
+// @Summary     Readiness probe
+// @Description Reports whether the server is ready to accept traffic.
+// @Tags        Health
+// @Produce     json
+// @Success     200 {object} map[string]interface{} "status ready"
+// @Failure     503 {object} map[string]interface{} "not ready"
+// @Router      /health/ready [get]
 func (s *Server) handleReadiness(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if !s.ready.Load() {
@@ -327,6 +469,22 @@ func (s *Server) handleReadiness(w http.ResponseWriter, _ *http.Request) {
 	}
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintln(w, `{"status":"ready"}`)
+}
+
+// handleEventsStream streams execution events over Server-Sent Events (SSE).
+//
+// @Summary     Stream events (SSE)
+// @Description Streams execution events as Server-Sent Events. With no query params it is a firehose across all sessions; ?session scopes to one session and ?topic filters by topic.
+// @Tags        Events
+// @Produce     text/event-stream
+// @Param       session query string false "Scope the stream to a single session id"
+// @Param       topic   query string false "Filter events by topic"
+// @Success     200 {string} string "SSE event stream"
+// @Security    BearerAuth
+// @Security    ApiKeyAuth
+// @Router      /api/events/stream [get]
+func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
+	streaming(s.Broker.SSEHandler(""))(w, r)
 }
 
 // streaming wraps a streaming handler (e.g. SSE) to clear the connection's
@@ -376,6 +534,20 @@ func (s *Server) tenantContext(r *http.Request) context.Context {
 	return storage.WithTenant(r.Context(), tenant)
 }
 
+// handleListSessions lists persisted sessions for the caller's tenant.
+//
+// @Summary     List sessions
+// @Description Lists persisted sessions, optionally filtered by agent, with pagination.
+// @Tags        Sessions
+// @Produce     json
+// @Param       agent_id query string false "Filter by agent id"
+// @Param       limit    query int    false "Max results (default 50)"
+// @Param       offset   query int    false "Result offset (default 0)"
+// @Success     200 {object} map[string]interface{} "sessions"
+// @Failure     500 {object} map[string]interface{} "internal error"
+// @Security    BearerAuth
+// @Security    ApiKeyAuth
+// @Router      /api/sessions [get]
 func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	agentID := r.URL.Query().Get("agent_id")
 	limit := 50
@@ -399,6 +571,18 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"sessions": sessions})
 }
 
+// handleListTraces returns the execution traces for a session.
+//
+// @Summary     List traces
+// @Description Returns execution traces (spans) for a given session.
+// @Tags        Traces
+// @Produce     json
+// @Param       session_id query string true "Session id"
+// @Success     200 {object} map[string]interface{} "traces"
+// @Failure     500 {object} map[string]interface{} "internal error"
+// @Security    BearerAuth
+// @Security    ApiKeyAuth
+// @Router      /api/traces [get]
 func (s *Server) handleListTraces(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.URL.Query().Get("session_id")
 	if sessionID == "" {
@@ -415,6 +599,24 @@ func (s *Server) handleListTraces(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"traces": traces})
 }
 
+// handleSessionState reads (GET) or patches (POST) the latest checkpoint state
+// for a session.
+//
+// @Summary     Get or update session state
+// @Description GET returns the latest checkpoint state for a session. POST merges the supplied state into the latest checkpoint.
+// @Tags        Sessions
+// @Accept      json
+// @Produce     json
+// @Param       session_id query    string                 true  "Session id"
+// @Param       body       body     map[string]interface{} false "State patch: {\"state\": {...}} (POST only)"
+// @Success     200 {object} map[string]interface{} "session state"
+// @Failure     400 {object} map[string]interface{} "bad request"
+// @Failure     404 {object} map[string]interface{} "session not found"
+// @Failure     500 {object} map[string]interface{} "internal error"
+// @Security    BearerAuth
+// @Security    ApiKeyAuth
+// @Router      /api/sessions/state [get]
+// @Router      /api/sessions/state [post]
 func (s *Server) handleSessionState(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.URL.Query().Get("session_id")
 	if sessionID == "" {
@@ -547,6 +749,64 @@ func (s *Server) Start(ctx context.Context) error {
 	return nil
 }
 
+// handleMetrics exposes the Prometheus metrics registry.
+//
+// @Summary     Prometheus metrics
+// @Description Exposes the Prometheus metrics registry in text exposition format.
+// @Tags        Metrics
+// @Produce     plain
+// @Success     200 {string} string "metrics exposition"
+// @Router      /metrics [get]
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	s.Metrics.Handler().ServeHTTP(w, r)
+}
+
+// handleApprovalPending lists pending human-in-the-loop approval requests.
+//
+// @Summary     List pending approvals
+// @Description Lists human-in-the-loop approval requests awaiting a decision.
+// @Tags        Approval
+// @Produce     json
+// @Success     200 {object} map[string]interface{} "pending approvals"
+// @Security    BearerAuth
+// @Security    ApiKeyAuth
+// @Router      /api/approval/pending [get]
+func (s *Server) handleApprovalPending(w http.ResponseWriter, r *http.Request) {
+	s.Approval.HandlePending(w, r)
+}
+
+// handleApprovalRespond records an approve/deny decision for a pending request.
+//
+// @Summary     Respond to an approval
+// @Description Records an approve or deny decision for a pending approval request.
+// @Tags        Approval
+// @Accept      json
+// @Produce     json
+// @Param       body body map[string]interface{} true "Approval decision"
+// @Success     200 {object} map[string]interface{} "decision recorded"
+// @Failure     400 {object} map[string]interface{} "bad request"
+// @Security    BearerAuth
+// @Security    ApiKeyAuth
+// @Router      /api/approval/respond [post]
+func (s *Server) handleApprovalRespond(w http.ResponseWriter, r *http.Request) {
+	s.Approval.HandleRespond(w, r)
+}
+
+// handleSchedules lists (GET) or creates (POST) scheduled agent runs.
+//
+// @Summary     List or create schedules
+// @Description GET lists all schedules. POST creates a new cron schedule for an agent.
+// @Tags        Schedules
+// @Accept      json
+// @Produce     json
+// @Param       body body map[string]interface{} false "Schedule spec: {agent_id, cron_expr, input, new_session} (POST only)"
+// @Success     200 {object} map[string]interface{} "schedules (GET)"
+// @Success     201 {object} map[string]interface{} "created schedule (POST)"
+// @Failure     400 {object} map[string]interface{} "bad request"
+// @Security    BearerAuth
+// @Security    ApiKeyAuth
+// @Router      /api/schedules [get]
+// @Router      /api/schedules [post]
 func (s *Server) handleSchedules(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -579,6 +839,20 @@ func (s *Server) handleSchedules(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleScheduleByID gets or deletes a schedule, or returns its run history.
+//
+// @Summary     Get, delete, or get history of a schedule
+// @Description GET returns a schedule; DELETE removes it; GET on the /history sub-path returns past runs.
+// @Tags        Schedules
+// @Produce     json
+// @Param       id path string true "Schedule id"
+// @Success     200 {object} map[string]interface{} "schedule, deletion result, or history"
+// @Failure     404 {object} map[string]interface{} "not found"
+// @Security    BearerAuth
+// @Security    ApiKeyAuth
+// @Router      /api/schedules/{id} [get]
+// @Router      /api/schedules/{id} [delete]
+// @Router      /api/schedules/{id}/history [get]
 func (s *Server) handleScheduleByID(w http.ResponseWriter, r *http.Request) {
 	// Extract ID from path: /api/schedules/{id} or /api/schedules/{id}/history
 	path := strings.TrimPrefix(r.URL.Path, "/api/schedules/")

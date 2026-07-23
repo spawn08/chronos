@@ -6,10 +6,10 @@ Chronos ships an evaluation framework (`evals/`) for scoring agent quality. Suit
 
 ```bash
 # List suites discovered under .chronos/evals/ or evals/
-go run ./cli/main.go eval list
+chronos eval list
 
 # Run a suite file
-go run ./cli/main.go eval run evals/examples/greeting_suite.yaml
+chronos eval run evals/examples/greeting_suite.yaml
 ```
 
 The command prints a per-case result line and a summary, and exits non-zero if any case fails or errors — so it can gate CI.

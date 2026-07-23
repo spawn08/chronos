@@ -1,0 +1,51 @@
+# KEDA-driven autoscaling (prod). KEDA manages its own HPA under the hood, so do
+# NOT also apply k8s/base/hpa.yaml alongside this — the prod overlay includes
+# this ScaledObject and excludes the plain HPA.
+#
+# Primary trigger: request rate from Prometheus. Target ~300 RPS/pod (below the
+# ~350 measured ceiling to keep p99 headroom). CPU is a secondary safety net.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: chronos-os
+  namespace: chronos
+  labels:
+    app.kubernetes.io/name: chronos
+    app: chronos-os
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: chronos-os
+  minReplicaCount: 12
+  maxReplicaCount: 90
+  pollingInterval: 15
+  cooldownPeriod: 300
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          policies:
+            - type: Percent
+              value: 100
+              periodSeconds: 15
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          policies:
+            - type: Percent
+              value: 10
+              periodSeconds: 60
+  triggers:
+    - type: prometheus
+      metricType: AverageValue
+      metadata:
+        serverAddress: http://kube-prometheus-stack-prometheus.observability.svc:9090
+        metricName: chronos_http_requests_per_second
+        # Total cluster RPS; KEDA divides by pods for the AverageValue target.
+        query: sum(rate(chronos_http_requests_total{namespace="chronos"}[1m]))
+        threshold: "300"
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: "70"
