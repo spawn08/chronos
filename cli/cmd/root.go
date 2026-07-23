@@ -217,14 +217,66 @@ func runREPL() error {
 
 	r := repl.New(store)
 
-	// Try loading agent from YAML config for the REPL
-	a, loadErr := loadDefaultAgent()
-	if loadErr == nil && a != nil {
-		r.SetAgent(a)
-		fmt.Printf("Agent loaded: %s (%s)\n", a.Name, a.Model.Name())
+	// Load the full roster (all agents + teams) from YAML config for the REPL.
+	if loadErr := attachRoster(r, ""); loadErr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not load agents from config: %v\n", loadErr)
 	}
 
 	return r.Start()
+}
+
+// attachRoster loads every agent and team from the YAML config into the REPL so
+// /agent can list and switch between them and /team can run teams. When activeID
+// is non-empty, that agent (by ID or name) becomes the active chat agent;
+// otherwise the first configured agent is active.
+func attachRoster(r *repl.REPL, activeID string) error {
+	ctx := context.Background()
+	fc, err := loadAgentConfig()
+	if err != nil {
+		return err
+	}
+	if len(fc.Agents) == 0 {
+		return fmt.Errorf("no agents defined in config")
+	}
+
+	agents, err := agent.BuildAll(ctx, fc)
+	if err != nil {
+		return fmt.Errorf("build agents: %w", err)
+	}
+
+	// Preserve config order for stable listing.
+	list := make([]*agent.Agent, 0, len(fc.Agents))
+	for i := range fc.Agents {
+		if a, ok := agents[fc.Agents[i].ID]; ok {
+			list = append(list, a)
+		}
+	}
+	r.SetAgents(list)
+
+	// Set the requested active agent (resolving ID or name).
+	if activeID != "" {
+		if cfg, findErr := fc.FindAgent(activeID); findErr == nil {
+			if a, ok := agents[cfg.ID]; ok {
+				r.SetAgent(a)
+			}
+		}
+	}
+
+	// Wire teams so /team can run them with streaming output.
+	if len(fc.Teams) > 0 {
+		ids := make([]string, 0, len(fc.Teams))
+		for _, tc := range fc.Teams {
+			ids = append(ids, tc.ID)
+		}
+		r.SetTeams(ids, func(ctx context.Context, teamID, message string) (<-chan team.TeamStreamEvent, error) {
+			t, buildErr := buildTeamByID(ctx, teamID)
+			if buildErr != nil {
+				return nil, buildErr
+			}
+			return t.RunStream(ctx, graph.State{"message": message})
+		})
+	}
+	return nil
 }
 
 func runServe() error {
@@ -281,6 +333,21 @@ func runAgent() error {
 		fmt.Printf("Message: %s\n", message)
 		fmt.Println("Create .chronos/agents.yaml to configure agents. Run 'chronos help' for details.")
 		return nil
+	}
+
+	// When no agent was explicitly chosen and the config defines more than one,
+	// tell the user which one ran and how to target the others.
+	if agentID == "" {
+		if fc, cfgErr := loadAgentConfig(); cfgErr == nil && len(fc.Agents) > 1 {
+			others := make([]string, 0, len(fc.Agents)-1)
+			for i := range fc.Agents {
+				if fc.Agents[i].ID != a.ID {
+					others = append(others, fc.Agents[i].ID)
+				}
+			}
+			fmt.Printf("Using default agent %q. Other agents: %s (select with --agent <id>)\n",
+				a.ID, strings.Join(others, ", "))
+		}
 	}
 
 	fmt.Printf("Agent: %s (model: %s)\n", a.Name, a.Model.Name())
@@ -434,6 +501,7 @@ func storageLabel(cfg agent.StorageConfig) string {
 }
 
 func agentChat(idOrName string) error {
+	// Validate the requested agent exists before opening the REPL.
 	a, err := loadAgentByID(idOrName)
 	if err != nil {
 		return err
@@ -446,7 +514,11 @@ func agentChat(idOrName string) error {
 	defer store.Close()
 
 	r := repl.New(store)
-	r.SetAgent(a)
+	// Load the full roster so /agent can switch and /team can run, with the
+	// requested agent active. Fall back to the single agent if the roster fails.
+	if rosterErr := attachRoster(r, idOrName); rosterErr != nil {
+		r.SetAgent(a)
+	}
 	fmt.Printf("Chatting with agent: %s (%s / %s)\n", a.Name, a.Model.Name(), a.Model.Model())
 	return r.Start()
 }
@@ -523,6 +595,62 @@ func teamShow(id string) error {
 	return nil
 }
 
+// buildTeamByID constructs a team from the YAML config by ID, building its member
+// agents and applying strategy/coordinator/concurrency settings. Shared by the
+// `team run` command and the REPL's /team command.
+func buildTeamByID(ctx context.Context, teamID string) (*team.Team, error) {
+	fc, err := loadAgentConfig()
+	if err != nil {
+		return nil, fmt.Errorf("load config: %w", err)
+	}
+	tc, err := fc.FindTeam(teamID)
+	if err != nil {
+		return nil, err
+	}
+
+	agents, err := agent.BuildAll(ctx, fc)
+	if err != nil {
+		return nil, fmt.Errorf("build agents: %w", err)
+	}
+
+	strategy, err := parseStrategy(tc.Strategy)
+	if err != nil {
+		return nil, err
+	}
+
+	t := team.New(tc.ID, tc.Name, strategy)
+
+	for _, agentID := range tc.Agents {
+		a, ok := agents[agentID]
+		if !ok {
+			return nil, fmt.Errorf("team %q references unknown agent %q", tc.ID, agentID)
+		}
+		t.AddAgent(a)
+	}
+
+	if tc.Coordinator != "" {
+		coord, ok := agents[tc.Coordinator]
+		if !ok {
+			return nil, fmt.Errorf("team %q references unknown coordinator %q", tc.ID, tc.Coordinator)
+		}
+		t.SetCoordinator(coord)
+	}
+	if tc.MaxConcurrency > 0 {
+		t.SetMaxConcurrency(tc.MaxConcurrency)
+	}
+	if tc.MaxIterations > 0 {
+		t.SetMaxIterations(tc.MaxIterations)
+	}
+	if tc.ErrorStrategy != "" {
+		es, esErr := parseErrorStrategy(tc.ErrorStrategy)
+		if esErr != nil {
+			return nil, esErr
+		}
+		t.SetErrorStrategy(es)
+	}
+	return t, nil
+}
+
 func teamRun() error {
 	// Parse: chronos team run [--stream] <team_id> <message...>
 	streaming := false
@@ -552,45 +680,9 @@ func teamRun() error {
 		return err
 	}
 
-	agents, err := agent.BuildAll(ctx, fc)
-	if err != nil {
-		return fmt.Errorf("build agents: %w", err)
-	}
-
-	strategy, err := parseStrategy(tc.Strategy)
+	t, err := buildTeamByID(ctx, teamID)
 	if err != nil {
 		return err
-	}
-
-	t := team.New(tc.ID, tc.Name, strategy)
-
-	for _, agentID := range tc.Agents {
-		a, ok := agents[agentID]
-		if !ok {
-			return fmt.Errorf("team %q references unknown agent %q", tc.ID, agentID)
-		}
-		t.AddAgent(a)
-	}
-
-	if tc.Coordinator != "" {
-		coord, ok := agents[tc.Coordinator]
-		if !ok {
-			return fmt.Errorf("team %q references unknown coordinator %q", tc.ID, tc.Coordinator)
-		}
-		t.SetCoordinator(coord)
-	}
-	if tc.MaxConcurrency > 0 {
-		t.SetMaxConcurrency(tc.MaxConcurrency)
-	}
-	if tc.MaxIterations > 0 {
-		t.SetMaxIterations(tc.MaxIterations)
-	}
-	if tc.ErrorStrategy != "" {
-		es, esErr := parseErrorStrategy(tc.ErrorStrategy)
-		if esErr != nil {
-			return esErr
-		}
-		t.SetErrorStrategy(es)
 	}
 
 	fmt.Printf("Team: %s (%s strategy)\n", tc.Name, tc.Strategy)

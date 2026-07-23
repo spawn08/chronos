@@ -102,6 +102,32 @@ chronos repl                 # uses the default agent from .chronos/agents.yaml
 chronos agent chat <agent>   # chat with a specific agent
 ```
 
+When the YAML config defines multiple agents, the REPL loads the **whole
+roster**. Use `/agent` to list them (the active one is marked `*`) and
+`/agent <id>` (or name) to switch who handles your messages:
+
+```
+agent> /agent
+Agents (3):
+* researcher   (Researcher)
+  writer       (Writer)
+  editor        (Editor)
+
+agent> /agent writer
+Switched to: Writer (writer)
+```
+
+Teams from the config are runnable inline — `/teams` lists them and
+`/team <id> <message>` runs one with live per-agent streaming:
+
+```
+agent> /team pipeline what can you do?
+─── researcher ───
+Looking into that…
+─── writer ───
+Here's what the team can do…
+```
+
 Tokens print as the model generates them. Toggle streaming at runtime with the
 `/stream` slash command:
 

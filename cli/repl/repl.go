@@ -11,13 +11,23 @@ import (
 
 	"github.com/spawn08/chronos/engine/model"
 	"github.com/spawn08/chronos/sdk/agent"
+	"github.com/spawn08/chronos/sdk/team"
 	"github.com/spawn08/chronos/storage"
 )
+
+// TeamRunner runs a configured team by ID and returns a stream of its events.
+// The cmd package wires this in so the REPL can drive teams without importing
+// the CLI's team-construction logic.
+type TeamRunner func(ctx context.Context, teamID, message string) (<-chan team.TeamStreamEvent, error)
 
 // REPL is the interactive command loop.
 type REPL struct {
 	store    storage.Storage
-	agent    *agent.Agent
+	agent    *agent.Agent            // the active agent handling chat input
+	agents   map[string]*agent.Agent // full roster loaded from config
+	order    []string                // agent IDs in config order, for stable listing
+	teams    []string                // team IDs available to run
+	runTeam  TeamRunner              // callback to execute a team (optional)
 	commands map[string]Command
 	history  []string
 	stream   bool
@@ -37,6 +47,7 @@ func New(store storage.Storage) *REPL {
 	ctx, cancel := context.WithCancel(context.Background())
 	r := &REPL{
 		store:    store,
+		agents:   make(map[string]*agent.Agent),
 		commands: make(map[string]Command),
 		stream:   true,
 		ctx:      ctx,
@@ -51,9 +62,48 @@ func (r *REPL) SetStream(enabled bool) {
 	r.stream = enabled
 }
 
-// SetAgent configures the agent that handles non-command input.
+// SetAgent configures the single agent that handles non-command input. It also
+// adds the agent to the roster so /agent can list it.
 func (r *REPL) SetAgent(a *agent.Agent) {
 	r.agent = a
+	if a != nil {
+		if _, exists := r.agents[a.ID]; !exists {
+			r.order = append(r.order, a.ID)
+		}
+		r.agents[a.ID] = a
+	}
+	r.registerAgentCommands()
+}
+
+// SetAgents loads a full roster of agents (e.g. every agent in a YAML config).
+// The first agent becomes the active one; use /agent <id> to switch.
+func (r *REPL) SetAgents(agents []*agent.Agent) {
+	for _, a := range agents {
+		if a == nil {
+			continue
+		}
+		if _, exists := r.agents[a.ID]; !exists {
+			r.order = append(r.order, a.ID)
+		}
+		r.agents[a.ID] = a
+		if r.agent == nil {
+			r.agent = a
+		}
+	}
+	r.registerAgentCommands()
+}
+
+// SetTeams registers the team IDs available to run and the callback that runs
+// them. Enables the /teams and /team commands.
+func (r *REPL) SetTeams(teamIDs []string, runner TeamRunner) {
+	r.teams = teamIDs
+	r.runTeam = runner
+	r.registerAgentCommands()
+}
+
+// registerAgentCommands (re)registers the agent/model/team slash commands. Safe
+// to call multiple times — handlers read live REPL state.
+func (r *REPL) registerAgentCommands() {
 	r.Register(Command{
 		Name: "/model", Description: "Show current model info",
 		Handler: func(_ string) error {
@@ -67,30 +117,138 @@ func (r *REPL) SetAgent(a *agent.Agent) {
 		},
 	})
 	r.Register(Command{
-		Name: "/agent", Description: "Show current agent info",
-		Handler: func(_ string) error {
-			if r.agent == nil {
-				fmt.Println("No agent loaded.")
-				return nil
-			}
-			fmt.Printf("ID:          %s\n", r.agent.ID)
-			fmt.Printf("Name:        %s\n", r.agent.Name)
-			if r.agent.Description != "" {
-				fmt.Printf("Description: %s\n", r.agent.Description)
-			}
-			if r.agent.Model != nil {
-				fmt.Printf("Model:       %s / %s\n", r.agent.Model.Name(), r.agent.Model.Model())
-			}
-			if r.agent.SystemPrompt != "" {
-				prompt := r.agent.SystemPrompt
-				if len(prompt) > 100 {
-					prompt = prompt[:97] + "..."
-				}
-				fmt.Printf("System:      %s\n", prompt)
-			}
-			return nil
-		},
+		Name: "/agent", Description: "List agents, show active, or /agent <id> to switch",
+		Handler: r.handleAgentCommand,
 	})
+	if len(r.teams) > 0 || r.runTeam != nil {
+		r.Register(Command{
+			Name: "/teams", Description: "List teams defined in the config",
+			Handler: func(_ string) error {
+				if len(r.teams) == 0 {
+					fmt.Println("No teams defined.")
+					return nil
+				}
+				fmt.Printf("Teams (%d):\n", len(r.teams))
+				for _, id := range r.teams {
+					fmt.Printf("  %s\n", id)
+				}
+				return nil
+			},
+		})
+		r.Register(Command{
+			Name: "/team", Description: "Run a team: /team <id> <message>",
+			Handler: r.handleTeamCommand,
+		})
+	}
+}
+
+// handleAgentCommand lists the roster (marking the active agent), switches the
+// active agent when given an ID/name, or shows the active agent's details.
+func (r *REPL) handleAgentCommand(args string) error {
+	target := strings.TrimSpace(args)
+
+	// Switch mode.
+	if target != "" {
+		a := r.agents[target]
+		if a == nil {
+			// Fall back to matching by name.
+			for _, id := range r.order {
+				if r.agents[id].Name == target {
+					a = r.agents[id]
+					break
+				}
+			}
+		}
+		if a == nil {
+			return fmt.Errorf("unknown agent %q (use /agent to list)", target)
+		}
+		r.agent = a
+		fmt.Printf("Switched to: %s (%s)\n", a.Name, a.ID)
+		return nil
+	}
+
+	if r.agent == nil {
+		fmt.Println("No agent loaded.")
+		return nil
+	}
+
+	// List the roster when more than one agent is loaded.
+	if len(r.order) > 1 {
+		fmt.Printf("Agents (%d):\n", len(r.order))
+		for _, id := range r.order {
+			marker := "  "
+			if id == r.agent.ID {
+				marker = "* "
+			}
+			a := r.agents[id]
+			if a.Name != "" && a.Name != a.ID {
+				fmt.Printf("%s%s (%s)\n", marker, id, a.Name)
+			} else {
+				fmt.Printf("%s%s\n", marker, id)
+			}
+		}
+		fmt.Println()
+	}
+
+	// Show the active agent's details.
+	fmt.Printf("ID:          %s\n", r.agent.ID)
+	fmt.Printf("Name:        %s\n", r.agent.Name)
+	if r.agent.Description != "" {
+		fmt.Printf("Description: %s\n", r.agent.Description)
+	}
+	if r.agent.Model != nil {
+		fmt.Printf("Model:       %s / %s\n", r.agent.Model.Name(), r.agent.Model.Model())
+	}
+	if r.agent.SystemPrompt != "" {
+		prompt := r.agent.SystemPrompt
+		if len(prompt) > 100 {
+			prompt = prompt[:97] + "..."
+		}
+		fmt.Printf("System:      %s\n", prompt)
+	}
+	return nil
+}
+
+// handleTeamCommand runs a configured team and streams its output.
+func (r *REPL) handleTeamCommand(args string) error {
+	if r.runTeam == nil {
+		return fmt.Errorf("teams are not available in this session")
+	}
+	parts := strings.SplitN(strings.TrimSpace(args), " ", 2)
+	if len(parts) < 2 || strings.TrimSpace(parts[1]) == "" {
+		return fmt.Errorf("usage: /team <id> <message>")
+	}
+	teamID := parts[0]
+	message := strings.TrimSpace(parts[1])
+
+	ch, err := r.runTeam(r.ctx, teamID, message)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println()
+	current := ""
+	for evt := range ch {
+		switch evt.Type {
+		case team.TeamEventAgentStart:
+			fmt.Printf("─── %s ───\n", evt.AgentID)
+			current = evt.AgentID
+		case team.TeamEventToken:
+			if evt.AgentID != current {
+				fmt.Printf("\n─── %s ───\n", evt.AgentID)
+				current = evt.AgentID
+			}
+			fmt.Print(evt.Content)
+		case team.TeamEventAgentEnd:
+			fmt.Println()
+		case team.TeamEventError:
+			return fmt.Errorf("team run: %w", evt.Err)
+		case team.TeamEventComplete:
+			// Output already streamed.
+		}
+	}
+	fmt.Println()
+	return nil
 }
 
 func (r *REPL) registerBuiltins() {
