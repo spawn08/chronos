@@ -17,6 +17,8 @@ import (
 	"syscall"
 	"time"
 
+	httpSwagger "github.com/swaggo/http-swagger/v2"
+
 	"github.com/spawn08/chronos/engine/stream"
 	_ "github.com/spawn08/chronos/os/apidocs" // registers the generated OpenAPI spec with the swag registry
 	"github.com/spawn08/chronos/os/approval"
@@ -27,7 +29,6 @@ import (
 	"github.com/spawn08/chronos/os/scheduler"
 	"github.com/spawn08/chronos/os/trace"
 	"github.com/spawn08/chronos/storage"
-	httpSwagger "github.com/swaggo/http-swagger/v2"
 )
 
 // Default server hardening values. These are applied by New and can be
