@@ -5,7 +5,7 @@ title: "Examples"
 
 # Examples Guide
 
-Chronos ships with **20+ runnable examples** covering every major feature. Most require **no API keys** and run entirely with mock providers and SQLite. They are grouped by type so you can jump straight to what you need:
+Chronos ships with **25+ runnable examples** covering every major feature. Most require **no API keys** and run entirely with mock providers and SQLite. They are grouped by type so you can jump straight to what you need:
 
 | Category | What it covers |
 |----------|----------------|

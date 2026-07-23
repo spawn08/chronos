@@ -111,3 +111,64 @@ go run ./examples/streaming_sse/
 - Graph runner stream events (`node_start`, `node_end`, `edge_transition`, `completed`)
 - `SSEHandler` — HTTP endpoint for Server-Sent Events
 - Integration pattern for real-time dashboards
+
+---
+
+## rag_knowledge
+
+Retrieval-augmented generation, **fully offline** — ingests documents, embeds them, similarity-searches, and (optionally) grounds an LLM answer. Ships a self-contained in-memory cosine `storage.VectorStore` and a deterministic hashing `model.EmbeddingsProvider`, so retrieval runs with no API key.
+
+```bash
+go run ./examples/rag_knowledge/
+```
+
+**Demonstrates:**
+- `knowledge.NewVectorKnowledge` — `AddDocuments` → `Load` → `Search`
+- Implementing `storage.VectorStore` (Upsert/Search/Delete/CreateCollection) in-memory
+- Implementing `model.EmbeddingsProvider` for offline/deterministic embeddings
+- Wiring knowledge into an agent via `WithKnowledge` for grounded answers
+
+---
+
+## skills
+
+The skill registry: install versioned skills, upgrade in place, list, resolve, and uninstall. Fully no-key.
+
+```bash
+go run ./examples/skills/
+```
+
+**Demonstrates:**
+- `skill.NewRegistry` — `Register`, `Get`, `List`
+- In-place version upgrades (same name replaces the prior version)
+- Resolving a skill's metadata and associated tools; uninstall with missing-skill error handling
+
+---
+
+## structured_output
+
+Requests **strict JSON** from the model and decodes it into a Go struct — reliable structured extraction.
+
+```bash
+OPENAI_API_KEY=sk-... go run ./examples/structured_output/
+```
+
+**Demonstrates:**
+- `ChatRequest.ResponseFormat: "json_schema"` with the schema in `Metadata["json_schema"]`
+- Fence-tolerant JSON parsing into a typed struct
+- Works across providers via `examples/internal/providers.Pick()`
+
+---
+
+## server_embedded
+
+Embeds the **ChronosOS control-plane server** in your own process (rather than `chronos serve`), with auth, RBAC, and Swagger enabled.
+
+```bash
+go run ./examples/server_embedded/
+```
+
+**Demonstrates:**
+- `chronosos.NewWithOptions(...)` with `WithAPIKeyAuth` + `WithRBAC` + `WithSwagger`
+- Graceful shutdown via `signal.NotifyContext`
+- Driving the server's `Handler()` under test with `httptest` (health 200, unauthenticated `/api/*` 401, `/swagger/` 200)

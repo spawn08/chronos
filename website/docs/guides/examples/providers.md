@@ -50,6 +50,45 @@ go run ./examples/azure/ -stream
 
 ---
 
+## azure_tools
+
+Azure OpenAI with **multi-round tool calling** — a `calculator` and a `lookup` tool wired into `ChatRequest.Tools`, driven through the `StopReasonToolCall` loop until the model produces a final answer.
+
+```bash
+export AZURE_OPENAI_API_KEY=...
+export AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
+export AZURE_OPENAI_DEPLOYMENT=gpt-4o
+go run ./examples/azure_tools/
+```
+
+**Demonstrates:**
+- Registering tools with JSON Schema parameters on `tool.Registry`
+- The tool-call loop: detect `model.StopReasonToolCall`, execute, feed results back as `RoleTool` messages
+- Bounded tool rounds to prevent runaway loops
+
+---
+
+## azure_rag
+
+Retrieval-augmented generation on Azure: **Azure OpenAI embeddings** + `knowledge.VectorKnowledge`, with a self-contained in-memory `storage.VectorStore` (cosine similarity) that doubles as a reference implementation of the interface.
+
+```bash
+export AZURE_OPENAI_API_KEY=...
+export AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
+export AZURE_OPENAI_DEPLOYMENT=gpt-4o                 # chat deployment
+export AZURE_OPENAI_EMBED_DEPLOYMENT=text-embedding-3-small
+go run ./examples/azure_rag/
+```
+
+**Demonstrates:**
+- `model.NewAzureOpenAIEmbeddingsWithConfig(...)` — Azure embeddings provider
+- `knowledge.NewVectorKnowledge(...)` — ingest, embed, similarity-search
+- Implementing `storage.VectorStore` in-memory, and grounding a chat answer with retrieved context
+
+See also the [`azure-team.yaml`](../yaml-examples.md) config for a declarative multi-agent Azure team.
+
+---
+
 ## vertex
 
 **Google Cloud Vertex AI** through its OpenAI-compatible endpoint. Auth uses a short-lived GCP access token (Bearer) rather than a static API key, so it works with `gcloud` credentials or workload identity.

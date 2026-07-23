@@ -1,0 +1,83 @@
+# Azure OpenAI — Sequential Content Team
+#
+# A three-agent team hosted entirely on Azure OpenAI. Each agent builds on the
+# previous one's output: Researcher → Writer → Editor.
+#
+# Uses the `azure` provider block (deployment + endpoint + api_version), shared
+# across all agents via `defaults`.
+#
+# Usage:
+#   export AZURE_OPENAI_API_KEY=...
+#   CHRONOS_CONFIG=examples/yaml-configs/azure-team.yaml chronos team run azure-content "Write about durable AI agents"
+#
+# Single-agent equivalent: examples/yaml-configs/providers/azure.yaml
+
+defaults:
+  model:
+    provider: azure
+    deployment: my-gpt4o-deployment
+    endpoint: https://my-resource.openai.azure.com
+    api_version: "2024-10-21"
+    api_key: ${AZURE_OPENAI_API_KEY}
+    timeout_sec: 120
+  storage:
+    backend: none
+
+agents:
+  - id: researcher
+    name: Research Analyst
+    description: Researches the topic and produces structured, factual notes
+    system_prompt: |
+      You are a thorough research analyst.
+
+      When given a topic:
+      1. Identify the 5 most important facts or data points
+      2. Note recent developments
+      3. Capture differing viewpoints
+      4. Cite specific numbers or studies when possible
+
+      Output structured research notes with clear headers — raw research, not prose.
+    capabilities:
+      - research
+      - analysis
+
+  - id: writer
+    name: Content Writer
+    description: Turns research notes into a clear, engaging article draft
+    system_prompt: |
+      You are a skilled content writer.
+
+      Using the research notes provided, write a well-structured article:
+      - Strong opening that states the core idea
+      - Logical flow with clear sections
+      - Concrete examples grounded in the research
+      - Plain, engaging language
+    capabilities:
+      - writing
+      - storytelling
+
+  - id: editor
+    name: Editor
+    description: Polishes the draft for clarity, accuracy, and tone
+    system_prompt: |
+      You are a meticulous editor.
+
+      Improve the draft without changing its meaning:
+      - Fix grammar, clarity, and flow
+      - Remove redundancy and filler
+      - Ensure claims match the research
+      - Keep a consistent, professional tone
+
+      Return the final polished article only.
+    capabilities:
+      - editing
+      - proofreading
+
+teams:
+  - id: azure-content
+    name: Azure Content Pipeline
+    strategy: sequential
+    agents:
+      - researcher
+      - writer
+      - editor
