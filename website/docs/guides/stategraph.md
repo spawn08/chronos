@@ -5,6 +5,77 @@ title: "StateGraph Runtime"
 
 The StateGraph runtime executes durable, checkpointed workflows. Nodes run in sequence or branch via conditional edges. State flows through the graph as a `map[string]any`. Checkpointing after every node enables resume after interrupts and time-travel debugging.
 
+## Where LLM Calls Happen
+
+The StateGraph runtime (`engine/graph`) is intentionally **LLM-agnostic** — it imports no model provider and never calls an LLM itself. It is the durable *orchestration* engine: it runs your node functions, evaluates edges, and checkpoints state.
+
+**LLM calls happen inside node functions**, which you write. A node receives the state, calls a `model.Provider`, and returns updated state:
+
+```go
+import (
+    "context"
+
+    "github.com/spawn08/chronos/engine/graph"
+    "github.com/spawn08/chronos/engine/model"
+)
+
+// provider is any model.Provider (OpenAI, Anthropic, Gemini, Ollama, …).
+g.AddNode("classify", func(ctx context.Context, s graph.State) (graph.State, error) {
+    question, _ := s["question"].(string)
+
+    resp, err := provider.Chat(ctx, &model.ChatRequest{
+        Messages: []model.Message{
+            {Role: model.RoleSystem, Content: "Classify the question as 'technical' or 'general'. Reply with one word."},
+            {Role: model.RoleUser, Content: question},
+        },
+    })
+    if err != nil {
+        return s, fmt.Errorf("classify: %w", err)
+    }
+
+    s["category"] = resp.Content // the LLM output flows on as state
+    return s, nil
+})
+```
+
+This layering mirrors the rest of the framework:
+
+```
+sdk/agent      → composes model + graph; agentic loops live here
+engine/model   → Provider.Chat / StreamChat        (the LLM part)
+engine/graph   → durable execution engine           (LLM-agnostic, on purpose)
+```
+
+Because the runtime is decoupled from the model, the *same* durability, resume, human-in-the-loop, and parallelism machinery works for any workflow — LLM-powered or not. "Agentic AI" emerges from what you put *inside* the nodes (model calls, tools, reasoning), not from the graph engine itself.
+
+See `examples/graph_with_llm` for a full multi-node graph with real providers and tools.
+
+## Durability: How Checkpointing Survives Crashes
+
+The runner checkpoints state **after every node that completes**, recording the *next* node to execute. If a later node fails — a crash, a transient provider/network error, or a process/replica restart — `Resume` loads the last checkpoint and continues from exactly that point. **A completed, expensive LLM node is never re-executed.**
+
+```
+draft (LLM) ──▶ review (LLM) ──▶ finalize
+     ✓ checkpointed    ✗ crashes here
+```
+
+On `Resume`, `draft` is skipped (its output is in the checkpoint) and execution restarts at `review`:
+
+```go
+// Attempt 1 — draft succeeds and is checkpointed; review crashes.
+_, err := graph.NewRunner(compiled, store).Run(ctx, sessionID, graph.State{"topic": "durability"})
+// err != nil, but draft's result is durably checkpointed.
+
+// Later (even in a brand-new process/replica pointed at the same store):
+// a Runner is single-use, so construct a fresh one — the state lives in the store.
+result, err := graph.NewRunner(compiled, store).Resume(ctx, sessionID)
+// draft does NOT run again; execution resumes at review → finalize.
+```
+
+Durability requires a persistent store (`storage/adapters/sqlite` for dev, `storage/adapters/postgres` for production). With Postgres, resume works across replicas, which is what makes the control plane horizontally scalable.
+
+A complete, runnable demonstration (with a deterministic offline provider, so it needs no API key) lives in **`examples/durable_llm_graph`** — it proves the `draft` node's LLM call runs exactly once despite the crash.
+
 ## Creating a Graph
 
 ```go

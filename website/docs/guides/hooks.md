@@ -7,6 +7,21 @@ title: "Hooks & Observability"
 
 Hooks are middleware that intercept model calls, tool calls, and session events. They provide a composable way to add caching, retry logic, cost tracking, rate limiting, metrics, and logging without modifying agent code.
 
+The snippets on this page assume these imports:
+
+```go
+import (
+    "context"
+    "fmt"
+    "log"
+    "strings"
+    "time"
+
+    "github.com/spawn08/chronos/engine/hooks"
+    "github.com/spawn08/chronos/sdk/agent"
+)
+```
+
 ## Hook Interface
 
 Every hook implements the `Hook` interface:

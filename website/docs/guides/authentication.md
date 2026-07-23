@@ -84,6 +84,15 @@ band.
 
 ### SDK equivalent
 
+The SDK snippets in this section use these imports:
+
+```go
+import (
+    chronosos "github.com/spawn08/chronos/os"
+    "github.com/spawn08/chronos/os/auth"
+)
+```
+
 ```go
 srv := chronosos.NewWithOptions(":8420", store,
     chronosos.WithJWTAuth(auth.JWTConfig{
@@ -144,10 +153,12 @@ individual clients.
 ```go
 srv := chronosos.NewWithOptions(":8420", store,
     chronosos.WithAPIKeyAuth(auth.APIKeyConfig{
-        Header: "X-Api-Key",
-        Keys: []auth.APIKey{
-            {Key: "k_live_admin", Role: "admin", TenantID: "acme"},
-            {Key: "k_live_ro", Role: "viewer", TenantID: "acme"},
+        HeaderName: "X-Api-Key",
+        // Map of raw key -> entry. Keys are hashed at construction; the
+        // plaintext is not retained. Scope carries the RBAC role.
+        Keys: map[string]auth.APIKeyEntry{
+            "k_live_admin": {Scope: "admin", TenantID: "acme"},
+            "k_live_ro":    {Scope: "viewer", TenantID: "acme"},
         },
     }),
 )

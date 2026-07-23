@@ -741,6 +741,13 @@ Go rather than the CLI:
 of partial responses you can print as they arrive:
 
 ```go
+// agent is an *agent.Agent you already built (or loaded from YAML).
+import (
+    "fmt"
+
+    "github.com/spawn08/chronos/engine/model"
+)
+
 ch, _ := agent.Model.StreamChat(ctx, &model.ChatRequest{
     Messages: []model.Message{{Role: model.RoleUser, Content: "what can you do?"}},
 })

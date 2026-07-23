@@ -5,6 +5,12 @@ title: "Interfaces"
 
 This page lists the core interfaces in Chronos. Implement these to extend the framework with custom providers, storage backends, guardrails, hooks, and sandboxes.
 
+Every signature below uses `context.Context` from the standard library (and `time.Duration` in `Sandbox`). All other types (`ChatRequest`, `Session`, `Embedding`, `Document`, `Result`, `Event`, …) are declared in the package named beneath each interface heading — import that package to implement the interface. For example:
+
+```go
+import "github.com/spawn08/chronos/engine/model" // for model.Provider, model.EmbeddingsProvider, model.TokenCounter
+```
+
 ## model.Provider
 
 The LLM provider interface. All model backends implement this.

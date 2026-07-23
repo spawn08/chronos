@@ -42,6 +42,19 @@ newer releases may exist; consult the provider's model list before pinning one.
 
 ## Supported Providers
 
+All the constructor and streaming snippets below use the `model` package (plus a little standard library):
+
+```go
+import (
+    "context"
+    "fmt"
+    "log"
+    "os"
+
+    "github.com/spawn08/chronos/engine/model"
+)
+```
+
 ### OpenAI
 
 ```go

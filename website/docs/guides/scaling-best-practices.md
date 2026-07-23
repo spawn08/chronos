@@ -21,6 +21,8 @@ The single most important scaling decision is to **persist state** so a run can 
 - Keep node functions **idempotent** where possible — replay and fork (time-travel) re-execute from a checkpoint, and non-deterministic side effects should tolerate being retried.
 
 ```go
+import "github.com/spawn08/chronos/engine/graph"
+
 // A crashed or redeployed worker resumes exactly where it left off.
 runner := graph.NewRunner(compiled, store)
 state, err := runner.Resume(ctx, sessionID)
@@ -41,6 +43,12 @@ Chronos ships a durable, distributed execution plane that decouples run **intake
 Wrap the graph runner with `graph.NewQueuedExecutor` to run full StateGraphs on the queue, or drive the queue directly:
 
 ```go
+import (
+    "time"
+
+    "github.com/spawn08/chronos/engine/queue"
+)
+
 store := queue.NewSQLStore(db, queue.DialectPostgres) // FOR UPDATE SKIP LOCKED
 q := queue.New(store, queue.Config{MaxDepth: 1000, Policy: queue.PolicyPark})
 _ = q.Migrate(ctx)

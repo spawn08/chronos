@@ -98,6 +98,13 @@ Runs the agent on a text task and returns the text response. This is the simples
 **Requires:** `Model` must be set.
 
 ```go
+import (
+    "fmt"
+
+    "github.com/spawn08/chronos/engine/model"
+    "github.com/spawn08/chronos/sdk/agent"
+)
+
 a, _ := agent.New("helper", "Helper").
     WithModel(model.NewOpenAI(apiKey)).
     WithSystemPrompt("You are a helpful assistant.").
@@ -174,6 +181,8 @@ Continues a paused session from the latest checkpoint.
 Agents can also be built from YAML config:
 
 ```go
+import "github.com/spawn08/chronos/sdk/agent"
+
 fc, _ := agent.LoadFile("")
 cfg, _ := fc.FindAgent("dev")
 a, _ := agent.BuildAgent(ctx, cfg)
@@ -184,6 +193,18 @@ See the [Configuration guide](/getting-started/configuration/) for full YAML ref
 ## Complete Example
 
 ```go
+import (
+    "fmt"
+    "os"
+
+    "github.com/spawn08/chronos/engine/guardrails"
+    "github.com/spawn08/chronos/engine/hooks"
+    "github.com/spawn08/chronos/engine/model"
+    "github.com/spawn08/chronos/engine/tool"
+    "github.com/spawn08/chronos/sdk/agent"
+    "github.com/spawn08/chronos/storage/adapters/sqlite"
+)
+
 store, _ := sqlite.New("app.db")
 store.Migrate(ctx)
 

@@ -7,6 +7,21 @@ title: "Multi-Agent Teams"
 
 Chronos supports four team orchestration strategies for composing agents into collaborative workflows.
 
+The snippets on this page assume these imports:
+
+```go
+import (
+    "fmt"
+    "strings"
+
+    "github.com/spawn08/chronos/engine/graph"
+    "github.com/spawn08/chronos/engine/model"
+    "github.com/spawn08/chronos/sdk/agent"
+    "github.com/spawn08/chronos/sdk/protocol"
+    "github.com/spawn08/chronos/sdk/team"
+)
+```
+
 ## Team Strategies
 
 ### Sequential
