@@ -51,7 +51,7 @@ func NewHandoffTool(cfg HandoffConfig) *tool.Definition {
 				prompt = cfg.Instructions + "\n\nUser request: " + message
 			}
 
-			resp, err := cfg.TargetAgent.Chat(ctx, prompt)
+			resp, err := streamAgentContent(ctx, cfg.TargetAgent, prompt)
 			if err != nil {
 				return nil, fmt.Errorf("handoff to %s: %w", cfg.TargetAgent.ID, err)
 			}

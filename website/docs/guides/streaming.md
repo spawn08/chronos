@@ -123,6 +123,68 @@ chronos run --agent support-bot -s "Draft a reply to ticket 4821"
 
 Without `--stream`, `chronos run` prints the full response once it completes.
 
+Multi-agent teams accept the same flag. Each agent's output is printed under a
+labeled header so you can tell whose tokens are whose:
+
+```bash
+chronos team run --stream pipeline "what can you do?"
+```
+
+```
+─── researcher ───
+Searching the knowledge base…
+─── writer ───
+Here is a summary of what the team can do…
+```
+
+For the `parallel` strategy, tokens from different agents interleave; the header
+is reprinted whenever the active agent changes.
+
+## Team Streaming
+
+Multi-agent teams stream too, via `Team.RunStream`, which returns a channel of
+`TeamStreamEvent`. Each token is tagged with the `AgentID` that produced it — so
+you can attribute output even when agents run concurrently.
+
+```go
+ch, err := myTeam.RunStream(ctx, graph.State{"message": "what can you do?"})
+if err != nil {
+    log.Fatal(err)
+}
+
+for evt := range ch {
+    switch evt.Type {
+    case team.TeamEventAgentStart:
+        fmt.Printf("\n─── %s ───\n", evt.AgentID)
+    case team.TeamEventToken:
+        fmt.Print(evt.Content) // live token from evt.AgentID
+    case team.TeamEventAgentEnd:
+        fmt.Println()
+    case team.TeamEventError:
+        log.Fatalf("team failed: %v", evt.Err)
+    case team.TeamEventComplete:
+        // evt.State holds the merged final state
+    }
+}
+```
+
+The stream always ends with exactly one terminal event: `TeamEventComplete`
+(carrying the merged final `State`) on success, or `TeamEventError` on failure.
+
+### Strategy support
+
+| Strategy | Streams tokens? |
+|----------|-----------------|
+| `sequential` | ✅ agents stream in pipeline order |
+| `parallel` | ✅ tokens interleave; use `AgentID` to attribute |
+| `router` | ✅ the selected agent streams |
+| `coordinator` | ✅ delegated task agents stream (planning steps do not) |
+| `hierarchy` | ✅ supervisors and workers stream |
+| `swarm` | ⚠️ runs to completion but does **not** emit tokens — swarm inspects tool-call output to route handoffs, which is incompatible with token streaming |
+
+The same guardrail/schema timing caveat as [Agent Streaming](#agent-streaming)
+applies to each agent's output.
+
 ## Graph Execution Streaming
 
 The `Runner` emits `StreamEvent` values as nodes execute:

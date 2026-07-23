@@ -229,15 +229,16 @@ func (t *Team) agentInfoList() []AgentInfo {
 	return infos
 }
 
-// executeAgent runs an agent on a state, using Execute (model-only) when possible,
-// falling back to Run (graph-based).
+// executeAgent runs an agent on a state, using model execution when possible
+// (streaming tokens when the context carries a stream sink), falling back to Run
+// (graph-based) on error.
 func executeAgent(ctx context.Context, a *agent.Agent, state graph.State) (graph.State, error) {
 	msg, _ := state["message"].(string)
 	if msg == "" {
 		msg = stateToPrompt(state)
 	}
 
-	content, err := a.Execute(ctx, msg)
+	resp, err := streamAgentContent(ctx, a, msg)
 	if err != nil {
 		result, runErr := a.Run(ctx, state)
 		if runErr != nil {
@@ -250,7 +251,7 @@ func executeAgent(ctx context.Context, a *agent.Agent, state graph.State) (graph
 	for k, v := range state {
 		out[k] = v
 	}
-	out["response"] = content
+	out["response"] = resp.Content
 	return out, nil
 }
 

@@ -119,7 +119,7 @@ Commands:
   agent show <id>           Show agent configuration details
   agent chat <id>           Start a chat session with a specific agent
   team list                 List teams defined in config
-  team run <id> <message>   Run a multi-agent team on a task
+  team run [--stream] <id> <message>   Run a multi-agent team on a task (--stream for live tokens)
   team show <id>            Show team configuration details
   deploy <config.yaml> <msg> Deploy agents/team from YAML and run in sandbox
   sessions                  Session management (list, resume, export)
@@ -524,12 +524,22 @@ func teamShow(id string) error {
 }
 
 func teamRun() error {
-	args := os.Args[3:]
-	if len(args) < 2 {
-		return fmt.Errorf("usage: chronos team run <team_id> <message>")
+	// Parse: chronos team run [--stream] <team_id> <message...>
+	streaming := false
+	var positional []string
+	for _, arg := range os.Args[3:] {
+		switch arg {
+		case "--stream", "-s":
+			streaming = true
+		default:
+			positional = append(positional, arg)
+		}
 	}
-	teamID := args[0]
-	message := strings.Join(args[1:], " ")
+	if len(positional) < 2 {
+		return fmt.Errorf("usage: chronos team run [--stream] <team_id> <message>")
+	}
+	teamID := positional[0]
+	message := strings.Join(positional[1:], " ")
 
 	ctx := context.Background()
 
@@ -590,6 +600,10 @@ func teamRun() error {
 	}
 	fmt.Printf("Message: %s\n\n", message)
 
+	if streaming {
+		return teamRunStream(ctx, t, message)
+	}
+
 	result, err := t.Run(ctx, graph.State{"message": message})
 	if err != nil {
 		return fmt.Errorf("team run: %w", err)
@@ -603,6 +617,44 @@ func teamRun() error {
 				continue
 			}
 			fmt.Printf("%s: %v\n", k, v)
+		}
+	}
+
+	history := t.MessageHistory()
+	if len(history) > 0 {
+		fmt.Printf("\n[%d inter-agent messages exchanged]\n", len(history))
+	}
+	return nil
+}
+
+// teamRunStream runs a team with token-by-token streaming, printing each agent's
+// output under a labeled header. Tokens from different agents may interleave under
+// the parallel strategy; the per-agent header marks whose output follows.
+func teamRunStream(ctx context.Context, t *team.Team, message string) error {
+	ch, err := t.RunStream(ctx, graph.State{"message": message})
+	if err != nil {
+		return fmt.Errorf("team run: %w", err)
+	}
+
+	var current string
+	for evt := range ch {
+		switch evt.Type {
+		case team.TeamEventAgentStart:
+			fmt.Printf("\n─── %s ───\n", evt.AgentID)
+			current = evt.AgentID
+		case team.TeamEventToken:
+			// Re-label if a different agent's tokens interleave (parallel strategy).
+			if evt.AgentID != current {
+				fmt.Printf("\n─── %s ───\n", evt.AgentID)
+				current = evt.AgentID
+			}
+			fmt.Print(evt.Content)
+		case team.TeamEventAgentEnd:
+			fmt.Println()
+		case team.TeamEventError:
+			return fmt.Errorf("team run: %w", evt.Err)
+		case team.TeamEventComplete:
+			// Output already streamed; nothing more to print.
 		}
 	}
 
