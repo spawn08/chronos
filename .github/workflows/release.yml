@@ -246,7 +246,7 @@ jobs:
         run: echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: Chronos ${{ steps.version.outputs.tag }}
           generate_release_notes: true
