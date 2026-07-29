@@ -33,7 +33,29 @@ sub-packages `a2a/`, `mcpserver/`, `agui/`.
 ---
 
 ### WC-B-002 — MCP server (expose Chronos tools/agents as MCP)
-- [ ] **Status:** TODO
+- [x] **Status:** DONE <!-- done: 2026-07-29 -->
+  - **Delivered:** new `engine/interop/mcpserver` package. `Server` exposes tools sourced from a
+    `tool.Registry`; a `tools/call` dispatches through `Registry.Execute`, so it automatically
+    honors each tool's `Permission`, the approval hook, and the panic-to-error recovery (P0-009).
+    `initialize`/`ping`/`tools/list`/`tools/call` implemented; `HandleMessage` is a
+    transport-agnostic JSON-RPC 2.0 dispatcher shared by both transports: `ServeStdio`
+    (newline-delimited, bounded line size, serialized writes) and `SSEHandler` (HTTP+SSE with the
+    `endpoint`→`message` handshake, per-session routing, heartbeat) — the SSE transport
+    interoperates with the existing `engine/mcp` SSE client. Safe-by-default: a tool exposed without
+    an explicit permission defaults to `PermRequireApproval` (`WithDefaultPermission` to change);
+    `PermDeny` tools are never advertised; tool failures/denials/panics return as MCP `isError`
+    results, not transport errors. Example `examples/mcp_server/main.go` (runnable over stdio);
+    docs added to `website/docs/guides/mcp.md`. Tests: protocol conformance + permission/approval
+    gate + panic containment via `HandleMessage`; a `ServeStdio` frame round-trip; and a full
+    conformance round-trip driving the **real `engine/mcp` SSE client** against `SSEHandler` over
+    `httptest` (initialize → tools/list → tools/call, plus approval-denied surfaced as an error).
+    `-race` green.
+  - **Review gates:** design-pattern-reviewer APPROVE ("thin protocol adapter over the engine's single
+    enforcement path"); code-quality-auditor findings fixed in-branch — `Expose` copies rather than
+    mutating the caller's Definition; error frames now emit `"id":null` (dropped `omitempty` on the
+    response id) with a test; a notification is silent even when malformed; the no-op stdio write
+    mutex was removed; the oversized-frame transport exception is documented; `marshalError` is a
+    package function; SSE gets its own `maxBodyBytes` constant.
 - **Problem:** Chronos consumes MCP servers but cannot *be* one. Other hosts (Claude Desktop,
   IDEs, ADK, LangGraph) cannot consume Chronos tools/agents.
 - **Location:** new `engine/interop/mcpserver/`; source tools from `engine/tool/registry.go`

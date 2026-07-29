@@ -228,13 +228,53 @@ A complete runnable example lives in [`examples/mcp_agent`](https://github.com/s
 go run ./examples/mcp_agent/
 ```
 
+## Being an MCP server
+
+Chronos can also *expose* its own tools to any MCP host — Claude Desktop, an IDE,
+or another agent framework — with the `engine/interop/mcpserver` package. Where
+the client above consumes external servers, this lets Chronos be one.
+
+```go
+import (
+    "github.com/spawn08/chronos/engine/interop/mcpserver"
+    "github.com/spawn08/chronos/engine/tool"
+)
+
+srv := mcpserver.New("chronos-tools", mcpserver.WithVersion("1.0.0"))
+srv.Expose(addTool)        // a *tool.Definition
+srv.ExposeAll(registry)    // or a whole tool.Registry
+srv.SetApprover(approver)  // human-in-the-loop for guarded tools
+
+// stdio (for a host that launches the process):
+srv.ServeStdio(ctx, os.Stdin, os.Stdout)
+
+// or HTTP+SSE (mount the handler on your server):
+http.Handle("/mcp", srv.SSEHandler())
+```
+
+A `tools/call` is dispatched through the underlying `tool.Registry`, so it
+automatically honors each tool's **permission**, the **approval hook**, and the
+**panic-to-error recovery** already built into the engine — a panicking tool
+fails only its own call.
+
+**Safe by default:** a tool exposed without an explicit permission defaults to
+`PermRequireApproval`, so a remote host cannot silently run it without human
+approval. Expose a tool as `tool.PermAllow` to opt it into auto-approval, or
+change the default with `mcpserver.WithDefaultPermission`. Denied
+(`PermDeny`) tools are never advertised.
+
+Both transports share one transport-agnostic dispatcher (`HandleMessage`), and
+the SSE transport interoperates with the Chronos MCP client above. A complete
+runnable example is in
+[`examples/mcp_server`](https://github.com/spawn08/chronos/tree/main/examples/mcp_server).
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | `mcp: command is required for stdio transport` | No `command` set | Provide `command` (and `args`) in the server config. |
 | `mcp connect "...": ... executable file not found` | Server binary not installed | Install the MCP server (e.g. `npm i -g @modelcontextprotocol/server-filesystem`) or ensure `npx`/`uvx` is on `PATH`. |
-| `mcp: transport "sse" not yet supported` | Requested SSE | Use `stdio` for now; SSE is planned. |
+| `mcp: url is required for sse transport` | SSE selected without a URL | Set `url` in the server config for `sse` transport. |
 | Tools don't appear | `ConnectMCP` not called | Call `a.ConnectMCP(ctx)` after `Build`. |
 
 ## See also
