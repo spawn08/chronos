@@ -17,7 +17,7 @@ Legend: `TODO` · `IN-PROGRESS` · `REVIEW` · `DONE`
 | WC-A-005 | "Deep agent" harness preset | TODO | — | — | A-001…004, D-001 |
 | WC-B-001 | A2A client + server | TODO | — | — | A-003 |
 | WC-B-002 | MCP server | DONE | claude | plan/wc-b-mcp-server | none |
-| WC-B-003 | AG-UI standard event stream | TODO | — | — | A-001 |
+| WC-B-003 | AG-UI standard event stream | DONE | claude | plan/wc-b-agui | A-001 |
 
 ## Wave 2 — Make it lovable
 
@@ -47,6 +47,7 @@ Append a line when an item changes state (newest first):
 YYYY-MM-DD  WC-X-000  TODO→IN-PROGRESS  agent/owner  plan/wc-x-slug  note
 ```
 
+2026-07-30  WC-B-003  TODO→DONE  claude  plan/wc-b-agui  AG-UI standard event stream (translator + /api/agui/stream) + example + docs
 2026-07-29  WC-B-002  TODO→DONE  claude  plan/wc-b-mcp-server  MCP server (stdio + SSE) exposing tool.Registry, permission/approval-honoring
 2026-07-29  WC-A-003  TODO→DONE  claude  plan/wc-a-subagents  context-isolated + dynamic subagents (spawn tool, in-process + durable queued runner) + example + docs
 2026-07-29  WC-A-002  TODO→DONE  claude  plan/wc-a-vfs  virtual filesystem (SessionFileStore + VFS + fs_* tools) + example + docs

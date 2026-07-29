@@ -30,6 +30,7 @@ const sidebars: SidebarsConfig = {
         'guides/virtual-filesystem',
         'guides/subagents',
         'guides/mcp',
+        'guides/agui',
         'guides/memory',
         'guides/context-management',
         'guides/teams',

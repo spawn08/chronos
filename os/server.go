@@ -23,6 +23,7 @@ import (
 	_ "github.com/spawn08/chronos/os/apidocs" // registers the generated OpenAPI spec with the swag registry
 	"github.com/spawn08/chronos/os/approval"
 	"github.com/spawn08/chronos/os/auth"
+	"github.com/spawn08/chronos/os/interop/agui"
 	"github.com/spawn08/chronos/os/logging"
 	"github.com/spawn08/chronos/os/metrics"
 	"github.com/spawn08/chronos/os/middleware"
@@ -403,6 +404,9 @@ func (s *Server) routes() {
 	// Empty default topic = firehose: a client with no ?session/?topic sees all
 	// sessions' events (dashboard/monitor); ?session=<id> scopes to one session.
 	s.mux.HandleFunc("/api/events/stream", s.handleEventsStream)
+	// Standardized AG-UI event stream (translated from the native broker events),
+	// served alongside the native stream so AG-UI frontends need no custom glue.
+	s.mux.HandleFunc("/api/agui/stream", s.handleAGUIStream)
 	s.mux.HandleFunc("/api/approval/pending", s.handleApprovalPending)
 	s.mux.HandleFunc("/api/approval/respond", s.handleApprovalRespond)
 	s.mux.HandleFunc("/metrics", s.handleMetrics)
@@ -486,6 +490,23 @@ func (s *Server) handleReadiness(w http.ResponseWriter, _ *http.Request) {
 // @Router      /api/events/stream [get]
 func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
 	streaming(s.Broker.SSEHandler(""))(w, r)
+}
+
+// handleAGUIStream serves the same run as a standardized AG-UI event stream,
+// translated from the broker's native events. Scope it with ?session=<id>.
+//
+// @Summary     Stream a run as AG-UI events
+// @Description Server-Sent Events translated to the AG-UI protocol for compatible frontends.
+// @Tags        events
+// @Produce     text/event-stream
+// @Param       session query string false "Scope the stream to a single session id (AG-UI thread)"
+// @Param       run     query string false "Run id to report in RUN_STARTED/RUN_FINISHED"
+// @Success     200 {string} string "AG-UI SSE event stream"
+// @Security    BearerAuth
+// @Security    ApiKeyAuth
+// @Router      /api/agui/stream [get]
+func (s *Server) handleAGUIStream(w http.ResponseWriter, r *http.Request) {
+	streaming(agui.Handler(s.Broker))(w, r)
 }
 
 // streaming wraps a streaming handler (e.g. SSE) to clear the connection's

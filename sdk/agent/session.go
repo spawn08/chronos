@@ -9,6 +9,7 @@ import (
 
 	"github.com/spawn08/chronos/engine/hooks"
 	"github.com/spawn08/chronos/engine/model"
+	"github.com/spawn08/chronos/engine/stream"
 	"github.com/spawn08/chronos/storage"
 )
 
@@ -257,6 +258,12 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 		return nil, fmt.Errorf("hook before model call: %w", hookErr)
 	}
 
+	// The session id is in ctx (set above), so these route to the session topic:
+	// the AG-UI/native per-session stream works for ChatWithSession too.
+	a.publish(ctx, stream.Event{Type: stream.EventModelCall, Data: map[string]any{
+		"agent": a.ID, "model": a.Model.Name(), "messages": len(req.Messages),
+	}})
+
 	resp, err := a.Model.Chat(ctx, req)
 
 	modelEvt.Type = hooks.EventModelCallAfter
@@ -271,8 +278,15 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 	}
 
 	if err != nil {
+		a.publish(ctx, stream.Event{Type: stream.EventError, Data: map[string]any{
+			"agent": a.ID, "error": err.Error(),
+		}})
 		return nil, fmt.Errorf("agent %q session chat: %w", a.ID, err)
 	}
+
+	a.publish(ctx, stream.Event{Type: stream.EventModelResponse, Data: map[string]any{
+		"agent": a.ID, "stop_reason": string(resp.StopReason), "content": resp.Content,
+	}})
 
 	// Handle tool calls across multiple rounds, threading the accumulated
 	// message history and passing the tool definitions on every follow-up.

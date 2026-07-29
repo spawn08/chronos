@@ -74,7 +74,30 @@ sub-packages `a2a/`, `mcpserver/`, `agui/`.
 ---
 
 ### WC-B-003 — AG-UI standard agent event stream
-- [ ] **Status:** TODO
+- [x] **Status:** DONE <!-- done: 2026-07-30 -->
+  - **Delivered:** new `os/interop/agui` package — a translation layer over the existing
+    `stream.Broker` and its per-session SSE routing, served at `GET /api/agui/stream` **alongside**
+    the unchanged native `/api/events/stream`. `Translator` maps native events to the AG-UI protocol
+    (`RUN_STARTED`/`RUN_FINISHED`/`RUN_ERROR`, `STEP_STARTED`/`STEP_FINISHED`,
+    `TOOL_CALL_START`/`ARGS`/`END`/`RESULT` with a correlated per-run tool-call id, `STATE_SNAPSHOT`,
+    and `CUSTOM` for plan updates [WC-A-001] and interrupts). Heterogeneous broker payloads (the
+    runner's `graph.StreamEvent` struct vs the agent's `map[string]any`) are normalized via a JSON
+    round-trip. `RUN_STARTED` is emitted on connect (not lazily) so a client sees a live lifecycle
+    immediately; per-session isolation and heartbeat are inherited from the broker. `agui.Handler`
+    is embeddable on any mux; `agui.Translator` is transport-agnostic. Example
+    `examples/agui_stream/main.go` (key-free), docs `website/docs/guides/agui.md`. Tests:
+    table-driven translator mapping (both payload shapes), tool-call id correlation, and live SSE
+    tests over `httptest` (full translated run + per-session isolation). `-race` green.
+  - **Review-driven hardening (both gates):** the reviews surfaced real upstream gaps that this item
+    now fixes so the "streaming tokens → tool calls → plan → completion, per-session isolated"
+    acceptance actually holds. In `sdk/agent`: model/tool/error events now route to the session topic
+    (`a.publish(ctx, …)` using `storage.SessionFromContext`) instead of broadcasting — closing a
+    cross-session leak on both the native and AG-UI streams; tool events carry the model tool-call id;
+    the assistant's text is published (final content on the blocking path, token `model_delta`s on the
+    streaming path). The translator gains `TEXT_MESSAGE_*` (streamed and one-shot), id-based tool-call
+    correlation, and an orphan-guard that synthesizes a `TOOL_CALL_START` when a result arrives with no
+    seen call (BLOCK-Q01). The handler honors the broker's configured heartbeat (`stream.Broker.Heartbeat()`)
+    instead of hardcoding it. New `stream.EventModelDelta`.
 - **Problem:** The SSE event schema (`engine/stream/stream.go`, `modes.go`) is Chronos-specific,
   so frontends must be hand-built per app. A standard agent-UI event protocol lets any compatible
   frontend render Chronos runs (tokens, tool calls, plan updates, state transitions, HITL prompts).
