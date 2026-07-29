@@ -410,8 +410,8 @@ func attachRoster(r *repl.REPL, activeID string) error {
 	// Wire teams so /team can run them with streaming output.
 	if len(fc.Teams) > 0 {
 		ids := make([]string, 0, len(fc.Teams))
-		for _, tc := range fc.Teams {
-			ids = append(ids, tc.ID)
+		for i := range fc.Teams {
+			ids = append(ids, fc.Teams[i].ID)
 		}
 		r.SetTeams(ids, func(ctx context.Context, teamID, message string) (<-chan team.TeamStreamEvent, error) {
 			t, buildErr := buildTeamByID(ctx, teamID)
@@ -755,7 +755,8 @@ func teamList() error {
 	}
 	fmt.Printf("%-15s %-20s %-15s %-10s %s\n", "ID", "NAME", "STRATEGY", "AGENTS", "COORDINATOR")
 	fmt.Println(strings.Repeat("-", 80))
-	for _, tc := range fc.Teams {
+	for i := range fc.Teams {
+		tc := &fc.Teams[i]
 		coord := "-"
 		if tc.Coordinator != "" {
 			coord = tc.Coordinator

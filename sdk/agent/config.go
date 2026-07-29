@@ -133,8 +133,8 @@ func (fc *FileConfig) FindTeam(id string) (*TeamConfig, error) {
 		}
 	}
 	names := make([]string, len(fc.Teams))
-	for i, t := range fc.Teams {
-		names[i] = t.ID
+	for i := range fc.Teams {
+		names[i] = fc.Teams[i].ID
 	}
 	return nil, fmt.Errorf("team %q not found in config (available: %s)", id, strings.Join(names, ", "))
 }

@@ -302,6 +302,11 @@ func (r *Runner) execute(ctx context.Context, rs *RunState, skipFirstInterrupt b
 	r.sessionID = rs.SessionID
 	r.mu.Unlock()
 
+	// Carry the session id in the context so nodes and the tools they invoke
+	// (e.g. the planning tool's StoragePlanStore) can scope durable per-session
+	// state without threading the id through every signature.
+	ctx = storage.WithSession(ctx, rs.SessionID)
+
 	// Start a top-level graph execution span
 	var graphSpan *storage.Trace
 	if r.tracer != nil {
