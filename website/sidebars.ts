@@ -28,6 +28,7 @@ const sidebars: SidebarsConfig = {
         'guides/tools',
         'guides/planning',
         'guides/virtual-filesystem',
+        'guides/subagents',
         'guides/mcp',
         'guides/memory',
         'guides/context-management',
