@@ -62,6 +62,64 @@ agents:
 	}
 }
 
+func TestLoadFileTeamRouterModel(t *testing.T) {
+	t.Setenv("ROUTER_KEY", "sk-router-123")
+	yaml := `
+agents:
+  - id: a1
+    name: Agent One
+    model:
+      provider: ollama
+      model: llama3.3
+  - id: a2
+    name: Agent Two
+    model:
+      provider: ollama
+      model: llama3.3
+
+teams:
+  - id: dispatch
+    name: Dispatch
+    strategy: router
+    router: model
+    router_model:
+      provider: openai
+      model: gpt-4o-mini
+      api_key: ${ROUTER_KEY}
+    agents:
+      - a1
+      - a2
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agents.yaml")
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write test config: %v", err)
+	}
+
+	fc, err := LoadFile(path)
+	if err != nil {
+		t.Fatalf("LoadFile: %v", err)
+	}
+	tc, err := fc.FindTeam("dispatch")
+	if err != nil {
+		t.Fatalf("FindTeam: %v", err)
+	}
+	if tc.Router != "model" {
+		t.Errorf("router = %q, want model", tc.Router)
+	}
+	if tc.RouterModel.Provider != "openai" || tc.RouterModel.Model != "gpt-4o-mini" {
+		t.Errorf("router_model = %+v, want openai/gpt-4o-mini", tc.RouterModel)
+	}
+	if tc.RouterModel.APIKey != "sk-router-123" {
+		t.Errorf("router_model api_key = %q, want env-expanded value", tc.RouterModel.APIKey)
+	}
+
+	// The override must build into a working provider.
+	if _, err := BuildProvider(tc.RouterModel); err != nil {
+		t.Errorf("BuildProvider(router_model): %v", err)
+	}
+}
+
 func TestLoadFileWithDefaults(t *testing.T) {
 	yaml := `
 defaults:

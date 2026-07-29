@@ -817,13 +817,27 @@ func buildTeamByID(ctx context.Context, teamID string) (*team.Team, error) {
 		return nil, err
 	}
 
-	t := team.New(tc.ID, tc.Name, strategy)
-
+	// Resolve member agents in declared order.
+	members := make([]*agent.Agent, 0, len(tc.Agents))
 	for _, agentID := range tc.Agents {
 		a, ok := agents[agentID]
 		if !ok {
 			return nil, fmt.Errorf("team %q references unknown agent %q", tc.ID, agentID)
 		}
+		members = append(members, a)
+	}
+
+	// Graph-backed strategies build their own compiled graph; they cannot be
+	// assembled with team.New + AddAgent alone.
+	switch strategy {
+	case team.StrategySwarm:
+		return buildSwarmTeam(tc, members)
+	case team.StrategyHierarchy:
+		return buildHierarchyTeam(tc, agents, members)
+	}
+
+	t := team.New(tc.ID, tc.Name, strategy)
+	for _, a := range members {
 		t.AddAgent(a)
 	}
 
@@ -847,6 +861,105 @@ func buildTeamByID(ctx context.Context, teamID string) (*team.Team, error) {
 		}
 		t.SetErrorStrategy(es)
 	}
+
+	if strategy == team.StrategyRouter {
+		if err := wireRouter(t, tc, members); err != nil {
+			return nil, err
+		}
+	}
+	return t, nil
+}
+
+// wireRouter attaches a routing function to a router-strategy team. Without this,
+// a router team silently falls back to the capability heuristic, which returns
+// the first agent whenever no capability matches the state — so YAML routing
+// appears to "always pick agent #1". The default mode is model-based routing.
+func wireRouter(t *team.Team, tc *agent.TeamConfig, members []*agent.Agent) error {
+	mode := strings.ToLower(strings.TrimSpace(tc.Router))
+	if mode == "" {
+		mode = "model"
+	}
+	switch mode {
+	case "model":
+		provider, err := resolveRouterProvider(tc, members)
+		if err != nil {
+			return err
+		}
+		if provider == nil {
+			return fmt.Errorf("team %q: router strategy (model) requires a router_model or at least one member agent with a model provider", tc.ID)
+		}
+		t.SetModelRouter(team.NewModelRouter(provider))
+		return nil
+	case "capability":
+		// Leave both routers nil so selectAgent uses the capability heuristic.
+		return nil
+	default:
+		return fmt.Errorf("team %q: unknown router mode %q (supported: model, capability)", tc.ID, tc.Router)
+	}
+}
+
+// resolveRouterProvider picks the provider for model-based routing: an explicit
+// router_model when configured, otherwise the first member agent's provider.
+func resolveRouterProvider(tc *agent.TeamConfig, members []*agent.Agent) (model.Provider, error) {
+	if tc.RouterModel.Provider != "" {
+		provider, err := agent.BuildProvider(tc.RouterModel)
+		if err != nil {
+			return nil, fmt.Errorf("team %q: router_model: %w", tc.ID, err)
+		}
+		return provider, nil
+	}
+	for _, a := range members {
+		if a.Model != nil {
+			return a.Model, nil
+		}
+	}
+	return nil, nil
+}
+
+// buildSwarmTeam assembles a swarm team (peer-to-peer handoffs) from a flat YAML
+// agent list, then restamps it with the configured ID and name.
+func buildSwarmTeam(tc *agent.TeamConfig, members []*agent.Agent) (*team.Team, error) {
+	t, err := team.NewSwarm(team.SwarmConfig{
+		Agents:       members,
+		InitialAgent: tc.InitialAgent,
+		MaxHandoffs:  tc.MaxHandoffs,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("team %q: %w", tc.ID, err)
+	}
+	t.ID = tc.ID
+	t.Name = tc.Name
+	return t, nil
+}
+
+// buildHierarchyTeam assembles a two-level hierarchy from a flat YAML list: the
+// `coordinator` agent is the root supervisor and every other listed agent is a
+// worker under it.
+func buildHierarchyTeam(tc *agent.TeamConfig, agents map[string]*agent.Agent, members []*agent.Agent) (*team.Team, error) {
+	if tc.Coordinator == "" {
+		return nil, fmt.Errorf("team %q: hierarchy strategy requires a 'coordinator' (the root supervisor agent)", tc.ID)
+	}
+	root, ok := agents[tc.Coordinator]
+	if !ok {
+		return nil, fmt.Errorf("team %q references unknown coordinator %q", tc.ID, tc.Coordinator)
+	}
+
+	workers := make([]*agent.Agent, 0, len(members))
+	for _, a := range members {
+		if a.ID == tc.Coordinator {
+			continue
+		}
+		workers = append(workers, a)
+	}
+
+	t, err := team.NewHierarchy(team.HierarchyConfig{
+		Root: &team.SupervisorNode{Supervisor: root, Workers: workers},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("team %q: %w", tc.ID, err)
+	}
+	t.ID = tc.ID
+	t.Name = tc.Name
 	return t, nil
 }
 
