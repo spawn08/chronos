@@ -27,6 +27,7 @@ const sidebars: SidebarsConfig = {
         'guides/models',
         'guides/tools',
         'guides/planning',
+        'guides/virtual-filesystem',
         'guides/mcp',
         'guides/memory',
         'guides/context-management',
