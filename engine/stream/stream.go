@@ -17,6 +17,7 @@ const (
 	EventToolCall       = "tool_call"
 	EventToolResult     = "tool_result"
 	EventModelCall      = "model_call"
+	EventModelDelta     = "model_delta"
 	EventModelResponse  = "model_response"
 	EventCheckpoint     = "checkpoint"
 	EventInterrupt      = "interrupt"
@@ -183,6 +184,14 @@ func (b *Broker) Publish(evt Event) {
 // PublishTopic delivers an event only to subscribers of the given topic.
 func (b *Broker) PublishTopic(topic string, evt Event) {
 	b.fanout.Publish(topic, evt)
+}
+
+// Heartbeat returns the broker's configured SSE keepalive interval, so
+// alternative SSE handlers (e.g. the AG-UI stream) can honor the same
+// configuration instead of hardcoding their own. A value <= 0 means heartbeats
+// are disabled.
+func (b *Broker) Heartbeat() time.Duration {
+	return b.heartbeat
 }
 
 // Close releases all subscriptions and underlying resources.
