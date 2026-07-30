@@ -12,7 +12,7 @@ Legend: `TODO` · `IN-PROGRESS` · `REVIEW` · `DONE`
 |------|-------|:------:|---------------|--------|------------|
 | WC-A-001 | Planning ("todo") tool | DONE | claude | plan/wc-a-planning-tool | none |
 | WC-A-002 | Virtual filesystem (context offloading) | DONE | claude | plan/wc-a-vfs | none |
-| WC-A-003 | Context-isolated & dynamic subagents | TODO | — | — | A-001, A-002 |
+| WC-A-003 | Context-isolated & dynamic subagents | DONE | claude | plan/wc-a-subagents | A-001, A-002 |
 | WC-A-004 | Automatic context compaction | TODO | — | — | A-001, D-001 |
 | WC-A-005 | "Deep agent" harness preset | TODO | — | — | A-001…004, D-001 |
 | WC-B-001 | A2A client + server | TODO | — | — | A-003 |
@@ -47,6 +47,7 @@ Append a line when an item changes state (newest first):
 YYYY-MM-DD  WC-X-000  TODO→IN-PROGRESS  agent/owner  plan/wc-x-slug  note
 ```
 
+2026-07-29  WC-A-003  TODO→DONE  claude  plan/wc-a-subagents  context-isolated + dynamic subagents (spawn tool, in-process + durable queued runner) + example + docs
 2026-07-29  WC-A-002  TODO→DONE  claude  plan/wc-a-vfs  virtual filesystem (SessionFileStore + VFS + fs_* tools) + example + docs
 2026-07-29  WC-A-001  TODO→DONE  claude  plan/wc-a-planning-tool  planning tool + durable PlanStore + example + docs
 

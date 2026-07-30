@@ -94,7 +94,35 @@ existing agent loop, plus built-in tools under `engine/tool/builtins/`.
 ---
 
 ### WC-A-003 — Context-isolated & dynamic subagents
-- [ ] **Status:** TODO
+- [x] **Status:** DONE <!-- done: 2026-07-29 -->
+  - **Delivered:** new `sdk/harness` package. `SubAgentService` (derived from a built parent —
+    inherits its model, grants a subset of its tools by name) resolves pre-registered `SubAgentSpec`
+    templates and builds dynamic ones at runtime. `spawn_subagent` tool (`harness.Attach(svc,
+    runner)`): the subagent runs in a fresh, isolated conversation and only its final result
+    string returns to the parent — intermediate tokens/tool-calls never enter the parent context.
+    Nesting bounded by `WithMaxDepth` (default 3). Two `Runner` strategies: `InProcessRunner`
+    (ephemeral; the only option for dynamic subagents) and `QueuedRunner` (durable) which enqueues
+    the subagent as a graph run on `engine/queue` via a shared single-node `NewSubAgentGraph`, so a
+    subagent orphaned by a dead worker is re-leased and completed by another worker (resumable /
+    relocatable); result read back from the run's final checkpoint. Builder coupling avoided
+    (agent must not import harness → wiring lives in `harness.Attach`). Runnable key-free example
+    `examples/subagents/main.go`; docs `website/docs/guides/subagents.md`. Tests: context-isolation
+    (subagent sees only its own system prompt + task; tool returns only the result), dynamic spawn +
+    unknown-tool rejection, task/spec validation, depth guard, `-race` concurrent spawns, and durable
+    queue tests (end-to-end run, dynamic rejection, and orphan-recovery mirroring
+    `engine/queue` `TestWorker_OrphanRecovery`).
+  - Layering note: the subagent primitives live in `sdk/harness` (sdk → engine → storage), the
+    correct home; `storage.WithSession` (WC-A-001) is reused so a subagent shares the parent's
+    session/VFS artifacts, per the A-002 dependency note.
+  - **Review gates:** both adversarial gates ran. Fixes applied in-branch: `SubAgentService` is now
+    a mutex-guarded registry (like `tool`/`skill` registries); the recursion depth is serialized
+    into the queue payload and rehydrated in the graph node, so the bound holds on the durable path;
+    `resolve` fails closed on an unknown registered name; `SubAgentSpec.Description` is surfaced in
+    the tool description; the shared `svc.run` helper removes InProcessRunner/graph-node duplication;
+    `Runner` now holds its service (`NewInProcessRunner`/`NewQueuedRunner`); `QueuedRunner` gained a
+    `WithTimeout` option and errors on a completion with no result; `Attach(svc, runner)` dropped the
+    nil-deref-prone parent arg; errors wrapped throughout. Added `-race` concurrent register/spawn,
+    depth-propagation, `stateDepth`, and fail-closed tests.
 - **Problem:** `AddSubAgent` (agent.go:170) attaches subagents at build time and does not give
   each a *fresh, isolated context* — the parent's window is shared, defeating the point.
   DeepAgents' June-2026 "dynamic subagents" also create subagents *at runtime* per task.
