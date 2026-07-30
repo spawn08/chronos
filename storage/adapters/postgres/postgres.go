@@ -162,11 +162,26 @@ func (s *Store) Migrate(ctx context.Context) error {
 	m := migrate.New(s.db, migrate.WithDialect(migrate.DialectPostgres))
 	m.Add(1, "initial schema", schema, "")
 	m.Add(2, "tenant scoping", schemaTenant, "")
+	m.Add(3, "session files (vfs)", schemaSessionFiles, "")
 	if err := m.Migrate(ctx); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
 	return nil
 }
+
+// schemaSessionFiles is the v3 migration: it adds the session_files table
+// backing the harness virtual filesystem, keyed by (tenant, session, path).
+const schemaSessionFiles = `
+CREATE TABLE IF NOT EXISTS session_files (
+	tenant_id TEXT NOT NULL DEFAULT 'default',
+	session_id TEXT NOT NULL,
+	path TEXT NOT NULL,
+	content BYTEA,
+	size INTEGER NOT NULL,
+	updated_at TIMESTAMPTZ NOT NULL,
+	PRIMARY KEY (tenant_id, session_id, path)
+);
+`
 
 func (s *Store) Close() error { return s.db.Close() }
 

@@ -53,7 +53,27 @@ existing agent loop, plus built-in tools under `engine/tool/builtins/`.
 ---
 
 ### WC-A-002 — Virtual filesystem for context offloading
-- [ ] **Status:** TODO
+- [x] **Status:** DONE <!-- done: 2026-07-29 -->
+  - **Delivered:** `storage.SessionFileStore` — a new OPTIONAL capability interface (mirrors
+    `Paginator`/`Retention`) with `PutFile/GetFile/ListFiles/DeleteFile`, keyed by
+    `(tenant, session, path)`; implemented by sqlite and postgres (new `session_files` table,
+    migration v3, no FK to sessions and no event-ledger/`Session.Metadata` coupling — so it does
+    not clash with WC-A-001's plan or the runner's seq space). `engine/tool/builtins/vfs.go`:
+    the `VFS` interface (`Write/Read/List/Delete`) with `InMemoryVFS` (ephemeral) and `StorageVFS`
+    (durable) implementations; `StorageVFS` fails at **construction** when the backend lacks
+    `SessionFileStore`. `engine/tool/builtins/vfs_tools.go`: `fs_write` (returns only a
+    path+size receipt, never the content), `fs_read`, `fs_ls`, `fs_delete`, and `NewVFSToolkit`.
+    Both VFS impls reject a sessionless context (`ErrNoSession`), matching the plan tool (LSP).
+    Runnable key-free example `examples/vfs_agent/main.go` offloads a 55 KB artifact and shows a
+    51-byte context receipt; docs at `website/docs/guides/virtual-filesystem.md`. Tests:
+    substitutability suite across both impls (round-trip, prefix-ordered list, tenant+session
+    isolation, sessionless rejection, blank-path rejection, construction failure), fs_* tool
+    tests (asserting `fs_write` never echoes content), a context-offloading size assertion,
+    `-race` concurrent writes, sqlite adapter round-trip/isolation tests, and a `Benchmark`.
+  - Layering note: the VFS interface + tools live in `engine/tool/builtins` (not `sdk/harness`
+    as the spec loosely suggested) because `engine` must not import `sdk`; the fs_* tools are
+    engine builtins, so the interface must be at or below the engine layer. Consistent with the
+    WC-A-001 PlanStore placement.
 - **Problem:** Intermediate work (research notes, drafts, tool output) is stuffed into the
   context window, blowing the token budget on long runs. DeepAgents offloads to a virtual FS
   and pages content back in on demand.
