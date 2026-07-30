@@ -45,7 +45,7 @@ func (m *memoryVectorStore) Upsert(_ context.Context, collection string, embeddi
 	return nil
 }
 
-func (m *memoryVectorStore) Search(_ context.Context, collection string, query []float32, topK int, _ ...storage.SearchOption) ([]storage.SearchResult, error) {
+func (m *memoryVectorStore) Search(_ context.Context, collection string, query []float32, topK int, opts ...storage.SearchOption) ([]storage.SearchResult, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	col, ok := m.collections[collection]
@@ -53,8 +53,13 @@ func (m *memoryVectorStore) Search(_ context.Context, collection string, query [
 		return nil, fmt.Errorf("collection %q does not exist", collection)
 	}
 
+	// Apply any metadata filter before ranking so top-k is over the subset.
+	filter := storage.ApplySearchOptions(opts...).Filter
 	results := make([]storage.SearchResult, 0, len(col))
 	for _, e := range col {
+		if !storage.MatchesFilter(e.Metadata, filter) {
+			continue
+		}
 		results = append(results, storage.SearchResult{Embedding: e, Score: cosine(query, e.Vector)})
 	}
 	sort.Slice(results, func(i, j int) bool { return results[i].Score > results[j].Score })

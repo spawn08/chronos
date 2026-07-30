@@ -49,6 +49,7 @@ type Agent struct {
 	OutputSchema   map[string]any          // JSON Schema for structured output
 	NumHistoryRuns int                     // number of past runs to inject into context
 	ContextCfg     ContextConfig           // context window management and summarization
+	MemoryRecall   RecallConfig            // automatic semantic long-term recall policy
 
 	// System prompt and instructions
 	SystemPrompt   string
@@ -69,6 +70,29 @@ type Agent struct {
 	SubAgents              []*Agent
 	MaxConcurrentSubAgents int
 	Capabilities           []string // advertised capabilities for the protocol bus
+}
+
+// defaultRecallTopK is the number of memories recalled per turn when
+// RecallConfig.TopK is unset. It mirrors memory.Manager's own default.
+const defaultRecallTopK = 5
+
+// RecallConfig controls automatic semantic long-term recall. Recall is enabled
+// by default (zero value) and fires only when the agent has a MemoryManager with
+// an attached vector index (see memory.Manager.WithVectorIndex); otherwise the
+// agent falls back to the legacy full-memory dump, so existing agents are
+// unaffected.
+type RecallConfig struct {
+	Disabled       bool    `json:"disabled" yaml:"disabled"`               // opt out of semantic recall
+	TopK           int     `json:"top_k" yaml:"top_k"`                     // memories to recall per turn; 0 = default 5
+	ScoreThreshold float32 `json:"score_threshold" yaml:"score_threshold"` // drop recalled memories below this score; 0 = keep all
+}
+
+// effectiveTopK returns the configured top-k or the default when unset.
+func (c RecallConfig) effectiveTopK() int {
+	if c.TopK > 0 {
+		return c.TopK
+	}
+	return defaultRecallTopK
 }
 
 // ContextConfig controls context window management and automatic summarization.
@@ -113,6 +137,7 @@ func (b *Builder) WithHistoryRuns(n int) *Builder                { b.agent.NumHi
 func (b *Builder) WithMaxIterations(n int) *Builder              { b.agent.MaxIterations = n; return b }
 func (b *Builder) WithReasoningModel(p model.Provider) *Builder  { b.agent.ReasoningModel = p; return b }
 func (b *Builder) WithContextConfig(cfg ContextConfig) *Builder  { b.agent.ContextCfg = cfg; return b }
+func (b *Builder) WithMemoryRecall(cfg RecallConfig) *Builder    { b.agent.MemoryRecall = cfg; return b }
 func (b *Builder) WithBroker(br *stream.Broker) *Builder         { b.agent.Broker = br; return b }
 func (b *Builder) WithTracer(t *chronostrace.Collector) *Builder { b.agent.Tracer = t; return b }
 func (b *Builder) WithSystemPrompt(prompt string) *Builder       { b.agent.SystemPrompt = prompt; return b }
@@ -261,6 +286,53 @@ func (a *Agent) memoryManager() *memory.Manager {
 	return a.MemoryManager
 }
 
+// memoryMessages returns the long-term memory context to inject for this turn,
+// scoped to the agent's tenant. When recall is enabled and the manager has a
+// semantic index, it injects the top-k memories relevant to userMessage;
+// otherwise it falls back to the legacy full-memory dump. Errors degrade to no
+// memory context (best-effort), preserving prior behavior. Shared by
+// buildChatRequest and buildSystemContext so both paths stay identical.
+func (a *Agent) memoryMessages(ctx context.Context, userMessage string) []model.Message {
+	mgr := a.memoryManager()
+	if mgr == nil {
+		return nil
+	}
+	if !a.MemoryRecall.Disabled && mgr.CanRecall() {
+		recalled, err := mgr.Recall(ctx, userMessage, a.MemoryRecall.effectiveTopK())
+		if err != nil {
+			return nil
+		}
+		return a.injectRecalledMemories(recalled)
+	}
+	if memCtx, err := mgr.GetUserMemories(ctx); err == nil && memCtx != "" {
+		return []model.Message{{Role: model.RoleSystem, Content: memCtx}}
+	}
+	return nil
+}
+
+// injectRecalledMemories formats ranked recall candidates into a single system
+// message, dropping any below the configured score threshold. This is the
+// WC-A-004 seam: automatic context compaction will apply its token budget here
+// to select/trim the ranked candidates before formatting.
+func (a *Agent) injectRecalledMemories(recalled []memory.RecalledMemory) []model.Message {
+	var b strings.Builder
+	b.WriteString("Relevant user memories:\n")
+	kept := 0
+	for _, r := range recalled {
+		if a.MemoryRecall.ScoreThreshold > 0 && r.Score < a.MemoryRecall.ScoreThreshold {
+			continue
+		}
+		b.WriteString("- ")
+		b.WriteString(r.Content)
+		b.WriteString("\n")
+		kept++
+	}
+	if kept == 0 {
+		return nil
+	}
+	return []model.Message{{Role: model.RoleSystem, Content: strings.TrimRight(b.String(), "\n")}}
+}
+
 // buildChatRequest assembles the full message list (system prompt, instructions,
 // few-shot examples, long-term memory, RAG knowledge, run history and reasoning
 // scaffolding) plus the user message, applies input guardrails and the output
@@ -287,12 +359,9 @@ func (a *Agent) buildChatRequest(ctx context.Context, userMessage string) (*mode
 		)
 	}
 
-	// Inject long-term user memories into context (scoped to the agent's tenant)
-	if mgr := a.memoryManager(); mgr != nil {
-		if memCtx, err := mgr.GetUserMemories(ctx); err == nil && memCtx != "" {
-			messages = append(messages, model.Message{Role: model.RoleSystem, Content: memCtx})
-		}
-	}
+	// Inject long-term user memories into context (semantic recall when enabled,
+	// else the full dump — scoped to the agent's tenant).
+	messages = append(messages, a.memoryMessages(ctx, userMessage)...)
 
 	// Inject relevant knowledge via RAG
 	if a.Knowledge != nil {

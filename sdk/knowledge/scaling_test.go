@@ -71,7 +71,7 @@ func (s *recordingStore) Upsert(_ context.Context, _ string, embeddings []storag
 	s.upserted = append(s.upserted, embeddings...)
 	return nil
 }
-func (s *recordingStore) Search(_ context.Context, _ string, _ []float32, topK int) ([]storage.SearchResult, error) {
+func (s *recordingStore) Search(_ context.Context, _ string, _ []float32, topK int, _ ...storage.SearchOption) ([]storage.SearchResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	res := s.results

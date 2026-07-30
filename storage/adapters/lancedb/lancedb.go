@@ -66,7 +66,7 @@ func (s *Store) Upsert(ctx context.Context, collection string, embeddings []stor
 	return err
 }
 
-func (s *Store) Search(ctx context.Context, collection string, query []float32, topK int) ([]storage.SearchResult, error) {
+func (s *Store) Search(ctx context.Context, collection string, query []float32, topK int, opts ...storage.SearchOption) ([]storage.SearchResult, error) {
 	body := map[string]any{
 		"vector": query,
 		"k":      topK,
@@ -108,7 +108,8 @@ func (s *Store) Search(ctx context.Context, collection string, query []float32, 
 		}
 	}
 
-	return results, nil
+	// Metadata is stored as an opaque JSON string, so filter client-side.
+	return storage.FilterSearchResults(results, storage.ApplySearchOptions(opts...).Filter), nil
 }
 
 func (s *Store) Delete(ctx context.Context, collection string, ids []string) error {

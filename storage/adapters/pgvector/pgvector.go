@@ -75,17 +75,30 @@ func (s *Store) Upsert(ctx context.Context, collection string, embeddings []stor
 	return nil
 }
 
-func (s *Store) Search(ctx context.Context, collection string, query []float32, topK int) ([]storage.SearchResult, error) {
+func (s *Store) Search(ctx context.Context, collection string, query []float32, topK int, opts ...storage.SearchOption) ([]storage.SearchResult, error) {
 	table := sanitizeTableName(collection)
 	vecStr := vectorToString(query)
+
+	// Bind the metadata filter as a nullable JSONB containment predicate so the
+	// query text stays constant (no dynamic placeholder numbering) while still
+	// filtering server-side before LIMIT. A nil filter matches every row.
+	var filterArg any
+	if f := storage.ApplySearchOptions(opts...).Filter; len(f) > 0 {
+		fj, err := json.Marshal(f)
+		if err != nil {
+			return nil, fmt.Errorf("pgvector search filter: %w", err)
+		}
+		filterArg = string(fj)
+	}
 
 	sqlQuery := fmt.Sprintf(`SELECT id, embedding::text, content, metadata,
 		1 - (embedding <=> $1::vector) AS score
 		FROM %s
+		WHERE ($3::jsonb IS NULL OR metadata @> $3::jsonb)
 		ORDER BY embedding <=> $1::vector
 		LIMIT $2`, table)
 
-	rows, err := s.db.QueryContext(ctx, sqlQuery, vecStr, topK)
+	rows, err := s.db.QueryContext(ctx, sqlQuery, vecStr, topK, filterArg)
 	if err != nil {
 		return nil, fmt.Errorf("pgvector search: %w", err)
 	}

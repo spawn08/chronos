@@ -30,7 +30,7 @@ func (s *stubVectorStore) Upsert(_ context.Context, _ string, embeddings []stora
 	s.upserted = append(s.upserted, embeddings...)
 	return s.upsertErr
 }
-func (s *stubVectorStore) Search(_ context.Context, _ string, _ []float32, _ int) ([]storage.SearchResult, error) {
+func (s *stubVectorStore) Search(_ context.Context, _ string, _ []float32, _ int, _ ...storage.SearchOption) ([]storage.SearchResult, error) {
 	return s.results, s.searchErr
 }
 func (s *stubVectorStore) Delete(_ context.Context, _ string, _ []string) error { return nil }

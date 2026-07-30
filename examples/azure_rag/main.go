@@ -198,7 +198,7 @@ func (m *MemoryVectorStore) Upsert(_ context.Context, collection string, embeddi
 }
 
 // Search returns the top-k embeddings ranked by cosine similarity to query.
-func (m *MemoryVectorStore) Search(_ context.Context, collection string, query []float32, topK int) ([]storage.SearchResult, error) {
+func (m *MemoryVectorStore) Search(_ context.Context, collection string, query []float32, topK int, _ ...storage.SearchOption) ([]storage.SearchResult, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 

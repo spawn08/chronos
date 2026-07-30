@@ -87,7 +87,7 @@ func (s *Store) Upsert(ctx context.Context, collection string, embeddings []stor
 	return nil
 }
 
-func (s *Store) Search(ctx context.Context, collection string, query []float32, topK int) ([]storage.SearchResult, error) {
+func (s *Store) Search(ctx context.Context, collection string, query []float32, topK int, opts ...storage.SearchOption) ([]storage.SearchResult, error) {
 	vecJSON, _ := json.Marshal(query)
 	gql := fmt.Sprintf(`{"query":"{Get{%s(nearVector:{vector:%s},limit:%d){content meta _additional{id distance}}}}"}`,
 		collection, string(vecJSON), topK)
@@ -125,7 +125,8 @@ func (s *Store) Search(ctx context.Context, collection string, query []float32, 
 			Score: 1 - item.Additional.Distance,
 		}
 	}
-	return results, nil
+	// Metadata is stored as an opaque JSON string, so filter client-side.
+	return storage.FilterSearchResults(results, storage.ApplySearchOptions(opts...).Filter), nil
 }
 
 func (s *Store) Delete(ctx context.Context, collection string, ids []string) error {

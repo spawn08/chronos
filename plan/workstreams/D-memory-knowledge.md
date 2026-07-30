@@ -9,7 +9,7 @@
 ---
 
 ### WC-D-001 — Automatic semantic long-term recall
-- [ ] **Status:** TODO
+- [ ] **Status:** REVIEW
 - **Problem:** Memories are stored but not automatically retrieved and injected. Developers must
   call the `Manager` explicitly; agents don't "remember" across sessions by default.
 - **Location:** `sdk/memory/manager.go`, `sdk/memory/memory.go`, wired into

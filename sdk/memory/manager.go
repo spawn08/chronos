@@ -8,16 +8,46 @@ import (
 	"time"
 
 	"github.com/spawn08/chronos/engine/model"
+	"github.com/spawn08/chronos/storage"
 )
 
-// Ensure storage is used via m.store.backend (which is storage.Storage)
+// defaultRecallTopK is used when Recall is called with topK <= 0.
+const defaultRecallTopK = 5
+
+// scopeMetaKey is the embedding-metadata key holding the tenant scope token.
+// Recall filters on it (server-side, via storage.WithFilter) so a shared
+// per-agent collection only ever returns the caller tenant's memories.
+const scopeMetaKey = "scope"
 
 // Manager uses an LLM to autonomously decide what to remember from conversations.
+//
+// When a vector index is attached via WithVectorIndex, memories are additionally
+// embedded on write and can be retrieved by semantic relevance via Recall. The
+// vector index is optional: without it the Manager behaves exactly as before
+// (write-through to the relational store, full-dump recall via GetUserMemories).
 type Manager struct {
 	store   *Store
 	model   model.Provider
 	userID  string
 	agentID string
+
+	// Optional semantic index (all nil unless WithVectorIndex is used).
+	embedder   model.EmbeddingsProvider
+	vstore     storage.VectorStore
+	embedModel string
+	collection string
+	dimension  int
+}
+
+// RecalledMemory is one semantically-retrieved long-term memory, ranked by Score
+// (higher is more relevant). It is a structured candidate — never a pre-formatted
+// string — so a caller (e.g. the agent's context budget) can rank, trim, or
+// format it as needed.
+type RecalledMemory struct {
+	Key     string  `json:"key"`
+	Value   any     `json:"value"`
+	Content string  `json:"content"`
+	Score   float32 `json:"score"`
 }
 
 // NewManager creates an LLM-powered memory manager. The underlying store is
@@ -46,6 +76,143 @@ func (m *Manager) WithUserID(userID string) *Manager {
 	cp.userID = userID
 	cp.store = m.store.ForUser(userID)
 	return &cp
+}
+
+// WithVectorIndex returns a copy of the manager with a semantic index attached,
+// enabling embed-on-write and Recall. The collection is per-agent; tenant
+// isolation within it is enforced by Recall's scope filter, not by the
+// collection name. The original manager is unchanged, and the returned copy is
+// safe to re-scope with WithUserID (the index fields survive the shallow copy),
+// so a shared agent-level manager can be indexed once and re-scoped per request.
+func (m *Manager) WithVectorIndex(embedder model.EmbeddingsProvider, vstore storage.VectorStore, embedModel string, dimension int) *Manager {
+	cp := *m
+	cp.embedder = embedder
+	cp.vstore = vstore
+	cp.embedModel = embedModel
+	cp.dimension = dimension
+	cp.collection = "mem_" + m.agentID
+	return &cp
+}
+
+// CanRecall reports whether a semantic index is attached (WithVectorIndex).
+func (m *Manager) CanRecall() bool {
+	return m.embedder != nil && m.vstore != nil
+}
+
+// Recall semantically retrieves the top-k long-term memories most relevant to
+// query, scoped to this manager's tenant, ranked by descending score. Scoping is
+// delegated to the vector store via a metadata filter (storage.WithFilter), so
+// top-k is computed within the tenant's subset of a shared per-agent collection.
+// When no index is attached it returns (nil, nil). Search errors are propagated
+// (wrapped); the agent's injection sites treat any error as "no memories", so
+// recall stays best-effort at the boundary that owns that policy.
+func (m *Manager) Recall(ctx context.Context, query string, topK int) ([]RecalledMemory, error) {
+	if !m.CanRecall() || query == "" {
+		return nil, nil
+	}
+	if topK <= 0 {
+		topK = defaultRecallTopK
+	}
+
+	vec, err := m.embedQuery(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("memory manager: recall embed: %w", err)
+	}
+
+	scope := m.store.bucketToken()
+	results, err := m.vstore.Search(ctx, m.collection, vec, topK,
+		storage.WithFilter(map[string]any{scopeMetaKey: scope}))
+	if err != nil {
+		return nil, fmt.Errorf("memory manager: recall search: %w", err)
+	}
+
+	out := make([]RecalledMemory, 0, len(results))
+	for i := range results {
+		md := results[i].Metadata
+		// Defense in depth: the store already filtered by scope, but re-check so
+		// an adapter that ignores the filter can never leak across tenants (it
+		// would under-return, never over-return).
+		if md == nil || md[scopeMetaKey] != scope {
+			continue
+		}
+		key, _ := md["key"].(string)
+		out = append(out, RecalledMemory{
+			Key:     key,
+			Value:   md["value"],
+			Content: results[i].Content,
+			Score:   results[i].Score,
+		})
+	}
+	return out, nil
+}
+
+// embedQuery embeds a single text with the configured embedding model.
+func (m *Manager) embedQuery(ctx context.Context, text string) ([]float32, error) {
+	resp, err := m.embedder.Embed(ctx, &model.EmbeddingRequest{Model: m.embedModel, Input: []string{text}})
+	if err != nil {
+		return nil, err
+	}
+	if len(resp.Embeddings) == 0 {
+		return nil, fmt.Errorf("empty embedding response")
+	}
+	return resp.Embeddings[0], nil
+}
+
+// indexMemories embeds the given (key, value) memories and upserts them into the
+// vector index, scoped to this manager's tenant. It is a no-op without an
+// attached index or when there is nothing to index. Vector IDs equal the
+// relational long-term ID, so re-indexing an existing key overwrites its vector.
+func (m *Manager) indexMemories(ctx context.Context, keys []string, values []any) error {
+	if !m.CanRecall() || len(keys) == 0 {
+		return nil
+	}
+	if err := m.vstore.CreateCollection(ctx, m.collection, m.dimension); err != nil {
+		return fmt.Errorf("memory manager: index create collection: %w", err)
+	}
+
+	texts := make([]string, len(keys))
+	for i := range keys {
+		texts[i] = fmt.Sprintf("%s: %v", keys[i], values[i])
+	}
+	resp, err := m.embedder.Embed(ctx, &model.EmbeddingRequest{Model: m.embedModel, Input: texts})
+	if err != nil {
+		return fmt.Errorf("memory manager: index embed: %w", err)
+	}
+	if len(resp.Embeddings) != len(keys) {
+		return fmt.Errorf("memory manager: index embed: got %d embeddings for %d memories", len(resp.Embeddings), len(keys))
+	}
+
+	scope := m.store.bucketToken()
+	embs := make([]storage.Embedding, len(keys))
+	for i := range keys {
+		embs[i] = storage.Embedding{
+			ID:      m.store.longTermID(keys[i]),
+			Vector:  resp.Embeddings[i],
+			Content: texts[i],
+			Metadata: map[string]any{
+				scopeMetaKey: scope,
+				"key":        keys[i],
+				"value":      values[i],
+				"agent_id":   m.agentID,
+			},
+		}
+	}
+	if err := m.vstore.Upsert(ctx, m.collection, embs); err != nil {
+		return fmt.Errorf("memory manager: index upsert: %w", err)
+	}
+	return nil
+}
+
+// unindexMemories removes vectors for the given long-term IDs. It is a no-op
+// without an attached index or when there is nothing to remove.
+func (m *Manager) unindexMemories(ctx context.Context, ids []string) error {
+	if !m.CanRecall() || len(ids) == 0 {
+		return nil
+	}
+	if err := m.vstore.Delete(ctx, m.collection, ids); err != nil {
+		return fmt.Errorf("memory manager: unindex: %w", err)
+	}
+	return nil
 }
 
 const memorySystemPrompt = `You are a memory manager. Given a conversation, decide what facts are worth remembering about the user for future conversations.
@@ -85,12 +252,17 @@ func (m *Manager) ExtractMemories(ctx context.Context, messages []model.Message)
 		return nil
 	}
 
+	keys := make([]string, 0, len(memories))
+	values := make([]any, 0, len(memories))
 	for _, mem := range memories {
 		if err := m.store.SetLongTerm(ctx, mem.Key, mem.Value); err != nil {
 			return err
 		}
+		keys = append(keys, mem.Key)
+		values = append(values, mem.Value)
 	}
-	return nil
+	// Mirror the newly-stored facts into the semantic index (no-op without one).
+	return m.indexMemories(ctx, keys, values)
 }
 
 // OptimizeMemories asks the LLM to compress/deduplicate existing long-term memories.
@@ -123,13 +295,24 @@ func (m *Manager) OptimizeMemories(ctx context.Context) error {
 		return nil
 	}
 
-	// Clear and re-store optimized memories
+	// Clear and re-store optimized memories, keeping the semantic index in sync.
+	// The vector ID equals the relational record ID (both are longTermID(key)),
+	// so old vectors are removed by the same IDs that delete the records.
+	oldIDs := make([]string, 0, len(existing))
 	for _, old := range existing {
 		_ = m.store.backend.DeleteMemory(ctx, old.ID)
+		oldIDs = append(oldIDs, old.ID)
 	}
+	_ = m.unindexMemories(ctx, oldIDs)
+
+	keys := make([]string, 0, len(optimized))
+	values := make([]any, 0, len(optimized))
 	for _, mem := range optimized {
 		_ = m.store.SetLongTerm(ctx, mem.Key, mem.Value)
+		keys = append(keys, mem.Key)
+		values = append(values, mem.Value)
 	}
+	_ = m.indexMemories(ctx, keys, values)
 	return nil
 }
 
@@ -162,7 +345,10 @@ func (m *Manager) MemoryTools() []MemoryTool {
 				if key == "" {
 					return nil, fmt.Errorf("key is required")
 				}
-				return nil, m.store.SetLongTerm(ctx, key, value)
+				if err := m.store.SetLongTerm(ctx, key, value); err != nil {
+					return nil, err
+				}
+				return nil, m.indexMemories(ctx, []string{key}, []any{value})
 			},
 		},
 		{
@@ -170,7 +356,10 @@ func (m *Manager) MemoryTools() []MemoryTool {
 			Description: "Remove a stored memory by key",
 			Handler: func(ctx context.Context, args map[string]any) (any, error) {
 				key, _ := args["key"].(string)
-				return nil, m.store.DeleteLongTerm(ctx, key)
+				if err := m.store.DeleteLongTerm(ctx, key); err != nil {
+					return nil, err
+				}
+				return nil, m.unindexMemories(ctx, []string{m.store.longTermID(key)})
 			},
 		},
 		{
