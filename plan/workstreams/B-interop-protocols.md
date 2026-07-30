@@ -12,7 +12,30 @@ sub-packages `a2a/`, `mcpserver/`, `agui/`.
 ---
 
 ### WC-B-001 — A2A (agent-to-agent) client + server
-- [ ] **Status:** TODO
+- [x] **Status:** DONE <!-- done: 2026-07-30 -->
+  - **Delivered:** built on the existing `sdk/protocol/a2a` package (reused, not moved to
+    `engine/interop/a2a`, to keep the change additive). A `TaskStore` interface (`store.go`) is the
+    swap seam behind the HTTP `Server`: `memStore` (in-memory default, tenant-partitioned and
+    safe-by-default) and `DurableStore` (`durable.go`) which backs tasks with the durable queue
+    (`engine/queue`) for scheduling/leasing/restart-resume and persists the task record as a single
+    per-tenant checkpoint (`storage.Storage`) keyed by task id — the tenant travels in the queue Run
+    payload and is re-established in `Executor`, so a cross-tenant `Get` resolves to `ErrTaskNotFound`.
+    **Server:** agent card from `sdk/skill` (`CardFromSkills`), create/get/cancel, and a new
+    `GET /a2a/tasks/{id}/stream` SSE endpoint (one poll-based `watch()` helper serves both backends).
+    **Client:** `StreamTask` (SSE, no-timeout stream client bounded by context) and the existing
+    `NewRemoteAgentTool` now prefers streaming via `awaitRemote` with a polling fallback (delegated
+    subagent, composes with WC-A-003). **Served endpoint:** `os/server.go` `WithA2A(http.Handler)` +
+    `/a2a/` route behind the auth chain and scoped via `tenantContext` (the control plane takes an
+    `http.Handler`, so production `os` does **not** import `sdk` — layering preserved). Example
+    `examples/a2a_interop/main.go` (key-free durable round-trip), docs `website/docs/guides/a2a.md`.
+    Tests: memStore/durable/stream/tool + `os` tenant-rejection (cross-tenant → 404, unauth → 401);
+    durable restart-resume and retry-on-failure; `-race` green; full module suite green.
+  - **Review gates:** the two adversarial gates (design-pattern-reviewer, code-quality-auditor) could
+    not be executed — all four runs (incl. one synchronous) died on background-agent infrastructure
+    errors, not on findings. A structured self-review stood in and applied two fixes in-branch:
+    `memStore` made tenant-partitioned (safe-by-default behind the served endpoint, with a test) and
+    `awaitRemote` cancels its stream on return (no goroutine leak). Owner accepted the self-review in
+    lieu of the automated gates; re-running the gates when infra recovers is recommended follow-up.
 - **Problem:** Chronos agents cannot call, or be called by, agents from other frameworks. This
   is the interop standard ADK is standardizing the ecosystem around.
 - **Location:** new `engine/interop/a2a/` (protocol types + client); served endpoint in
