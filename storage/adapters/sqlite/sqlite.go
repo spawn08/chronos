@@ -178,11 +178,27 @@ func (s *Store) Migrate(ctx context.Context) error {
 	m := migrate.New(s.db, migrate.WithDialect(migrate.DialectSQLite))
 	m.Add(1, "initial schema", schema, "")
 	m.Add(2, "tenant scoping", schemaTenant, "")
+	m.Add(3, "session files (vfs)", schemaSessionFiles, "")
 	if err := m.Migrate(ctx); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
 	return nil
 }
+
+// schemaSessionFiles is the v3 migration: it adds the session_files table
+// backing the harness virtual filesystem. Files are keyed by (tenant, session,
+// path) so they are tenant- and session-isolated like every other record.
+const schemaSessionFiles = `
+CREATE TABLE IF NOT EXISTS session_files (
+	tenant_id TEXT NOT NULL DEFAULT 'default',
+	session_id TEXT NOT NULL,
+	path TEXT NOT NULL,
+	content BLOB,
+	size INTEGER NOT NULL,
+	updated_at DATETIME NOT NULL,
+	PRIMARY KEY (tenant_id, session_id, path)
+);
+`
 
 func (s *Store) Close() error { return s.db.Close() }
 

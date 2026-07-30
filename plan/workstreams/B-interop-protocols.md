@@ -33,7 +33,29 @@ sub-packages `a2a/`, `mcpserver/`, `agui/`.
 ---
 
 ### WC-B-002 — MCP server (expose Chronos tools/agents as MCP)
-- [ ] **Status:** TODO
+- [x] **Status:** DONE <!-- done: 2026-07-29 -->
+  - **Delivered:** new `engine/interop/mcpserver` package. `Server` exposes tools sourced from a
+    `tool.Registry`; a `tools/call` dispatches through `Registry.Execute`, so it automatically
+    honors each tool's `Permission`, the approval hook, and the panic-to-error recovery (P0-009).
+    `initialize`/`ping`/`tools/list`/`tools/call` implemented; `HandleMessage` is a
+    transport-agnostic JSON-RPC 2.0 dispatcher shared by both transports: `ServeStdio`
+    (newline-delimited, bounded line size, serialized writes) and `SSEHandler` (HTTP+SSE with the
+    `endpoint`→`message` handshake, per-session routing, heartbeat) — the SSE transport
+    interoperates with the existing `engine/mcp` SSE client. Safe-by-default: a tool exposed without
+    an explicit permission defaults to `PermRequireApproval` (`WithDefaultPermission` to change);
+    `PermDeny` tools are never advertised; tool failures/denials/panics return as MCP `isError`
+    results, not transport errors. Example `examples/mcp_server/main.go` (runnable over stdio);
+    docs added to `website/docs/guides/mcp.md`. Tests: protocol conformance + permission/approval
+    gate + panic containment via `HandleMessage`; a `ServeStdio` frame round-trip; and a full
+    conformance round-trip driving the **real `engine/mcp` SSE client** against `SSEHandler` over
+    `httptest` (initialize → tools/list → tools/call, plus approval-denied surfaced as an error).
+    `-race` green.
+  - **Review gates:** design-pattern-reviewer APPROVE ("thin protocol adapter over the engine's single
+    enforcement path"); code-quality-auditor findings fixed in-branch — `Expose` copies rather than
+    mutating the caller's Definition; error frames now emit `"id":null` (dropped `omitempty` on the
+    response id) with a test; a notification is silent even when malformed; the no-op stdio write
+    mutex was removed; the oversized-frame transport exception is documented; `marshalError` is a
+    package function; SSE gets its own `maxBodyBytes` constant.
 - **Problem:** Chronos consumes MCP servers but cannot *be* one. Other hosts (Claude Desktop,
   IDEs, ADK, LangGraph) cannot consume Chronos tools/agents.
 - **Location:** new `engine/interop/mcpserver/`; source tools from `engine/tool/registry.go`
@@ -52,7 +74,30 @@ sub-packages `a2a/`, `mcpserver/`, `agui/`.
 ---
 
 ### WC-B-003 — AG-UI standard agent event stream
-- [ ] **Status:** TODO
+- [x] **Status:** DONE <!-- done: 2026-07-30 -->
+  - **Delivered:** new `os/interop/agui` package — a translation layer over the existing
+    `stream.Broker` and its per-session SSE routing, served at `GET /api/agui/stream` **alongside**
+    the unchanged native `/api/events/stream`. `Translator` maps native events to the AG-UI protocol
+    (`RUN_STARTED`/`RUN_FINISHED`/`RUN_ERROR`, `STEP_STARTED`/`STEP_FINISHED`,
+    `TOOL_CALL_START`/`ARGS`/`END`/`RESULT` with a correlated per-run tool-call id, `STATE_SNAPSHOT`,
+    and `CUSTOM` for plan updates [WC-A-001] and interrupts). Heterogeneous broker payloads (the
+    runner's `graph.StreamEvent` struct vs the agent's `map[string]any`) are normalized via a JSON
+    round-trip. `RUN_STARTED` is emitted on connect (not lazily) so a client sees a live lifecycle
+    immediately; per-session isolation and heartbeat are inherited from the broker. `agui.Handler`
+    is embeddable on any mux; `agui.Translator` is transport-agnostic. Example
+    `examples/agui_stream/main.go` (key-free), docs `website/docs/guides/agui.md`. Tests:
+    table-driven translator mapping (both payload shapes), tool-call id correlation, and live SSE
+    tests over `httptest` (full translated run + per-session isolation). `-race` green.
+  - **Review-driven hardening (both gates):** the reviews surfaced real upstream gaps that this item
+    now fixes so the "streaming tokens → tool calls → plan → completion, per-session isolated"
+    acceptance actually holds. In `sdk/agent`: model/tool/error events now route to the session topic
+    (`a.publish(ctx, …)` using `storage.SessionFromContext`) instead of broadcasting — closing a
+    cross-session leak on both the native and AG-UI streams; tool events carry the model tool-call id;
+    the assistant's text is published (final content on the blocking path, token `model_delta`s on the
+    streaming path). The translator gains `TEXT_MESSAGE_*` (streamed and one-shot), id-based tool-call
+    correlation, and an orphan-guard that synthesizes a `TOOL_CALL_START` when a result arrives with no
+    seen call (BLOCK-Q01). The handler honors the broker's configured heartbeat (`stream.Broker.Heartbeat()`)
+    instead of hardcoding it. New `stream.EventModelDelta`.
 - **Problem:** The SSE event schema (`engine/stream/stream.go`, `modes.go`) is Chronos-specific,
   so frontends must be hand-built per app. A standard agent-UI event protocol lets any compatible
   frontend render Chronos runs (tokens, tool calls, plan updates, state transitions, HITL prompts).

@@ -53,7 +53,27 @@ existing agent loop, plus built-in tools under `engine/tool/builtins/`.
 ---
 
 ### WC-A-002 — Virtual filesystem for context offloading
-- [ ] **Status:** TODO
+- [x] **Status:** DONE <!-- done: 2026-07-29 -->
+  - **Delivered:** `storage.SessionFileStore` — a new OPTIONAL capability interface (mirrors
+    `Paginator`/`Retention`) with `PutFile/GetFile/ListFiles/DeleteFile`, keyed by
+    `(tenant, session, path)`; implemented by sqlite and postgres (new `session_files` table,
+    migration v3, no FK to sessions and no event-ledger/`Session.Metadata` coupling — so it does
+    not clash with WC-A-001's plan or the runner's seq space). `engine/tool/builtins/vfs.go`:
+    the `VFS` interface (`Write/Read/List/Delete`) with `InMemoryVFS` (ephemeral) and `StorageVFS`
+    (durable) implementations; `StorageVFS` fails at **construction** when the backend lacks
+    `SessionFileStore`. `engine/tool/builtins/vfs_tools.go`: `fs_write` (returns only a
+    path+size receipt, never the content), `fs_read`, `fs_ls`, `fs_delete`, and `NewVFSToolkit`.
+    Both VFS impls reject a sessionless context (`ErrNoSession`), matching the plan tool (LSP).
+    Runnable key-free example `examples/vfs_agent/main.go` offloads a 55 KB artifact and shows a
+    51-byte context receipt; docs at `website/docs/guides/virtual-filesystem.md`. Tests:
+    substitutability suite across both impls (round-trip, prefix-ordered list, tenant+session
+    isolation, sessionless rejection, blank-path rejection, construction failure), fs_* tool
+    tests (asserting `fs_write` never echoes content), a context-offloading size assertion,
+    `-race` concurrent writes, sqlite adapter round-trip/isolation tests, and a `Benchmark`.
+  - Layering note: the VFS interface + tools live in `engine/tool/builtins` (not `sdk/harness`
+    as the spec loosely suggested) because `engine` must not import `sdk`; the fs_* tools are
+    engine builtins, so the interface must be at or below the engine layer. Consistent with the
+    WC-A-001 PlanStore placement.
 - **Problem:** Intermediate work (research notes, drafts, tool output) is stuffed into the
   context window, blowing the token budget on long runs. DeepAgents offloads to a virtual FS
   and pages content back in on demand.
@@ -74,7 +94,35 @@ existing agent loop, plus built-in tools under `engine/tool/builtins/`.
 ---
 
 ### WC-A-003 — Context-isolated & dynamic subagents
-- [ ] **Status:** TODO
+- [x] **Status:** DONE <!-- done: 2026-07-29 -->
+  - **Delivered:** new `sdk/harness` package. `SubAgentService` (derived from a built parent —
+    inherits its model, grants a subset of its tools by name) resolves pre-registered `SubAgentSpec`
+    templates and builds dynamic ones at runtime. `spawn_subagent` tool (`harness.Attach(svc,
+    runner)`): the subagent runs in a fresh, isolated conversation and only its final result
+    string returns to the parent — intermediate tokens/tool-calls never enter the parent context.
+    Nesting bounded by `WithMaxDepth` (default 3). Two `Runner` strategies: `InProcessRunner`
+    (ephemeral; the only option for dynamic subagents) and `QueuedRunner` (durable) which enqueues
+    the subagent as a graph run on `engine/queue` via a shared single-node `NewSubAgentGraph`, so a
+    subagent orphaned by a dead worker is re-leased and completed by another worker (resumable /
+    relocatable); result read back from the run's final checkpoint. Builder coupling avoided
+    (agent must not import harness → wiring lives in `harness.Attach`). Runnable key-free example
+    `examples/subagents/main.go`; docs `website/docs/guides/subagents.md`. Tests: context-isolation
+    (subagent sees only its own system prompt + task; tool returns only the result), dynamic spawn +
+    unknown-tool rejection, task/spec validation, depth guard, `-race` concurrent spawns, and durable
+    queue tests (end-to-end run, dynamic rejection, and orphan-recovery mirroring
+    `engine/queue` `TestWorker_OrphanRecovery`).
+  - Layering note: the subagent primitives live in `sdk/harness` (sdk → engine → storage), the
+    correct home; `storage.WithSession` (WC-A-001) is reused so a subagent shares the parent's
+    session/VFS artifacts, per the A-002 dependency note.
+  - **Review gates:** both adversarial gates ran. Fixes applied in-branch: `SubAgentService` is now
+    a mutex-guarded registry (like `tool`/`skill` registries); the recursion depth is serialized
+    into the queue payload and rehydrated in the graph node, so the bound holds on the durable path;
+    `resolve` fails closed on an unknown registered name; `SubAgentSpec.Description` is surfaced in
+    the tool description; the shared `svc.run` helper removes InProcessRunner/graph-node duplication;
+    `Runner` now holds its service (`NewInProcessRunner`/`NewQueuedRunner`); `QueuedRunner` gained a
+    `WithTimeout` option and errors on a completion with no result; `Attach(svc, runner)` dropped the
+    nil-deref-prone parent arg; errors wrapped throughout. Added `-race` concurrent register/spawn,
+    depth-propagation, `stateDepth`, and fail-closed tests.
 - **Problem:** `AddSubAgent` (agent.go:170) attaches subagents at build time and does not give
   each a *fresh, isolated context* — the parent's window is shared, defeating the point.
   DeepAgents' June-2026 "dynamic subagents" also create subagents *at runtime* per task.

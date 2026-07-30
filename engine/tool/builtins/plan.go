@@ -3,7 +3,6 @@ package builtins
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -99,28 +98,17 @@ func (p *Plan) Summary() string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// ErrNoSession is returned by a PlanStore when the context carries no session id.
-// Planning is an inherently per-session capability, so both store implementations
-// reject a sessionless call identically (rather than one silently succeeding and
-// the other failing) — use storage.WithSession, ChatWithSession, or a graph run.
-var ErrNoSession = errors.New("plan store: no active session in context (use storage.WithSession)")
-
 // PlanStore persists a single agent's plan, scoped to the session and tenant
 // carried by the context (see storage.WithSession / storage.WithTenant). Load
 // returns a non-nil empty plan when nothing has been saved yet, so callers never
 // need a nil check. Both Load and Save require an active session (ErrNoSession
 // otherwise); the two implementations are behaviorally substitutable.
+//
+// ErrNoSession and the sessionScope gate are shared with the other session-scoped
+// harness primitives (see session_scope.go).
 type PlanStore interface {
 	Load(ctx context.Context) (*Plan, error)
 	Save(ctx context.Context, p *Plan) error
-}
-
-// sessionScope returns the session id from ctx, or ErrNoSession when none is set.
-func sessionScope(ctx context.Context) (string, error) {
-	if sessionID := storage.SessionFromContext(ctx); sessionID != "" {
-		return sessionID, nil
-	}
-	return "", ErrNoSession
 }
 
 // InMemoryPlanStore is a process-local PlanStore keyed by (tenant, session). It

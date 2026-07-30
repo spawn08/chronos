@@ -231,6 +231,22 @@ func (a *Agent) debugLog(format string, args ...any) {
 	}
 }
 
+// publish emits an execution event on the broker, routed to the session's topic
+// when a session is in context (storage.WithSession) so per-session SSE
+// subscribers never receive other sessions' events. With no active session (the
+// plain Chat path) it broadcasts, preserving the firehose. It is a no-op when no
+// broker is configured, so callers need not nil-check.
+func (a *Agent) publish(ctx context.Context, evt stream.Event) {
+	if a.Broker == nil {
+		return
+	}
+	if session := storage.SessionFromContext(ctx); session != "" {
+		a.Broker.PublishTopic(session, evt)
+	} else {
+		a.Broker.Publish(evt)
+	}
+}
+
 // memoryManager returns the agent's memory manager scoped to the agent's
 // UserID so long-term memory reads and writes are isolated per tenant. When
 // the agent has no UserID, the manager's own tenant scope (which may be the
@@ -364,11 +380,9 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 		return nil, fmt.Errorf("hook before model call: %w", err)
 	}
 
-	if a.Broker != nil {
-		a.Broker.Publish(stream.Event{Type: stream.EventModelCall, Data: map[string]any{
-			"agent": a.ID, "model": a.Model.Name(), "messages": len(req.Messages),
-		}})
-	}
+	a.publish(ctx, stream.Event{Type: stream.EventModelCall, Data: map[string]any{
+		"agent": a.ID, "model": a.Model.Name(), "messages": len(req.Messages),
+	}})
 
 	var modelSpan *storage.Trace
 	if a.Tracer != nil {
@@ -397,11 +411,9 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 		if modelSpan != nil {
 			_ = a.Tracer.EndSpan(ctx, modelSpan, nil, err.Error())
 		}
-		if a.Broker != nil {
-			a.Broker.Publish(stream.Event{Type: stream.EventError, Data: map[string]any{
-				"agent": a.ID, "error": err.Error(),
-			}})
-		}
+		a.publish(ctx, stream.Event{Type: stream.EventError, Data: map[string]any{
+			"agent": a.ID, "error": err.Error(),
+		}})
 		return nil, fmt.Errorf("agent %q chat: %w", a.ID, err)
 	}
 
@@ -409,11 +421,9 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 		_ = a.Tracer.EndSpan(ctx, modelSpan, map[string]any{"stop_reason": string(resp.StopReason)}, "")
 	}
 
-	if a.Broker != nil {
-		a.Broker.Publish(stream.Event{Type: stream.EventModelResponse, Data: map[string]any{
-			"agent": a.ID, "stop_reason": string(resp.StopReason),
-		}})
-	}
+	a.publish(ctx, stream.Event{Type: stream.EventModelResponse, Data: map[string]any{
+		"agent": a.ID, "stop_reason": string(resp.StopReason), "content": resp.Content,
+	}})
 
 	// Handle tool calls with iteration limit
 	maxIter := a.MaxIterations
@@ -498,11 +508,9 @@ func (a *Agent) ChatStream(ctx context.Context, userMessage string) (<-chan *mod
 // forwarding text deltas to out and reassembling each round's full response so it
 // can decide whether more tool calls are pending.
 func (a *Agent) streamLoop(ctx context.Context, req *model.ChatRequest, messages []model.Message, out chan<- *model.ChatResponse) {
-	if a.Broker != nil {
-		a.Broker.Publish(stream.Event{Type: stream.EventModelCall, Data: map[string]any{
-			"agent": a.ID, "model": a.Model.Name(), "messages": len(req.Messages), "stream": true,
-		}})
-	}
+	a.publish(ctx, stream.Event{Type: stream.EventModelCall, Data: map[string]any{
+		"agent": a.ID, "model": a.Model.Name(), "messages": len(req.Messages), "stream": true,
+	}})
 
 	resp, err := a.streamOnce(ctx, req, out)
 	if err != nil {
@@ -538,11 +546,11 @@ func (a *Agent) streamLoop(ctx context.Context, req *model.ChatRequest, messages
 		accumulateUsage(&totalUsage, resp.Usage)
 	}
 
-	if a.Broker != nil {
-		a.Broker.Publish(stream.Event{Type: stream.EventModelResponse, Data: map[string]any{
-			"agent": a.ID, "stop_reason": string(resp.StopReason),
-		}})
-	}
+	// No "content" here: the streaming deltas already carried the text; this
+	// event closes the assistant message for stream consumers (e.g. AG-UI).
+	a.publish(ctx, stream.Event{Type: stream.EventModelResponse, Data: map[string]any{
+		"agent": a.ID, "stop_reason": string(resp.StopReason),
+	}})
 
 	// Post-emission validation: guardrails and schema run on the fully streamed text.
 	if resp.Content != "" {
@@ -597,6 +605,11 @@ func (a *Agent) streamOnce(ctx context.Context, req *model.ChatRequest, out chan
 					Content: cr.Content,
 					Delta:   true,
 				})
+				// Mirror the token delta onto the broker so SSE consumers (e.g.
+				// the AG-UI stream) render text as it streams.
+				a.publish(ctx, stream.Event{Type: stream.EventModelDelta, Data: map[string]any{
+					"agent": a.ID, "content": cr.Content,
+				}})
 			}
 			select {
 			case agg <- cr:
@@ -611,11 +624,9 @@ func (a *Agent) streamOnce(ctx context.Context, req *model.ChatRequest, out chan
 
 // emitError sends err as a terminal chunk on the stream.
 func (a *Agent) emitError(ctx context.Context, out chan<- *model.ChatResponse, err error) {
-	if a.Broker != nil {
-		a.Broker.Publish(stream.Event{Type: stream.EventError, Data: map[string]any{
-			"agent": a.ID, "error": err.Error(),
-		}})
-	}
+	a.publish(ctx, stream.Event{Type: stream.EventError, Data: map[string]any{
+		"agent": a.ID, "error": err.Error(),
+	}})
 	sendStream(ctx, out, &model.ChatResponse{Role: model.RoleAssistant, Err: err})
 }
 
@@ -655,6 +666,12 @@ func (a *Agent) handleToolCalls(ctx context.Context, messages []model.Message, r
 	if err != nil {
 		return nil, messages, err
 	}
+	// Publish the follow-up response so a stream consumer (e.g. AG-UI) receives
+	// the post-tool text — including the final answer of a tool-using turn, which
+	// the caller's pre-loop model_response event never covers.
+	a.publish(ctx, stream.Event{Type: stream.EventModelResponse, Data: map[string]any{
+		"agent": a.ID, "stop_reason": string(followUp.StopReason), "content": followUp.Content,
+	}})
 	return followUp, messages, nil
 }
 
@@ -675,11 +692,11 @@ func (a *Agent) executeToolCalls(ctx context.Context, messages []model.Message, 
 		_ = json.Unmarshal([]byte(tc.Arguments), &args)
 		a.debugLog("calling tool %q", tc.Name)
 
-		if a.Broker != nil {
-			a.Broker.Publish(stream.Event{Type: stream.EventToolCall, Data: map[string]any{
-				"agent": a.ID, "tool": tc.Name, "args": args,
-			}})
-		}
+		// Include the model's tool-call id so stream consumers can correlate the
+		// call with its result (and other concurrent calls) unambiguously.
+		a.publish(ctx, stream.Event{Type: stream.EventToolCall, Data: map[string]any{
+			"agent": a.ID, "id": tc.ID, "tool": tc.Name, "args": args,
+		}})
 
 		// Fire tool call hooks
 		toolEvt := &hooks.Event{Type: hooks.EventToolCallBefore, Name: tc.Name, Input: args}
@@ -694,15 +711,13 @@ func (a *Agent) executeToolCalls(ctx context.Context, messages []model.Message, 
 		toolEvt.Error = err
 		_ = a.Hooks.After(ctx, toolEvt)
 
-		if a.Broker != nil {
-			toolResultData := map[string]any{"agent": a.ID, "tool": tc.Name}
-			if err != nil {
-				toolResultData["error"] = err.Error()
-			} else {
-				toolResultData["result"] = result
-			}
-			a.Broker.Publish(stream.Event{Type: stream.EventToolResult, Data: toolResultData})
+		toolResultData := map[string]any{"agent": a.ID, "id": tc.ID, "tool": tc.Name}
+		if err != nil {
+			toolResultData["error"] = err.Error()
+		} else {
+			toolResultData["result"] = result
 		}
+		a.publish(ctx, stream.Event{Type: stream.EventToolResult, Data: toolResultData})
 
 		var content string
 		if err != nil {
