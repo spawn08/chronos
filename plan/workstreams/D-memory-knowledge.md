@@ -30,7 +30,7 @@
 ---
 
 ### WC-D-002 — Finish & default RAG scaling
-- [ ] **Status:** TODO
+- [ ] **Status:** REVIEW
 - **Problem:** PLAN.md P2-009 scoped batching/chunking/query-embedding cache/relevance
   thresholds for `sdk/knowledge/vectordb.go`; ensure it is complete, on by default, and safe for
   large corpora and concurrent indexing.

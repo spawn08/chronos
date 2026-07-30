@@ -68,9 +68,10 @@ func (v *VectorKnowledge) AddDocuments(docs ...Document) {
 	v.documents = append(v.documents, docs...)
 }
 
-// Load creates the collection and indexes all queued documents. It is
-// idempotent and safe to call concurrently: calls are serialized so indexing
-// state cannot be corrupted or double-applied.
+// Load creates the collection and indexes all queued documents, draining the
+// queue on success so a subsequent Load does not re-embed already-indexed
+// documents. It is idempotent and safe to call concurrently: calls are
+// serialized so indexing state cannot be corrupted or double-applied.
 func (v *VectorKnowledge) Load(ctx context.Context) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -113,6 +114,11 @@ func (v *VectorKnowledge) Load(ctx context.Context) error {
 	if err := v.Store.Upsert(ctx, v.Collection, embeddings); err != nil {
 		return fmt.Errorf("knowledge load: upsert: %w", err)
 	}
+
+	// Drain the queue now that these documents are durably upserted. The lock is
+	// held for the whole method, so no AddDocuments can interleave between the
+	// upsert and this reset — a later Load only indexes newly-added documents.
+	v.documents = nil
 	return nil
 }
 
