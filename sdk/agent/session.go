@@ -121,6 +121,10 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 		return nil, fmt.Errorf("agent %q has no storage (required for session chat)", a.ID)
 	}
 
+	// Scope per-session harness state (planning tool, VFS) to this session so
+	// tools that persist across turns resolve the right session from context.
+	ctx = storage.WithSession(ctx, sessionID)
+
 	// Fire session start hook on first call (best-effort, idempotent)
 	_ = a.Hooks.Before(ctx, &hooks.Event{Type: hooks.EventSessionStart, Name: sessionID})
 

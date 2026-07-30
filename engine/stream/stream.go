@@ -22,6 +22,7 @@ const (
 	EventInterrupt      = "interrupt"
 	EventCompleted      = "completed"
 	EventError          = "error"
+	EventPlanUpdate     = "plan_update"
 	EventCustom         = "custom"
 )
 
