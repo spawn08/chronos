@@ -86,15 +86,19 @@ func (s *mockVectorStore) Upsert(_ context.Context, col string, embs []storage.E
 	return nil
 }
 
-func (s *mockVectorStore) Search(_ context.Context, col string, query []float32, topK int) ([]storage.SearchResult, error) {
+func (s *mockVectorStore) Search(_ context.Context, col string, query []float32, topK int, opts ...storage.SearchOption) ([]storage.SearchResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	c, ok := s.cols[col]
 	if !ok {
 		return nil, errors.New("collection not found")
 	}
+	filter := storage.ApplySearchOptions(opts...).Filter
 	res := make([]storage.SearchResult, 0, len(c))
 	for _, e := range c {
+		if !storage.MatchesFilter(e.Metadata, filter) {
+			continue
+		}
 		res = append(res, storage.SearchResult{Embedding: e, Score: dot(query, e.Vector)})
 	}
 	sort.Slice(res, func(i, j int) bool { return res[i].Score > res[j].Score })
@@ -167,14 +171,13 @@ func TestManager_Recall_CrossSession(t *testing.T) {
 	reader := indexedManager("alice", backend, vstore)
 
 	tests := []struct {
-		name     string
-		query    string
-		wantKey  string
-		wantVal  any
-		wantSome bool
+		name    string
+		query   string
+		wantKey string
+		wantVal any
 	}{
-		{name: "color query recalls color memory", query: "what is my favorite color", wantKey: "favorite_color", wantVal: "blue", wantSome: true},
-		{name: "food query recalls food memory", query: "what food do i like the most", wantKey: "favorite_food", wantVal: "pizza", wantSome: true},
+		{name: "color query recalls color memory", query: "what is my favorite color", wantKey: "favorite_color", wantVal: "blue"},
+		{name: "food query recalls food memory", query: "what food do i like the most", wantKey: "favorite_food", wantVal: "pizza"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -182,7 +185,7 @@ func TestManager_Recall_CrossSession(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Recall: %v", err)
 			}
-			if tc.wantSome && len(got) == 0 {
+			if len(got) == 0 {
 				t.Fatalf("Recall returned no memories")
 			}
 			if got[0].Key != tc.wantKey {

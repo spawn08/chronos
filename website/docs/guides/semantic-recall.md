@@ -51,10 +51,15 @@ injected as a `Relevant user memories:` system message.
 
 ## Tenant isolation
 
-Memories are scoped by `(agentID, userID)`. Because a `VectorStore.Search`
-cannot filter by tenant, `Recall` **over-fetches and then filters** to the
-caller's scope token, guaranteeing that one user never recalls another's
-memories even when they share a collection and store identical text.
+Memories are scoped by `(agentID, userID)`. `Recall` passes the tenant scope
+token to the vector store as a metadata filter (`storage.WithFilter`), so the
+store computes top-k **within** the caller's subset of a shared per-agent
+collection — one user never recalls another's memories, even when they share a
+collection and store identical text. Adapters that store metadata structurally
+(Qdrant, pgvector, Pinecone, Chroma) apply the filter server-side; the others
+filter client-side. `Recall` also re-checks the scope on every result as a
+defense-in-depth guarantee, so a misbehaving adapter can never leak across
+tenants.
 
 ## Configuration
 

@@ -11,14 +11,13 @@ import (
 	"github.com/spawn08/chronos/storage"
 )
 
-// Recall tuning. Because storage.VectorStore.Search cannot filter by tenant
-// scope, Recall over-fetches and then post-filters to the caller's bucket, so
-// the requested top-k survives even when a collection mixes tenants.
-const (
-	defaultRecallTopK = 5
-	recallOverFetch   = 5
-	recallMinFetch    = 20
-)
+// defaultRecallTopK is used when Recall is called with topK <= 0.
+const defaultRecallTopK = 5
+
+// scopeMetaKey is the embedding-metadata key holding the tenant scope token.
+// Recall filters on it (server-side, via storage.WithFilter) so a shared
+// per-agent collection only ever returns the caller tenant's memories.
+const scopeMetaKey = "scope"
 
 // Manager uses an LLM to autonomously decide what to remember from conversations.
 //
@@ -101,10 +100,12 @@ func (m *Manager) CanRecall() bool {
 }
 
 // Recall semantically retrieves the top-k long-term memories most relevant to
-// query, scoped to this manager's tenant. It returns candidates ranked by
-// descending score. When no index is attached it returns (nil, nil); a missing
-// collection or a search error also degrades gracefully to no memories, matching
-// the best-effort injection at the agent's call sites.
+// query, scoped to this manager's tenant, ranked by descending score. Scoping is
+// delegated to the vector store via a metadata filter (storage.WithFilter), so
+// top-k is computed within the tenant's subset of a shared per-agent collection.
+// When no index is attached it returns (nil, nil). Search errors are propagated
+// (wrapped); the agent's injection sites treat any error as "no memories", so
+// recall stays best-effort at the boundary that owns that policy.
 func (m *Manager) Recall(ctx context.Context, query string, topK int) ([]RecalledMemory, error) {
 	if !m.CanRecall() || query == "" {
 		return nil, nil
@@ -118,23 +119,20 @@ func (m *Manager) Recall(ctx context.Context, query string, topK int) ([]Recalle
 		return nil, fmt.Errorf("memory manager: recall embed: %w", err)
 	}
 
-	// Over-fetch: Search has no tenant filter, so ask for more than topK and drop
-	// out-of-scope hits below, guaranteeing no cross-tenant recall.
-	fetch := topK * recallOverFetch
-	if fetch < recallMinFetch {
-		fetch = recallMinFetch
-	}
-	results, err := m.vstore.Search(ctx, m.collection, vec, fetch)
+	scope := m.store.bucketToken()
+	results, err := m.vstore.Search(ctx, m.collection, vec, topK,
+		storage.WithFilter(map[string]any{scopeMetaKey: scope}))
 	if err != nil {
-		// The collection may not exist until the first memory is indexed.
-		return nil, nil
+		return nil, fmt.Errorf("memory manager: recall search: %w", err)
 	}
 
-	scope := m.store.bucketToken()
-	out := make([]RecalledMemory, 0, topK)
+	out := make([]RecalledMemory, 0, len(results))
 	for i := range results {
 		md := results[i].Metadata
-		if md == nil || md["scope"] != scope {
+		// Defense in depth: the store already filtered by scope, but re-check so
+		// an adapter that ignores the filter can never leak across tenants (it
+		// would under-return, never over-return).
+		if md == nil || md[scopeMetaKey] != scope {
 			continue
 		}
 		key, _ := md["key"].(string)
@@ -144,9 +142,6 @@ func (m *Manager) Recall(ctx context.Context, query string, topK int) ([]Recalle
 			Content: results[i].Content,
 			Score:   results[i].Score,
 		})
-		if len(out) >= topK {
-			break
-		}
 	}
 	return out, nil
 }
@@ -195,10 +190,10 @@ func (m *Manager) indexMemories(ctx context.Context, keys []string, values []any
 			Vector:  resp.Embeddings[i],
 			Content: texts[i],
 			Metadata: map[string]any{
-				"scope":    scope,
-				"key":      keys[i],
-				"value":    values[i],
-				"agent_id": m.agentID,
+				scopeMetaKey: scope,
+				"key":        keys[i],
+				"value":      values[i],
+				"agent_id":   m.agentID,
 			},
 		}
 	}

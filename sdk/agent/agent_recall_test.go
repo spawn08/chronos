@@ -56,12 +56,16 @@ func (s *recallVectorStore) Upsert(_ context.Context, col string, embs []storage
 	return nil
 }
 
-func (s *recallVectorStore) Search(_ context.Context, col string, _ []float32, topK int) ([]storage.SearchResult, error) {
+func (s *recallVectorStore) Search(_ context.Context, col string, _ []float32, topK int, opts ...storage.SearchOption) ([]storage.SearchResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	c := s.cols[col]
+	filter := storage.ApplySearchOptions(opts...).Filter
 	res := make([]storage.SearchResult, 0, len(c))
 	for _, e := range c {
+		if !storage.MatchesFilter(e.Metadata, filter) {
+			continue
+		}
 		res = append(res, storage.SearchResult{Embedding: e, Score: 1})
 	}
 	if topK > 0 && topK < len(res) {
@@ -166,6 +170,34 @@ func TestAgent_Recall_Toggle(t *testing.T) {
 	}
 	if strings.Contains(sys, "Relevant user memories:") {
 		t.Errorf("recall path ran despite Disabled=true:\n%s", sys)
+	}
+}
+
+// TestAgent_InjectRecalledMemories_ScoreThreshold covers the ScoreThreshold
+// filtering branch and the all-dropped suppression branch of the injection seam.
+func TestAgent_InjectRecalledMemories_ScoreThreshold(t *testing.T) {
+	a := &Agent{MemoryRecall: RecallConfig{ScoreThreshold: 0.5}}
+
+	// Mixed scores: the strong one is kept, the weak one dropped.
+	msgs := a.injectRecalledMemories([]memory.RecalledMemory{
+		{Key: "strong", Content: "strong: keep me", Score: 0.9},
+		{Key: "weak", Content: "weak: drop me", Score: 0.2},
+	})
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 system message, got %d", len(msgs))
+	}
+	if !strings.Contains(msgs[0].Content, "strong: keep me") {
+		t.Errorf("above-threshold memory missing: %q", msgs[0].Content)
+	}
+	if strings.Contains(msgs[0].Content, "weak: drop me") {
+		t.Errorf("below-threshold memory not dropped: %q", msgs[0].Content)
+	}
+
+	// When every candidate is below threshold, nothing is injected.
+	if got := a.injectRecalledMemories([]memory.RecalledMemory{
+		{Key: "weak", Content: "weak", Score: 0.1},
+	}); got != nil {
+		t.Errorf("all-dropped recall should inject nil, got %v", got)
 	}
 }
 
