@@ -135,6 +135,55 @@ func TestLongTerm_TenantIsolation_DelimiterInjection(t *testing.T) {
 	}
 }
 
+// TestRecall_TenantIsolation is the adversarial companion to the delimiter test
+// for semantic recall: two tenants share one agent's vector collection and store
+// equally-relevant memories, yet each recalls only its own. Isolation is
+// enforced by the scope-token filter, independent of vector similarity.
+func TestRecall_TenantIsolation(t *testing.T) {
+	backend := newMemStorage()
+	vstore := newMockVectorStore()
+	ctx := context.Background()
+
+	alice := indexedManager("alice", backend, vstore)
+	bob := indexedManager("bob", backend, vstore)
+	global := indexedManager("", backend, vstore)
+
+	// Identical logical key and near-identical, equally-relevant content.
+	remember(t, alice, "secret", "aliceparis")
+	remember(t, bob, "secret", "bobparis")
+	remember(t, global, "secret", "globalparis")
+
+	cases := []struct {
+		name string
+		mgr  *Manager
+		want string
+	}{
+		{name: "alice", mgr: alice, want: "aliceparis"},
+		{name: "bob", mgr: bob, want: "bobparis"},
+		{name: "global", mgr: global, want: "globalparis"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := tc.mgr.Recall(ctx, "secret paris", 10)
+			if err != nil {
+				t.Fatalf("Recall: %v", err)
+			}
+			if len(got) != 1 {
+				t.Fatalf("%s recalled %d memories, want exactly 1 (cross-tenant leak?): %+v", tc.name, len(got), got)
+			}
+			if got[0].Value != tc.want {
+				t.Errorf("%s recalled %v, want %v", tc.name, got[0].Value, tc.want)
+			}
+			// Explicitly assert no sibling value leaks through.
+			for _, other := range cases {
+				if other.name != tc.name && got[0].Value == other.want {
+					t.Errorf("%s leaked %s's memory", tc.name, other.name)
+				}
+			}
+		})
+	}
+}
+
 // TestManager_TenantIsolation verifies that two managers on the same agent but
 // different users never see each other's memories, and that WithUserID and the
 // empty-userID/global path both behave correctly.

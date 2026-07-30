@@ -348,11 +348,7 @@ func (a *Agent) buildSystemContext(ctx context.Context, userQuery string) []mode
 	for _, inst := range a.Instructions {
 		messages = append(messages, model.Message{Role: model.RoleSystem, Content: inst})
 	}
-	if mgr := a.memoryManager(); mgr != nil {
-		if memCtx, err := mgr.GetUserMemories(ctx); err == nil && memCtx != "" {
-			messages = append(messages, model.Message{Role: model.RoleSystem, Content: memCtx})
-		}
-	}
+	messages = append(messages, a.memoryMessages(ctx, userQuery)...)
 	if a.Knowledge != nil {
 		if docs, err := a.Knowledge.Search(ctx, userQuery, 5); err == nil && len(docs) > 0 {
 			var kb strings.Builder

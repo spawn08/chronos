@@ -32,6 +32,7 @@ const sidebars: SidebarsConfig = {
         'guides/mcp',
         'guides/agui',
         'guides/memory',
+        'guides/semantic-recall',
         'guides/context-management',
         'guides/teams',
         'guides/stategraph',
