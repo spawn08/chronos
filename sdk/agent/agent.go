@@ -72,6 +72,10 @@ type Agent struct {
 	Capabilities           []string // advertised capabilities for the protocol bus
 }
 
+// defaultRecallTopK is the number of memories recalled per turn when
+// RecallConfig.TopK is unset. It mirrors memory.Manager's own default.
+const defaultRecallTopK = 5
+
 // RecallConfig controls automatic semantic long-term recall. Recall is enabled
 // by default (zero value) and fires only when the agent has a MemoryManager with
 // an attached vector index (see memory.Manager.WithVectorIndex); otherwise the
@@ -88,7 +92,7 @@ func (c RecallConfig) effectiveTopK() int {
 	if c.TopK > 0 {
 		return c.TopK
 	}
-	return 5
+	return defaultRecallTopK
 }
 
 // ContextConfig controls context window management and automatic summarization.

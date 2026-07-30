@@ -51,12 +51,13 @@ func ApplySearchOptions(opts ...SearchOption) SearchOptions {
 
 // FilterSearchResults returns, in order, the results whose metadata matches
 // filter. A nil or empty filter returns results unchanged. This is the shared
-// client-side path for adapters that cannot filter on metadata server-side.
+// client-side path for adapters that cannot filter on metadata server-side. It
+// returns a new slice and never mutates the input.
 func FilterSearchResults(results []SearchResult, filter map[string]any) []SearchResult {
 	if len(filter) == 0 {
 		return results
 	}
-	out := results[:0]
+	out := make([]SearchResult, 0, len(results))
 	for _, r := range results {
 		if MatchesFilter(r.Metadata, filter) {
 			out = append(out, r)
