@@ -110,13 +110,14 @@ func (s *Store) Upsert(ctx context.Context, collection string, embeddings []stor
 	return nil
 }
 
-func (s *Store) Search(ctx context.Context, collection string, query []float32, topK int) ([]storage.SearchResult, error) {
+func (s *Store) Search(ctx context.Context, collection string, query []float32, topK int, opts ...storage.SearchOption) ([]storage.SearchResult, error) {
 	args := searchArgs(collection, query, topK)
 	reply, err := s.client.Do(ctx, args...).Result()
 	if err != nil {
 		return nil, fmt.Errorf("redisvector search: %w", err)
 	}
-	return parseSearchReply(reply, collection), nil
+	// Metadata is reconstructed from hash fields, so filter client-side.
+	return storage.FilterSearchResults(parseSearchReply(reply, collection), storage.ApplySearchOptions(opts...).Filter), nil
 }
 
 // searchArgs builds the FT.SEARCH command for a KNN query.

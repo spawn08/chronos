@@ -86,7 +86,7 @@ func (s *Store) Upsert(ctx context.Context, collection string, embeddings []stor
 	return err
 }
 
-func (s *Store) Search(ctx context.Context, collection string, query []float32, topK int) ([]storage.SearchResult, error) {
+func (s *Store) Search(ctx context.Context, collection string, query []float32, topK int, opts ...storage.SearchOption) ([]storage.SearchResult, error) {
 	collectionID, err := s.getCollectionID(ctx, collection)
 	if err != nil {
 		return nil, fmt.Errorf("chromadb search: %w", err)
@@ -96,6 +96,20 @@ func (s *Store) Search(ctx context.Context, collection string, query []float32, 
 		"query_embeddings": [][]float32{query},
 		"n_results":        topK,
 		"include":          []string{"embeddings", "metadatas", "documents", "distances"},
+	}
+	// Native `where` metadata filter. Chroma requires $and for multiple keys.
+	if f := storage.ApplySearchOptions(opts...).Filter; len(f) > 0 {
+		if len(f) == 1 {
+			for k, v := range f {
+				body["where"] = map[string]any{k: map[string]any{"$eq": v}}
+			}
+		} else {
+			and := make([]map[string]any, 0, len(f))
+			for k, v := range f {
+				and = append(and, map[string]any{k: map[string]any{"$eq": v}})
+			}
+			body["where"] = map[string]any{"$and": and}
+		}
 	}
 
 	data, err := s.post(ctx, fmt.Sprintf("/api/v1/collections/%s/query", collectionID), body)

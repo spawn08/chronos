@@ -78,11 +78,19 @@ func (s *Store) Upsert(ctx context.Context, collection string, embeddings []stor
 	return nil
 }
 
-func (s *Store) Search(ctx context.Context, collection string, query []float32, topK int) ([]storage.SearchResult, error) {
+func (s *Store) Search(ctx context.Context, collection string, query []float32, topK int, opts ...storage.SearchOption) ([]storage.SearchResult, error) {
 	body := map[string]any{
 		"vector":       query,
 		"limit":        topK,
 		"with_payload": true,
+	}
+	// Server-side payload filter so top-k is selected within the matching subset.
+	if f := storage.ApplySearchOptions(opts...).Filter; len(f) > 0 {
+		must := make([]map[string]any, 0, len(f))
+		for k, v := range f {
+			must = append(must, map[string]any{"key": k, "match": map[string]any{"value": v}})
+		}
+		body["filter"] = map[string]any{"must": must}
 	}
 	data, err := s.post(ctx, fmt.Sprintf("/collections/%s/points/search", collection), body)
 	if err != nil {

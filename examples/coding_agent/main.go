@@ -349,7 +349,7 @@ func (m *mockVectorStore) Upsert(_ context.Context, collection string, embedding
 	return nil
 }
 
-func (m *mockVectorStore) Search(_ context.Context, collection string, _ []float32, topK int) ([]storage.SearchResult, error) {
+func (m *mockVectorStore) Search(_ context.Context, collection string, _ []float32, topK int, _ ...storage.SearchOption) ([]storage.SearchResult, error) {
 	embs := m.collections[collection]
 	results := make([]storage.SearchResult, 0, topK)
 	for i, e := range embs {

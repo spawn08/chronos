@@ -77,12 +77,21 @@ func (s *Store) Upsert(ctx context.Context, _ string, embeddings []storage.Embed
 	return err
 }
 
-func (s *Store) Search(ctx context.Context, _ string, query []float32, topK int) ([]storage.SearchResult, error) {
-	raw, err := s.doJSON(ctx, http.MethodPost, "/query", map[string]any{
+func (s *Store) Search(ctx context.Context, _ string, query []float32, topK int, opts ...storage.SearchOption) ([]storage.SearchResult, error) {
+	reqBody := map[string]any{
 		"vector":          query,
 		"topK":            topK,
 		"includeMetadata": true,
-	})
+	}
+	// Native metadata filter ($eq per key = exact match, AND semantics).
+	if f := storage.ApplySearchOptions(opts...).Filter; len(f) > 0 {
+		filter := make(map[string]any, len(f))
+		for k, v := range f {
+			filter[k] = map[string]any{"$eq": v}
+		}
+		reqBody["filter"] = filter
+	}
+	raw, err := s.doJSON(ctx, http.MethodPost, "/query", reqBody)
 	if err != nil {
 		return nil, err
 	}

@@ -45,7 +45,7 @@ func (m *memoryVectorStore) Upsert(_ context.Context, collection string, embeddi
 	return nil
 }
 
-func (m *memoryVectorStore) Search(_ context.Context, collection string, query []float32, topK int) ([]storage.SearchResult, error) {
+func (m *memoryVectorStore) Search(_ context.Context, collection string, query []float32, topK int, _ ...storage.SearchOption) ([]storage.SearchResult, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	col, ok := m.collections[collection]
