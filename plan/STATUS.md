@@ -15,7 +15,7 @@ Legend: `TODO` · `IN-PROGRESS` · `REVIEW` · `DONE`
 | WC-A-003 | Context-isolated & dynamic subagents | DONE | claude | plan/wc-a-subagents | A-001, A-002 |
 | WC-A-004 | Automatic context compaction | TODO | — | — | A-001, D-001 |
 | WC-A-005 | "Deep agent" harness preset | TODO | — | — | A-001…004, D-001 |
-| WC-B-001 | A2A client + server | TODO | — | — | A-003 |
+| WC-B-001 | A2A client + server | DONE | claude | plan/wc-b-a2a | A-003 |
 | WC-B-002 | MCP server | DONE | claude | plan/wc-b-mcp-server | none |
 | WC-B-003 | AG-UI standard event stream | DONE | claude | plan/wc-b-agui | A-001 |
 
@@ -47,6 +47,7 @@ Append a line when an item changes state (newest first):
 YYYY-MM-DD  WC-X-000  TODO→IN-PROGRESS  agent/owner  plan/wc-x-slug  note
 ```
 
+2026-07-30  WC-B-001  IN-PROGRESS→DONE  claude  plan/wc-b-a2a  A2A client+server: TaskStore seam (mem + durable/queue), SSE streaming, skills agent card, served /a2a behind auth+tenant (WithA2A), remote-agent tool + example + docs; self-review accepted in lieu of adversarial gates (infra failures — recommend re-running)
 2026-07-30  WC-B-003  TODO→DONE  claude  plan/wc-b-agui  AG-UI standard event stream (translator + /api/agui/stream) + example + docs
 2026-07-29  WC-B-002  TODO→DONE  claude  plan/wc-b-mcp-server  MCP server (stdio + SSE) exposing tool.Registry, permission/approval-honoring
 2026-07-29  WC-A-003  TODO→DONE  claude  plan/wc-a-subagents  context-isolated + dynamic subagents (spawn tool, in-process + durable queued runner) + example + docs
