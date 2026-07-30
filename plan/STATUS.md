@@ -27,7 +27,7 @@ Legend: `TODO` · `IN-PROGRESS` · `REVIEW` · `DONE`
 | WC-C-002 | Visual studio / graph debugger | TODO | — | — | B-003 |
 | WC-C-003 | One-command deploy | TODO | — | — | C-002 |
 | WC-D-001 | Automatic semantic long-term recall | TODO | — | — | none |
-| WC-D-002 | Finish & default RAG scaling | TODO | — | — | none |
+| WC-D-002 | Finish & default RAG scaling | REVIEW | claude | plan/wc-d-rag-scaling | none |
 
 ## Wave 3 — Breadth & enterprise lead
 
@@ -47,6 +47,7 @@ Append a line when an item changes state (newest first):
 YYYY-MM-DD  WC-X-000  TODO→IN-PROGRESS  agent/owner  plan/wc-x-slug  note
 ```
 
+2026-07-30  WC-D-002  TODO→REVIEW  claude  plan/wc-d-rag-scaling  RAG scaling verified on-by-default; drain-queue fix in Load (no re-embed) + large-corpus/drain/-race tests
 2026-07-30  WC-B-003  TODO→DONE  claude  plan/wc-b-agui  AG-UI standard event stream (translator + /api/agui/stream) + example + docs
 2026-07-29  WC-B-002  TODO→DONE  claude  plan/wc-b-mcp-server  MCP server (stdio + SSE) exposing tool.Registry, permission/approval-honoring
 2026-07-29  WC-A-003  TODO→DONE  claude  plan/wc-a-subagents  context-isolated + dynamic subagents (spawn tool, in-process + durable queued runner) + example + docs
