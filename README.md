@@ -20,7 +20,9 @@
 | Layer | What it does |
 |-------|-------------|
 | **SDK** | Agent builder, teams (sequential/parallel/router/coordinator), memory, knowledge (RAG), inter-agent protocol bus |
-| **Engine** | StateGraph runtime with checkpointing and interrupt nodes, 14+ LLM providers, tool registry, guardrails, hooks, SSE streaming |
+| **Harness** | Built-in planning (todo) tool, virtual filesystem for context offloading, context-isolated & dynamic subagents |
+| **Interop** | A2A (agent-to-agent) client + server, MCP server + client, AG-UI standard event stream |
+| **Engine** | StateGraph runtime with checkpointing and interrupt nodes, durable work queue, 14+ LLM providers, tool registry, guardrails, hooks, SSE streaming |
 | **ChronosOS** | HTTP control plane — auth, RBAC, tracing, audit logs, approval API |
 | **Storage** | SQLite, PostgreSQL, Redis, MongoDB, DynamoDB, Qdrant, Pinecone, Weaviate, Milvus |
 | **CLI** | Interactive REPL, headless batch mode, session/memory management, YAML-first config |
@@ -139,6 +141,12 @@ All examples with **No** API keys run with mock providers — no external calls.
 | [data_residency](examples/data_residency/) | Per-tenant storage routing (EU vs US) with a single logical agent | No |
 | [mcp_agent](examples/mcp_agent/) | Agent using MCP tools over stdio transport | Yes |
 | [mcp_sse](examples/mcp_sse/) | MCP client over the HTTP+SSE transport (self-contained demo server) | No |
+| [mcp_server](examples/mcp_server/) | Expose Chronos tools as an MCP server (stdio) for other hosts | No |
+| [a2a_interop](examples/a2a_interop/) | Agent-to-agent (A2A): durable server, discover + delegate + stream, remote agent as a tool | No |
+| [agui_stream](examples/agui_stream/) | Surface a run as a standard AG-UI event stream for compatible frontends | No |
+| [planning_agent](examples/planning_agent/) | Built-in planning (todo) tool with a durable plan store | No |
+| [vfs_agent](examples/vfs_agent/) | Virtual filesystem for offloading context out of the prompt | No |
+| [subagents](examples/subagents/) | Context-isolated & dynamic subagents (in-process + durable queued) | No |
 
 Run any example: `go run ./examples/<name>/`
 
@@ -186,6 +194,8 @@ Full docs at **[spawn08.github.io/chronos](https://spawn08.github.io/chronos/)**
 - [Tools](https://spawn08.github.io/chronos/guides/tools/) — Function calling and permissions
 - [Hooks](https://spawn08.github.io/chronos/guides/hooks/) — Middleware: retry, cache, cost, rate limit
 - [Storage](https://spawn08.github.io/chronos/guides/storage/) — All 10 storage and vector adapters
+- [Planning](https://spawn08.github.io/chronos/guides/planning/) · [Virtual Filesystem](https://spawn08.github.io/chronos/guides/virtual-filesystem/) · [Subagents](https://spawn08.github.io/chronos/guides/subagents/) — the agent harness
+- [A2A](https://spawn08.github.io/chronos/guides/a2a/) · [MCP](https://spawn08.github.io/chronos/guides/mcp/) · [AG-UI](https://spawn08.github.io/chronos/guides/agui/) — interoperability protocols
 
 ---
 
@@ -217,7 +227,12 @@ be disabled on hardened deployments with `CHRONOS_SWAGGER=false`.
 
 ## Roadmap
 
-Active development tracked in [ROADMAP.md](ROADMAP.md). Key upcoming work:
+Active development tracked in [ROADMAP.md](ROADMAP.md), with the forward-looking
+V2 workstreams in [plan/](plan/STATUS.md). The **harness + interop** wave has
+shipped: the planning tool, virtual filesystem, and context-isolated subagents,
+plus A2A (client + server), the MCP server, and the AG-UI event stream.
+
+Key upcoming work:
 
 | Priority | Area | Status |
 |----------|------|--------|
