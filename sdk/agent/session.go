@@ -166,8 +166,10 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 	// Build the system context (prompt, instructions, memories, knowledge)
 	systemMsgs := a.buildSystemContext(ctx, userMessage)
 
-	// Resolve context limit
-	counter := model.NewEstimatingCounter()
+	// Resolve context limit. Use the real BPE tokenizer (WC-A-004 / PLAN.md
+	// P1-009) so the compaction trigger and budget reflect actual token counts,
+	// not the 4-chars-per-token heuristic.
+	counter := model.NewTokenCounter(a.Model.Model())
 	contextLimit := a.resolveContextLimit()
 	systemTokens := counter.CountTokens(systemMsgs)
 
@@ -213,13 +215,25 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 	// Build final message array
 	messages := make([]model.Message, 0, len(systemMsgs)+len(cs.Messages)+1)
 	messages = append(messages, systemMsgs...)
+	protectedPrefix := len(systemMsgs)
 	if cs.Summary != "" {
 		messages = append(messages, model.Message{
 			Role:    model.RoleSystem,
 			Content: "Previous conversation summary:\n" + cs.Summary,
 		})
+		protectedPrefix++
 	}
 	messages = append(messages, cs.Messages...)
+
+	// Final budget safeguard: summarization bounds *growth* (it drops old turns),
+	// but the preserved recent turns are kept verbatim and uncapped, so a few very
+	// large recent turns could still overflow. Trim the oldest conversation turns —
+	// never the pinned/system prefix or the summary — until the request fits, so
+	// the in-flight token count stays bounded. Only the request sent to the model
+	// is trimmed; the full history remains in the ledger (cs.Messages). If the
+	// protected prefix alone exceeds the window (e.g. oversized pins) nothing more
+	// can be dropped — keep pins compact.
+	messages = enforceContextBudget(counter, messages, protectedPrefix, contextLimit)
 
 	// Check input guardrails
 	if result := a.Guardrails.CheckInput(ctx, userMessage); result != nil {
@@ -348,6 +362,10 @@ func (a *Agent) buildSystemContext(ctx context.Context, userQuery string) []mode
 	for _, inst := range a.Instructions {
 		messages = append(messages, model.Message{Role: model.RoleSystem, Content: inst})
 	}
+	// Pinned context (static + dynamic, e.g. the active plan) is part of the
+	// system context, so it is counted in the budget and — because compaction
+	// only summarizes conversation turns, never systemMsgs — always retained.
+	messages = append(messages, a.pinnedMessages(ctx)...)
 	messages = append(messages, a.memoryMessages(ctx, userQuery)...)
 	if a.Knowledge != nil {
 		if docs, err := a.Knowledge.Search(ctx, userQuery, 5); err == nil && len(docs) > 0 {

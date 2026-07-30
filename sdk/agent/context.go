@@ -70,6 +70,47 @@ func ReadStoredResult(ctx context.Context, store storage.Storage, sessionID, key
 	return val, nil
 }
 
+// enforceContextBudget drops the oldest conversation messages until the request
+// fits within contextLimit, never touching the first protectedPrefix messages
+// (the pinned/system context and any injected summary). It is the final safeguard
+// of automatic compaction (WC-A-004): summarization bounds growth, and this bounds
+// the absolute size of a single request so token count stays bounded.
+//
+// When a dropped message is an assistant turn carrying tool calls, any immediately
+// following tool-result messages are dropped with it so the trimmed history never
+// begins with an orphaned tool result. If the protected prefix alone already
+// exceeds the limit, messages are returned unchanged past that point (there is
+// nothing left to drop) — the caller is responsible for keeping pins compact.
+func enforceContextBudget(counter model.TokenCounter, messages []model.Message, protectedPrefix, contextLimit int) []model.Message {
+	if contextLimit <= 0 || counter == nil || protectedPrefix < 0 {
+		return messages
+	}
+	if protectedPrefix > len(messages) {
+		protectedPrefix = len(messages)
+	}
+	total := counter.CountTokens(messages)
+	if total <= contextLimit {
+		return messages
+	}
+	// Marginal per-message cost, relative to the empty-conversation framing, so a
+	// drop subtracts one message's tokens instead of re-counting the whole slice
+	// (keeps trimming O(n) rather than O(n^2)). Both counters model total tokens as
+	// a per-message sum plus a constant, so this is exact.
+	base := counter.CountTokens(nil)
+	cost := func(m model.Message) int { return counter.CountTokens([]model.Message{m}) - base }
+	for total > contextLimit && len(messages) > protectedPrefix+1 {
+		// Remove the oldest non-protected (conversation) message.
+		total -= cost(messages[protectedPrefix])
+		messages = append(messages[:protectedPrefix:protectedPrefix], messages[protectedPrefix+1:]...)
+		// Drop any now-leading orphaned tool results.
+		for len(messages) > protectedPrefix && messages[protectedPrefix].Role == model.RoleTool {
+			total -= cost(messages[protectedPrefix])
+			messages = append(messages[:protectedPrefix:protectedPrefix], messages[protectedPrefix+1:]...)
+		}
+	}
+	return messages
+}
+
 // CompressToolCalls removes older tool call/result pairs from message history,
 // keeping only the most recent maxCalls pairs. System messages and non-tool
 // messages are always preserved.

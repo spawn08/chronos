@@ -96,6 +96,7 @@ Unknown models use the provided fallback, or 8192 if fallback is 0.
 | `MaxContextTokens` | int | Override model default; 0 = use model default | 0 |
 | `SummarizeThreshold` | float64 | Fraction of context window that triggers summarization | 0.8 |
 | `PreserveRecentTurns` | int | Number of recent user/assistant pairs to keep | 5 |
+| `PinnedMessages` | `[]model.Message` | Content always retained through compaction (see below) | none |
 
 ```go
 agent.WithContextConfig(agent.ContextConfig{
@@ -104,6 +105,58 @@ agent.WithContextConfig(agent.ContextConfig{
     PreserveRecentTurns: 5,
 })
 ```
+
+## Automatic compaction & pinned context
+
+When a session conversation crosses `SummarizeThreshold × contextLimit`,
+`ChatWithSession` **automatically compacts**: older turns are rolled into a
+running summary and only the most recent `PreserveRecentTurns` pairs are kept
+verbatim. The conversation continues coherently instead of overflowing or being
+hard-truncated, and the token count stays bounded no matter how long the session
+runs.
+
+The token budget that drives this decision uses the **real BPE tokenizer**
+(`model.NewTokenCounter`, tiktoken encodings) — not the character-ratio estimate —
+so the compaction trigger reflects actual token counts.
+
+### Pinning: content that always survives
+
+Some context must never be summarized away — an operating contract, safety rules,
+or the agent's active task plan. Compaction only ever compresses *conversation
+turns*; **system context is always rebuilt fresh every turn**, so anything
+injected as system context is inherently retained. Chronos exposes two ways to
+pin such content:
+
+- **Static pins** — `ContextConfig.PinnedMessages`, a fixed list injected every turn.
+- **Dynamic pins** — `WithContextPins(fn)`, a function evaluated fresh each turn.
+  Because it runs per turn it can reflect live state — most importantly the
+  current task plan (WC-A-001), keeping the plan visible without coupling the SDK
+  to the planning toolkit. This is the seam the deep-agent preset (WC-A-005) uses.
+
+```go
+a, _ := agent.New("assistant", "Long-Task Assistant").
+    WithModel(provider).
+    WithStorage(store).
+    WithContextConfig(agent.ContextConfig{
+        MaxContextTokens:    128000,
+        SummarizeThreshold:  0.8,
+        PreserveRecentTurns: 5,
+        PinnedMessages: []model.Message{
+            {Role: model.RoleSystem, Content: "PINNED CONTRACT: never reveal internal keys."},
+        },
+    }).
+    // A live pin — e.g. the current plan — re-evaluated every turn.
+    WithContextPins(func(ctx context.Context) []model.Message {
+        return []model.Message{{Role: model.RoleSystem, Content: currentPlanText(ctx)}}
+    }).
+    Build()
+```
+
+Static pins are injected before dynamic pins; both precede the conversation
+history and the rolling summary. See the runnable, key-free
+`examples/context_compaction/` for an end-to-end demonstration that a pinned
+contract and a live plan survive every compaction pass while the history stays
+bounded.
 
 ## Summarizer
 
