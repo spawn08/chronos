@@ -165,6 +165,82 @@ func TestLoadBatching(t *testing.T) {
 	}
 }
 
+// TestLoadLargeCorpus indexes a large corpus and asserts no single embed call
+// exceeds the batch cap — the acceptance criterion that indexing "does not fail
+// on a single embed call".
+func TestLoadLargeCorpus(t *testing.T) {
+	const numDocs = 1000
+	const batch = defaultEmbedBatchSize // exercise the on-by-default batch size
+
+	emb := &countingEmbedder{}
+	store := &recordingStore{}
+	// Disable chunking so each document maps to exactly one chunk.
+	vk := NewVectorKnowledge("col", 3, store, emb, "model", WithChunking(0, 0))
+	for i := 0; i < numDocs; i++ {
+		vk.AddDocuments(Document{ID: fmt.Sprintf("d%d", i), Content: fmt.Sprintf("content %d", i)})
+	}
+
+	if err := vk.Load(context.Background()); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	wantCalls := (numDocs + batch - 1) / batch
+	if got := emb.callCount(); got != wantCalls {
+		t.Errorf("embed calls: got %d, want %d", got, wantCalls)
+	}
+	for i, sz := range emb.sizes() {
+		if sz > batch {
+			t.Errorf("embed call %d had size %d, exceeds batch cap %d", i, sz, batch)
+		}
+	}
+	if got := store.upsertCount(); got != numDocs {
+		t.Errorf("upserted: got %d, want %d", got, numDocs)
+	}
+}
+
+// TestLoadDrainsQueue pins the drain contract: a Load with no newly-added
+// documents does not re-embed or re-upsert already-indexed documents, and a
+// later Load indexes only the documents added since the previous Load.
+func TestLoadDrainsQueue(t *testing.T) {
+	emb := &countingEmbedder{}
+	store := &recordingStore{}
+	vk := NewVectorKnowledge("col", 3, store, emb, "model", WithChunking(0, 0))
+
+	for i := 0; i < 5; i++ {
+		vk.AddDocuments(Document{ID: fmt.Sprintf("d%d", i), Content: fmt.Sprintf("content %d", i)})
+	}
+	if err := vk.Load(context.Background()); err != nil {
+		t.Fatalf("first Load: %v", err)
+	}
+	callsAfterFirst := emb.callCount()
+	if got := store.upsertCount(); got != 5 {
+		t.Fatalf("after first Load upserted: got %d, want 5", got)
+	}
+
+	// A second Load with an empty queue must be a no-op for embedding/upsert.
+	if err := vk.Load(context.Background()); err != nil {
+		t.Fatalf("second Load: %v", err)
+	}
+	if got := emb.callCount(); got != callsAfterFirst {
+		t.Errorf("empty re-Load embedded again: got %d calls, want %d", got, callsAfterFirst)
+	}
+	if got := store.upsertCount(); got != 5 {
+		t.Errorf("empty re-Load re-upserted: got %d, want 5", got)
+	}
+
+	// Adding one more document and reloading indexes only that document.
+	vk.AddDocuments(Document{ID: "d5", Content: "content 5"})
+	if err := vk.Load(context.Background()); err != nil {
+		t.Fatalf("third Load: %v", err)
+	}
+	if got := emb.callCount(); got != callsAfterFirst+1 {
+		t.Errorf("incremental Load embed calls: got %d, want %d", got, callsAfterFirst+1)
+	}
+	if got := store.upsertCount(); got != 6 {
+		t.Errorf("incremental Load upserted: got %d, want 6", got)
+	}
+}
+
 // ---- Chunking ----
 
 func TestLoadChunking(t *testing.T) {
@@ -427,6 +503,16 @@ func TestConcurrentLoadAndSearch(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
+
+	// With the queue drained on each Load, every one of the 8 documents is
+	// indexed exactly once regardless of how the concurrent Add/Load calls
+	// interleave. Each 120-rune doc splits into 3 chunks (size 50, overlap 10,
+	// step 40 → [0:50],[40:90],[80:120]), so the store sees exactly 24 upserts —
+	// proving race-free *and* no double-apply.
+	const wantUpserts = 8 * 3
+	if got := store.upsertCount(); got != wantUpserts {
+		t.Errorf("concurrent indexing upserted %d chunks, want %d (documents re-indexed?)", got, wantUpserts)
+	}
 }
 
 // ---- helpers ----

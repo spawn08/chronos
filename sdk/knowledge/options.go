@@ -10,7 +10,11 @@ const (
 	defaultChunkSize      = 1000
 	defaultChunkOverlap   = 100
 	defaultTopK           = 5
-	defaultScoreThreshold = 0 // 0 disables threshold filtering
+	// defaultScoreThreshold is 0 (filtering off) on purpose: top-k is the default
+	// relevance gate, and absolute score scales are metric/provider-dependent
+	// (cosine vs dot vs L2), so a non-zero global default would silently drop
+	// valid results. Callers opt in per corpus via WithScoreThreshold.
+	defaultScoreThreshold = 0
 	defaultQueryCacheSize = 256
 	defaultQueryCacheTTL  = 5 * time.Minute
 )
