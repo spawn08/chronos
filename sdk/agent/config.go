@@ -91,12 +91,28 @@ type ContextYAML struct {
 type TeamConfig struct {
 	ID             string   `yaml:"id"`
 	Name           string   `yaml:"name"`
-	Strategy       string   `yaml:"strategy"`                  // sequential, parallel, router, coordinator
+	Strategy       string   `yaml:"strategy"`                  // sequential, parallel, router, coordinator, swarm, hierarchy
 	Agents         []string `yaml:"agents"`                    // agent IDs (order matters for sequential)
-	Coordinator    string   `yaml:"coordinator,omitempty"`     // agent ID to use as coordinator
+	Coordinator    string   `yaml:"coordinator,omitempty"`     // agent ID: coordinator (coordinator strategy) or root supervisor (hierarchy)
 	MaxConcurrency int      `yaml:"max_concurrency,omitempty"` // for parallel strategy
 	MaxIterations  int      `yaml:"max_iterations,omitempty"`  // for coordinator strategy
 	ErrorStrategy  string   `yaml:"error_strategy,omitempty"`  // fail_fast, collect, best_effort
+
+	// Router selects how the router strategy picks an agent: "model" (default —
+	// an LLM reasons over agent descriptions) or "capability" (a zero-LLM
+	// heuristic that matches advertised capabilities against state keys).
+	Router string `yaml:"router,omitempty"`
+
+	// RouterModel optionally overrides which model drives model-based routing.
+	// When its Provider is empty, the router reuses the first member agent's
+	// model — set this to route with a cheaper/faster model than the workers.
+	RouterModel ModelConfig `yaml:"router_model,omitempty"`
+
+	// InitialAgent is the entry agent for the swarm strategy (defaults to the
+	// first listed agent).
+	InitialAgent string `yaml:"initial_agent,omitempty"`
+	// MaxHandoffs caps peer-to-peer handoffs in the swarm strategy (0 = default).
+	MaxHandoffs int `yaml:"max_handoffs,omitempty"`
 }
 
 // FileConfig is the top-level structure of a Chronos YAML config file.
@@ -117,8 +133,8 @@ func (fc *FileConfig) FindTeam(id string) (*TeamConfig, error) {
 		}
 	}
 	names := make([]string, len(fc.Teams))
-	for i, t := range fc.Teams {
-		names[i] = t.ID
+	for i := range fc.Teams {
+		names[i] = fc.Teams[i].ID
 	}
 	return nil, fmt.Errorf("team %q not found in config (available: %s)", id, strings.Join(names, ", "))
 }
@@ -146,6 +162,10 @@ func LoadFile(path string) (*FileConfig, error) {
 	// Expand environment variables in all string fields
 	for i := range fc.Agents {
 		expandEnvInConfig(&fc.Agents[i])
+	}
+	// Expand env in team-level router model overrides too.
+	for i := range fc.Teams {
+		expandModelEnv(&fc.Teams[i].RouterModel)
 	}
 
 	return &fc, nil
@@ -275,6 +295,14 @@ func BuildAll(ctx context.Context, fc *FileConfig, opts ...BuildOption) (map[str
 		}
 	}
 	return agents, nil
+}
+
+// BuildProvider constructs a model.Provider from a ModelConfig. It is the
+// exported entry point used by callers outside this package (e.g. the CLI
+// wiring a team's router_model) that need the same provider resolution as
+// agent construction.
+func BuildProvider(cfg ModelConfig) (model.Provider, error) {
+	return buildProvider(cfg)
 }
 
 func buildProvider(cfg ModelConfig) (model.Provider, error) {
@@ -536,11 +564,7 @@ func expandEnvInConfig(cfg *AgentConfig) {
 	cfg.Description = expandEnv(cfg.Description)
 	cfg.UserID = expandEnv(cfg.UserID)
 	cfg.System = expandEnv(cfg.System)
-	cfg.Model.APIKey = expandEnv(cfg.Model.APIKey)
-	cfg.Model.BaseURL = expandEnv(cfg.Model.BaseURL)
-	cfg.Model.Endpoint = expandEnv(cfg.Model.Endpoint)
-	cfg.Model.Deployment = expandEnv(cfg.Model.Deployment)
-	cfg.Model.OrgID = expandEnv(cfg.Model.OrgID)
+	expandModelEnv(&cfg.Model)
 	cfg.Storage.DSN = expandEnv(cfg.Storage.DSN)
 	for i := range cfg.Instructions {
 		cfg.Instructions[i] = expandEnv(cfg.Instructions[i])
@@ -552,6 +576,15 @@ func expandEnvInConfig(cfg *AgentConfig) {
 			cfg.MCPServers[i].Args[j] = expandEnv(cfg.MCPServers[i].Args[j])
 		}
 	}
+}
+
+// expandModelEnv replaces ${VAR} references in a ModelConfig's string fields.
+func expandModelEnv(m *ModelConfig) {
+	m.APIKey = expandEnv(m.APIKey)
+	m.BaseURL = expandEnv(m.BaseURL)
+	m.Endpoint = expandEnv(m.Endpoint)
+	m.Deployment = expandEnv(m.Deployment)
+	m.OrgID = expandEnv(m.OrgID)
 }
 
 func expandEnv(s string) string {

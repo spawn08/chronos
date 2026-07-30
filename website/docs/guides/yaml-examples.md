@@ -238,6 +238,7 @@ teams:
   - id: support
     name: Customer Support Router
     strategy: router
+    router: model              # LLM reads each agent's description and picks one (default)
     agents:
       - billing-support
       - technical-support
@@ -267,7 +268,32 @@ chronos agent chat billing-support
 
 ### How routing works
 
-The router matches the message against each agent's `capabilities` and `description`. When the customer says "charged twice", the router picks `billing-support` because its capabilities include "payments" and "refunds".
+The router picks **exactly one** agent to handle each message. Two modes are available via the `router` field:
+
+- **`model`** (default) — an LLM reads every agent's `name`, `description`, and `capabilities` and reasons about which one best fits the request. When the customer says "charged twice", it selects `billing-support`. This is what makes routing understand intent rather than keywords.
+- **`capability`** — a zero-LLM heuristic that scores agents by whether their `capabilities` appear as keys/values in the run state. Fast and free, but it does **not** read the message text; use it only when your caller sets capability keys in state explicitly.
+
+By default the router reuses the **first member agent's model** for the routing decision. To route with a cheaper/faster model than your workers, add a `router_model` block:
+
+```yaml
+teams:
+  - id: support
+    name: Customer Support Router
+    strategy: router
+    router: model
+    router_model:
+      provider: openai
+      model: gpt-4o-mini        # cheap model just for the dispatch decision
+      api_key: ${OPENAI_API_KEY}
+    agents:
+      - billing-support
+      - technical-support
+      - sales-support
+```
+
+:::note
+A router dispatches to a **single** agent. For a research → write → edit flow where every agent runs in turn, use `strategy: sequential` instead.
+:::
 
 ---
 
@@ -772,8 +798,10 @@ example wires both together (run it with `go run ./examples/streaming_sse/`), an
 |----------|-------------|----------|
 | `sequential` | Agents run in order; each sees the previous agent's output | Pipelines: research → write → edit |
 | `parallel` | Agents run concurrently on the same input | Getting multiple perspectives, comparisons |
-| `router` | One agent is selected based on capabilities matching | Customer support, intent-based dispatch |
+| `router` | One agent is selected per request (LLM by default) | Customer support, intent-based dispatch |
 | `coordinator` | A supervisor LLM plans and delegates sub-tasks | Complex projects needing decomposition |
+| `swarm` | Agents hand off peer-to-peer until the task is done | Open-ended tasks with dynamic ownership |
+| `hierarchy` | A root supervisor delegates to worker agents | Org-style delegation, multi-level teams |
 
 ### Team config fields
 
@@ -781,9 +809,13 @@ example wires both together (run it with `go run ./examples/streaming_sse/`), an
 |-------|------|-------------|
 | `id` | string | Unique team identifier (used in `team run`) |
 | `name` | string | Display name |
-| `strategy` | string | `sequential`, `parallel`, `router`, or `coordinator` |
-| `agents` | list | Agent IDs (order matters for sequential) |
-| `coordinator` | string | Agent ID for the coordinator strategy |
+| `strategy` | string | `sequential`, `parallel`, `router`, `coordinator`, `swarm`, or `hierarchy` |
+| `agents` | list | Agent IDs (order matters for sequential; entry agent for swarm) |
+| `coordinator` | string | Agent ID for the coordinator strategy, or the root supervisor for `hierarchy` |
+| `router` | string | Router mode: `model` (default) or `capability` (router strategy) |
+| `router_model` | object | Optional model override for `router: model` (same fields as an agent `model`); defaults to the first member agent's model |
+| `initial_agent` | string | Entry agent for the swarm strategy (defaults to the first listed agent) |
+| `max_handoffs` | int | Max peer-to-peer handoffs (swarm strategy) |
 | `max_concurrency` | int | Max parallel goroutines (parallel strategy) |
 | `max_iterations` | int | Max coordinator planning loops |
 | `error_strategy` | string | `fail_fast`, `collect`, or `best_effort` |
@@ -877,9 +909,9 @@ CHRONOS_CONFIG=examples/yaml-configs/multi-provider.yaml \
 
 - **Use `storage: backend: none` for team agents.** Agents in teams don't need their own database. This avoids creating unnecessary SQLite files.
 
-- **Write detailed `description` fields.** The coordinator and router strategies use descriptions to decide which agent handles each task. Vague descriptions lead to poor results.
+- **Write detailed `description` fields.** The coordinator and the default `router: model` strategy use descriptions to decide which agent handles each task. Vague descriptions lead to poor routing.
 
-- **Use `capabilities` tags.** The router scores agents based on these tags against the input message. Be specific: `"api-design"` is better than `"development"`.
+- **Use `capabilities` tags.** They document each agent's role and drive the `router: capability` heuristic (matched against run-state keys). Be specific: `"api-design"` is better than `"development"`.
 
 - **One config per use case.** Keep separate YAML files for different workflows rather than putting everything in one file.
 

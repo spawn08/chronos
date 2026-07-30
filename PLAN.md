@@ -362,3 +362,20 @@ P0 (correctness/safety) ──► P1-A durable execution ──► P1-D external
 1. P0 complete — no known correctness bug, auth on, safe sandbox by default.
 2. P1-A/P1-D complete — kill any pod and lose no work; run N replicas with no duplicate/leaked behavior.
 3. Load + soak + chaos suite green; per-tenant isolation, quotas, and observability in place.
+
+---
+
+## Next: V2 — "World-Class Agentic Framework" roadmap
+
+The P0–P2 work above made Chronos *correct, durable, and enterprise-safe*. The forward-looking
+capability work — reaching parity with Google ADK, LangGraph 1.0, and DeepAgents while keeping
+Chronos's self-hostable/Go-native/durable/governed lane — is tracked as a structured,
+multi-session, multi-agent plan under [`plan/`](plan/):
+
+- **[`plan/README.md`](plan/README.md)** — strategic thesis, workstreams, wave sequencing, dependency graph.
+- **[`plan/CONVENTIONS.md`](plan/CONVENTIONS.md)** — item format, status lifecycle, review gates, layer/testing rules.
+- **[`plan/STATUS.md`](plan/STATUS.md)** — live progress tracker; pick the next item here.
+- **`plan/workstreams/`** — A Agent Harness · B Interop Protocols · C DX & Eval Loop ·
+  D Memory & Knowledge · E Model & Integrations · F Enterprise Governance.
+
+Consult `plan/STATUS.md` for the next open item before starting V2 work.
