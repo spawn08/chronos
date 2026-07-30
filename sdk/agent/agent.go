@@ -120,8 +120,10 @@ type ContextConfig struct {
 
 	// PinnedMessages are injected as system context on every turn and are never
 	// summarized or evicted by compaction. Use them for content that must always
-	// be visible to the model (policies, invariants, a fixed brief).
-	PinnedMessages []model.Message `json:"pinned_messages,omitempty" yaml:"pinned_messages,omitempty"`
+	// be visible to the model (policies, invariants, a fixed brief). Set
+	// programmatically via the builder; there is no YAML surface for structured
+	// messages, so no yaml tag is advertised.
+	PinnedMessages []model.Message `json:"pinned_messages,omitempty"`
 }
 
 // Builder provides a fluent API for constructing agents.
@@ -318,7 +320,8 @@ func (a *Agent) memoryManager() *memory.Manager {
 // ContextConfig.PinnedMessages first, then any dynamic pins from ContextPinsFn.
 // Pinned content is injected on every turn and is never summarized or evicted by
 // compaction, so it is always visible to the model. Shared by buildChatRequest
-// and buildSystemContext so the blocking, streaming, and session paths agree.
+// and buildSystemContext so pins are injected identically across the blocking,
+// streaming, and session paths.
 func (a *Agent) pinnedMessages(ctx context.Context) []model.Message {
 	var pins []model.Message
 	if len(a.ContextCfg.PinnedMessages) > 0 {

@@ -142,7 +142,38 @@ existing agent loop, plus built-in tools under `engine/tool/builtins/`.
 ---
 
 ### WC-A-004 — Automatic context compaction
-- [ ] **Status:** TODO
+- [x] **Status:** DONE <!-- done: 2026-07-30 -->
+  - **Delivered:** Session compaction now uses the **real BPE tokenizer**
+    (`model.NewTokenCounter`) for its budget instead of the 4-chars-per-token
+    estimate, so the summarize trigger reflects actual tokens. Added a **pinning**
+    mechanism so content that must never be summarized away is always retained:
+    static `ContextConfig.PinnedMessages` and a dynamic `WithContextPins(fn)` seam
+    evaluated fresh every turn. Pins are injected as *system* context via a shared
+    `pinnedMessages` helper in both assembly paths (`buildChatRequest` → blocking
+    `Chat` + streaming `ChatStream`, and `buildSystemContext` → `ChatWithSession`);
+    because compaction only ever summarizes conversation turns and system context is
+    rebuilt fresh each turn, pins survive every pass. The dynamic seam is
+    intentionally decoupled — it returns `[]model.Message`, so the deep-agent preset
+    (WC-A-005) can keep the live plan (WC-A-001) pinned **without** the SDK importing
+    the planning toolkit (the SDK→builtins coupling WC-A-001 reviewers flagged). A
+    final `enforceContextBudget` safeguard (`sdk/agent/context.go`) makes "token
+    count stays bounded" a true invariant: after summarization it trims the oldest
+    conversation turns — never the pinned/system prefix or the summary — until the
+    request fits, dropping orphaned tool results and using marginal per-message
+    costs so trimming stays O(n). Only the in-flight request is trimmed; the full
+    history stays in the ledger. Runnable key-free `examples/context_compaction/`;
+    docs extended in `website/docs/guides/context-management.md`. Tests:
+    `compaction_test.go` — pin injection + static-before-dynamic ordering across both
+    build paths, long-conversation compaction retaining both pins + summary with
+    bounded history under a real tokenizer, no-compaction-under-threshold, a
+    table-driven `enforceContextBudget` suite, an orphaned-tool-result drop test, and
+    a `BenchmarkContextCompaction`; all green under `-race`.
+  - **Review gates:** design-pattern-reviewer + code-quality-auditor both ran and
+    APPROVED (zero CRITICAL/BLOCK). Their convergent finding — the "bounded tokens"
+    claim was not actually enforced post-summarization — was fixed in-branch by
+    adding `enforceContextBudget`; also fixed: dropped an unreachable `yaml` tag on
+    `PinnedMessages`, corrected an overstated doc comment, made the example's
+    summarizer detection robust to prompt rewording, and added the missing benchmark.
 - **Problem:** `ContextConfig` (`sdk/agent/context.go`) exists but does not auto-summarize/evict
   as the window fills. Long conversations eventually overflow or truncate silently.
 - **Location:** `sdk/agent/context.go`, `sdk/agent/agent.go` (`buildChatRequest` around agent.go:253),

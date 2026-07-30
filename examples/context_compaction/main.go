@@ -104,8 +104,12 @@ func main() {
 type compactionMock struct{ answers int }
 
 func (m *compactionMock) Chat(_ context.Context, req *model.ChatRequest) (*model.ChatResponse, error) {
+	// The summarizer issues a small 2-message request (a system summarizer prompt
+	// plus the text to compress). Detect it structurally and by a case-insensitive
+	// "summar" match so a reword of the internal prompt does not silently turn this
+	// branch off. Compaction firing is verified independently by the hook below.
 	for _, msg := range req.Messages {
-		if msg.Role == model.RoleSystem && strings.Contains(msg.Content, "conversation summarizer") {
+		if msg.Role == model.RoleSystem && strings.Contains(strings.ToLower(msg.Content), "summar") {
 			return &model.ChatResponse{
 				Content:    "Summary so far: researching distributed systems; notes on consensus, CAP, Raft vs Paxos.",
 				StopReason: model.StopReasonEnd,

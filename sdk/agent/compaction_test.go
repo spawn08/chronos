@@ -244,11 +244,114 @@ func TestChatWithSession_CompactionRetainsPinsAndBoundsTokens(t *testing.T) {
 		t.Errorf("history not bounded after compaction: %d conversation messages", convo)
 	}
 
-	// Token budget: the main request must be materially smaller than the raw
-	// 60-turn history would have been.
+	// Token budget: enforceContextBudget guarantees the assembled request fits the
+	// configured limit (the protected pins here are small), so this is a true
+	// invariant, not a fixture coincidence.
 	counter := model.NewTokenCounter(prov.Model())
 	if got := counter.CountTokens(main.Messages); got > a.resolveContextLimit() {
 		t.Errorf("compacted request %d tokens exceeds limit %d", got, a.resolveContextLimit())
+	}
+}
+
+func TestEnforceContextBudget(t *testing.T) {
+	sys := model.Message{Role: model.RoleSystem, Content: "PIN"}
+	big := func(id string) model.Message {
+		return model.Message{Role: model.RoleUser, Content: id + ": " + strings.Repeat("token ", 200)}
+	}
+	counter := model.NewEstimatingCounter()
+
+	tests := []struct {
+		name            string
+		messages        []model.Message
+		protectedPrefix int
+		limit           int
+		wantFits        bool // final count <= limit
+		wantMinLen      int  // at least this many messages remain
+	}{
+		{
+			name:            "under limit unchanged",
+			messages:        []model.Message{sys, {Role: model.RoleUser, Content: "hi"}},
+			protectedPrefix: 1,
+			limit:           100000,
+			wantFits:        true,
+			wantMinLen:      2,
+		},
+		{
+			name:            "zero limit is a no-op",
+			messages:        []model.Message{sys, big("a"), big("b")},
+			protectedPrefix: 1,
+			limit:           0,
+			wantMinLen:      3,
+		},
+		{
+			name:            "trims oldest conversation turns to fit",
+			messages:        []model.Message{sys, big("oldest"), big("mid"), big("newest")},
+			protectedPrefix: 1,
+			limit:           counter.CountTokens([]model.Message{sys, big("newest")}) + 5,
+			wantFits:        true,
+			wantMinLen:      2, // prefix + at least the last message
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Copy so we don't mutate the shared fixture across sub-tests.
+			in := append([]model.Message(nil), tt.messages...)
+			out := enforceContextBudget(counter, in, tt.protectedPrefix, tt.limit)
+
+			if len(out) < tt.wantMinLen {
+				t.Fatalf("len(out) = %d, want >= %d", len(out), tt.wantMinLen)
+			}
+			if tt.wantFits && counter.CountTokens(out) > tt.limit {
+				t.Errorf("output %d tokens exceeds limit %d", counter.CountTokens(out), tt.limit)
+			}
+			// The protected prefix is always retained verbatim.
+			for i := 0; i < tt.protectedPrefix && i < len(out); i++ {
+				if out[i].Content != tt.messages[i].Content {
+					t.Errorf("protected prefix[%d] changed: %q", i, out[i].Content)
+				}
+			}
+		})
+	}
+}
+
+// TestEnforceContextBudget_DropsOrphanedToolResult verifies that trimming an
+// assistant turn carrying tool calls also drops the tool results that followed
+// it, so the history never begins with an orphaned tool message.
+func TestEnforceContextBudget_DropsOrphanedToolResult(t *testing.T) {
+	sys := model.Message{Role: model.RoleSystem, Content: "PIN"}
+	assistant := model.Message{Role: model.RoleAssistant, ToolCalls: []model.ToolCall{{ID: "c1", Name: "t"}}, Content: strings.Repeat("x ", 200)}
+	toolResult := model.Message{Role: model.RoleTool, ToolCallID: "c1", Content: strings.Repeat("y ", 200)}
+	final := model.Message{Role: model.RoleUser, Content: "latest question"}
+	counter := model.NewEstimatingCounter()
+
+	in := []model.Message{sys, assistant, toolResult, final}
+	limit := counter.CountTokens([]model.Message{sys, final}) + 5
+	out := enforceContextBudget(counter, in, 1, limit)
+
+	if len(out) < 2 {
+		t.Fatalf("expected prefix + last message, got %d", len(out))
+	}
+	if out[1].Role == model.RoleTool {
+		t.Errorf("history begins with orphaned tool result: %+v", out[1])
+	}
+}
+
+func BenchmarkContextCompaction(b *testing.B) {
+	counter := model.NewTokenCounter("gpt-4o")
+	base := []model.Message{{Role: model.RoleSystem, Content: "system + pins"}}
+	msgs := make([]model.Message, 0, 121)
+	msgs = append(msgs, base...)
+	for i := 0; i < 120; i++ {
+		msgs = append(msgs, model.Message{Role: model.RoleUser, Content: strings.Repeat("token ", 50)})
+	}
+	limit := 2000
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		in := append([]model.Message(nil), msgs...)
+		_ = enforceContextBudget(counter, in, len(base), limit)
 	}
 }
 
