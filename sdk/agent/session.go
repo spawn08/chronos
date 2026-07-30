@@ -166,8 +166,10 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 	// Build the system context (prompt, instructions, memories, knowledge)
 	systemMsgs := a.buildSystemContext(ctx, userMessage)
 
-	// Resolve context limit
-	counter := model.NewEstimatingCounter()
+	// Resolve context limit. Use the real BPE tokenizer (WC-A-004 / PLAN.md
+	// P1-009) so the compaction trigger and budget reflect actual token counts,
+	// not the 4-chars-per-token heuristic.
+	counter := model.NewTokenCounter(a.Model.Model())
 	contextLimit := a.resolveContextLimit()
 	systemTokens := counter.CountTokens(systemMsgs)
 
@@ -348,6 +350,10 @@ func (a *Agent) buildSystemContext(ctx context.Context, userQuery string) []mode
 	for _, inst := range a.Instructions {
 		messages = append(messages, model.Message{Role: model.RoleSystem, Content: inst})
 	}
+	// Pinned context (static + dynamic, e.g. the active plan) is part of the
+	// system context, so it is counted in the budget and — because compaction
+	// only summarizes conversation turns, never systemMsgs — always retained.
+	messages = append(messages, a.pinnedMessages(ctx)...)
 	messages = append(messages, a.memoryMessages(ctx, userQuery)...)
 	if a.Knowledge != nil {
 		if docs, err := a.Knowledge.Search(ctx, userQuery, 5); err == nil && len(docs) > 0 {

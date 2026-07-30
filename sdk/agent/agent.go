@@ -51,6 +51,14 @@ type Agent struct {
 	ContextCfg     ContextConfig           // context window management and summarization
 	MemoryRecall   RecallConfig            // automatic semantic long-term recall policy
 
+	// ContextPinsFn supplies dynamic pinned context evaluated fresh on every
+	// turn. Like ContextConfig.PinnedMessages, its output is injected as system
+	// context and is never summarized or evicted by compaction — but because it
+	// runs per turn it can reflect live state (e.g. the current task plan). It is
+	// the decoupled seam the deep-agent preset (WC-A-005) uses to keep the active
+	// plan pinned without the SDK depending on the planning toolkit.
+	ContextPinsFn func(ctx context.Context) []model.Message
+
 	// System prompt and instructions
 	SystemPrompt   string
 	Instructions   []string
@@ -96,12 +104,24 @@ func (c RecallConfig) effectiveTopK() int {
 }
 
 // ContextConfig controls context window management and automatic summarization.
+//
+// Automatic compaction (WC-A-004): when a session conversation approaches the
+// model's context window, ChatWithSession summarizes older turns into a compact
+// running summary and preserves only the most recent turns (see SummarizeThreshold
+// and PreserveRecentTurns). PinnedMessages are always retained verbatim and are
+// never summarized, so critical context — e.g. an operating contract or the active
+// task plan (WC-A-001) — survives every compaction pass.
 type ContextConfig struct {
 	MaxContextTokens        int     `json:"max_context_tokens" yaml:"max_tokens"`                 // override model default; 0 = use model default
 	SummarizeThreshold      float64 `json:"summarize_threshold" yaml:"summarize_threshold"`       // fraction of context window to trigger summarization (default 0.8)
 	PreserveRecentTurns     int     `json:"preserve_recent_turns" yaml:"preserve_recent_turns"`   // number of recent user/assistant pairs to keep (default 5)
 	MaxToolResultTokens     int     `json:"max_tool_result_tokens" yaml:"max_tool_result_tokens"` // max tokens for tool result before eviction (default 20000)
 	MaxToolCallsFromHistory int     `json:"max_tool_calls_from_history" yaml:"max_tool_calls"`    // max tool call pairs to keep in history
+
+	// PinnedMessages are injected as system context on every turn and are never
+	// summarized or evicted by compaction. Use them for content that must always
+	// be visible to the model (policies, invariants, a fixed brief).
+	PinnedMessages []model.Message `json:"pinned_messages,omitempty" yaml:"pinned_messages,omitempty"`
 }
 
 // Builder provides a fluent API for constructing agents.
@@ -142,6 +162,14 @@ func (b *Builder) WithBroker(br *stream.Broker) *Builder         { b.agent.Broke
 func (b *Builder) WithTracer(t *chronostrace.Collector) *Builder { b.agent.Tracer = t; return b }
 func (b *Builder) WithSystemPrompt(prompt string) *Builder       { b.agent.SystemPrompt = prompt; return b }
 func (b *Builder) WithDebug(debug bool) *Builder                 { b.agent.Debug = debug; return b }
+
+// WithContextPins registers a function that supplies dynamic pinned context,
+// evaluated fresh on every turn and always retained through compaction. See
+// Agent.ContextPinsFn.
+func (b *Builder) WithContextPins(fn func(ctx context.Context) []model.Message) *Builder {
+	b.agent.ContextPinsFn = fn
+	return b
+}
 
 // Example represents a few-shot learning example.
 type Example struct {
@@ -286,6 +314,22 @@ func (a *Agent) memoryManager() *memory.Manager {
 	return a.MemoryManager
 }
 
+// pinnedMessages returns the pinned system context for this turn: the static
+// ContextConfig.PinnedMessages first, then any dynamic pins from ContextPinsFn.
+// Pinned content is injected on every turn and is never summarized or evicted by
+// compaction, so it is always visible to the model. Shared by buildChatRequest
+// and buildSystemContext so the blocking, streaming, and session paths agree.
+func (a *Agent) pinnedMessages(ctx context.Context) []model.Message {
+	var pins []model.Message
+	if len(a.ContextCfg.PinnedMessages) > 0 {
+		pins = append(pins, a.ContextCfg.PinnedMessages...)
+	}
+	if a.ContextPinsFn != nil {
+		pins = append(pins, a.ContextPinsFn(ctx)...)
+	}
+	return pins
+}
+
 // memoryMessages returns the long-term memory context to inject for this turn,
 // scoped to the agent's tenant. When recall is enabled and the manager has a
 // semantic index, it injects the top-k memories relevant to userMessage;
@@ -351,6 +395,9 @@ func (a *Agent) buildChatRequest(ctx context.Context, userMessage string) (*mode
 	for _, inst := range instructions {
 		messages = append(messages, model.Message{Role: model.RoleSystem, Content: inst})
 	}
+
+	// Pinned context is always retained (never summarized) — see pinnedMessages.
+	messages = append(messages, a.pinnedMessages(ctx)...)
 
 	for _, ex := range a.Examples {
 		messages = append(messages,
