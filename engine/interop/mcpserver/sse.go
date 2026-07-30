@@ -70,8 +70,11 @@ func (s *Server) serveSSEStream(w http.ResponseWriter, r *http.Request, t *sseTr
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	// Advertise where the client should POST requests (same path, this session).
-	fmt.Fprintf(w, "event: endpoint\ndata: %s?session=%s\n\n", r.URL.Path, id)
+	// Advertise where the client should POST requests: a relative URI reference
+	// (same path, this session) resolved by the client against the SSE URL. The
+	// session id is server-generated, so no request-controlled input is written
+	// into the event stream.
+	fmt.Fprintf(w, "event: endpoint\ndata: ?session=%s\n\n", id)
 	flusher.Flush()
 
 	ticker := time.NewTicker(sseHeartbeat)

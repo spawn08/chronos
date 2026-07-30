@@ -53,19 +53,20 @@ func (s *Store) ListFiles(ctx context.Context, sessionID, prefix string) ([]stor
 	// ordering are case-sensitive regardless of the database's default
 	// collation — matching the SQLite and in-memory implementations exactly.
 	lo, hi, hasUpper := storage.PrefixRange(prefix)
-	q := `SELECT path, size, updated_at FROM session_files
-		 WHERE tenant_id=$1 AND session_id=$2 AND path >= $3 COLLATE "C"`
-	args := []any{tenant, sessionID, lo}
-	n := 4
+	// Bind the upper bound as a nullable parameter (NULL when the prefix has no
+	// finite upper bound) so the query text stays a constant — the placeholder
+	// numbers never depend on runtime state, avoiding any dynamic SQL.
+	var hiArg any
 	if hasUpper {
-		q += fmt.Sprintf(` AND path < $%d COLLATE "C"`, n)
-		args = append(args, hi)
-		n++
+		hiArg = hi
 	}
-	q += fmt.Sprintf(` ORDER BY path COLLATE "C" LIMIT $%d`, n)
-	args = append(args, storage.MaxPageLimit)
-
-	rows, err := s.db.QueryContext(ctx, q, args...)
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT path, size, updated_at FROM session_files
+		 WHERE tenant_id=$1 AND session_id=$2 AND path >= $3 COLLATE "C"
+		   AND ($4::text IS NULL OR path < $4 COLLATE "C")
+		 ORDER BY path COLLATE "C" LIMIT $5`,
+		tenant, sessionID, lo, hiArg, storage.MaxPageLimit,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("postgres list files: %w", err)
 	}
