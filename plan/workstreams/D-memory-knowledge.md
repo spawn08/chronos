@@ -9,7 +9,7 @@
 ---
 
 ### WC-D-001 — Automatic semantic long-term recall
-- [ ] **Status:** REVIEW
+- [x] **Status:** DONE <!-- done: 2026-07-30 -->
 - **Problem:** Memories are stored but not automatically retrieved and injected. Developers must
   call the `Manager` explicitly; agents don't "remember" across sessions by default.
 - **Location:** `sdk/memory/manager.go`, `sdk/memory/memory.go`, wired into
@@ -30,7 +30,7 @@
 ---
 
 ### WC-D-002 — Finish & default RAG scaling
-- [ ] **Status:** REVIEW
+- [x] **Status:** DONE <!-- done: 2026-07-30 -->
 - **Problem:** PLAN.md P2-009 scoped batching/chunking/query-embedding cache/relevance
   thresholds for `sdk/knowledge/vectordb.go`; ensure it is complete, on by default, and safe for
   large corpora and concurrent indexing.
