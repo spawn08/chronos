@@ -5,6 +5,7 @@ import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
 // Manual sidebar mirroring the original Jekyll _data/navigation.yml structure.
 const sidebars: SidebarsConfig = {
   docsSidebar: [
+    'release-notes',
     {
       type: 'category',
       label: 'Getting Started',
