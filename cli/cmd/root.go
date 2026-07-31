@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1117,9 +1118,112 @@ func runEvalCmd() error {
 			return fmt.Errorf("usage: chronos eval run <suite.yaml>")
 		}
 		return evalRun(os.Args[3])
+	case "capture":
+		return evalCapture(os.Args[3:])
+	case "gate":
+		return evalGate(os.Args[3:])
 	default:
-		return fmt.Errorf("unknown eval subcommand: %s\nUsage: chronos eval [list|run]", sub)
+		return fmt.Errorf("unknown eval subcommand: %s\nUsage: chronos eval [list|run|capture|gate]", sub)
 	}
+}
+
+// evalCapture builds an eval dataset from a stored session's conversation and
+// writes it as JSON. Usage:
+//
+//	chronos evals capture <sessionID> [--name <name>] [--out <file>]
+func evalCapture(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: chronos evals capture <sessionID> [--name <name>] [--out <file>]")
+	}
+	sessionID := args[0]
+	name, out := sessionID, ""
+	for i := 1; i < len(args)-1; i++ {
+		switch args[i] {
+		case "--name":
+			name = args[i+1]
+		case "--out":
+			out = args[i+1]
+		}
+	}
+
+	store, err := openStore()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = store.Close() }()
+
+	ds, err := evals.CaptureFromSession(context.Background(), store, sessionID, name)
+	if err != nil {
+		return err
+	}
+	data, err := evals.MarshalDataset(ds)
+	if err != nil {
+		return err
+	}
+	if out == "" {
+		fmt.Println(string(data))
+		fmt.Fprintf(os.Stderr, "captured %d cases from session %q\n", len(ds.Cases), sessionID)
+		return nil
+	}
+	if err := os.WriteFile(out, data, 0o600); err != nil {
+		return fmt.Errorf("write dataset: %w", err)
+	}
+	fmt.Printf("captured %d cases from session %q → %s\n", len(ds.Cases), sessionID, out)
+	return nil
+}
+
+// evalGate applies pass/fail thresholds to an eval report and exits non-zero when
+// the gate fails, so CI can block regressions. Usage:
+//
+//	chronos evals gate <report.json> [--baseline <report.json>]
+//	    [--min-score <f>] [--min-pass-rate <f>] [--max-regression <f>]
+func evalGate(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: chronos evals gate <report.json> [--baseline <f>] [--min-score <f>] [--min-pass-rate <f>] [--max-regression <f>]")
+	}
+	reportPath := args[0]
+	var baselinePath string
+	var cfg evals.GateConfig
+	for i := 1; i < len(args)-1; i++ {
+		switch args[i] {
+		case "--baseline":
+			baselinePath = args[i+1]
+		case "--min-score":
+			cfg.MinAvgScore, _ = strconv.ParseFloat(args[i+1], 64)
+		case "--min-pass-rate":
+			cfg.MinPassRate, _ = strconv.ParseFloat(args[i+1], 64)
+		case "--max-regression":
+			cfg.MaxRegression, _ = strconv.ParseFloat(args[i+1], 64)
+		}
+	}
+
+	report, err := loadReportFile(reportPath)
+	if err != nil {
+		return err
+	}
+	var baseline *evals.DatasetReport
+	if baselinePath != "" {
+		if baseline, err = loadReportFile(baselinePath); err != nil {
+			return err
+		}
+	}
+
+	result := evals.Gate(report, baseline, cfg)
+	fmt.Printf("dataset %q: avg_score=%.3f pass_rate=%.3f (%d/%d)\n",
+		report.Dataset, report.AvgScore, report.PassRate, report.Passed, report.Total)
+	fmt.Println(result.String())
+	if !result.Passed {
+		return fmt.Errorf("eval gate failed")
+	}
+	return nil
+}
+
+func loadReportFile(path string) (*evals.DatasetReport, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read report %s: %w", path, err)
+	}
+	return evals.LoadReport(data)
 }
 
 func evalList() error {
