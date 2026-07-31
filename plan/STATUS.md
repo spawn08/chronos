@@ -15,7 +15,7 @@ Legend: `TODO` · `IN-PROGRESS` · `REVIEW` · `DONE`
 | WC-A-003 | Context-isolated & dynamic subagents | DONE | claude | plan/wc-a-subagents | A-001, A-002 |
 | WC-A-004 | Automatic context compaction | DONE | claude | plan/wc-a-compaction | A-001, D-001 |
 | WC-A-005 | "Deep agent" harness preset | DONE | claude | plan/wc-a-deep-agent | A-001…004, D-001 |
-| WC-B-001 | A2A client + server | TODO | — | — | A-003 |
+| WC-B-001 | A2A client + server | DONE | claude | plan/wc-b-a2a | A-003 |
 | WC-B-002 | MCP server | DONE | claude | plan/wc-b-mcp-server | none |
 | WC-B-003 | AG-UI standard event stream | DONE | claude | plan/wc-b-agui | A-001 |
 
@@ -47,6 +47,7 @@ Append a line when an item changes state (newest first):
 YYYY-MM-DD  WC-X-000  TODO→IN-PROGRESS  agent/owner  plan/wc-x-slug  note
 ```
 
+2026-07-31  WC-B-001  TODO→DONE  claude  plan/wc-b-a2a  A2A client+server recovered onto main (PR #40 had merged to the wrong branch); TaskStore seam + tenant-partitioned memStore + queue-backed DurableStore + SSE + NewRemoteAgentTool + WithA2A(auth+tenant); both gates run fresh, 2 blockers fixed (A2A body cap; DurableStore.Get error masking) + padding tests replaced
 2026-07-31  WC-A-005  TODO→DONE  claude  plan/wc-a-deep-agent  deep-agent preset: NewDeepAgent assembles planning+VFS+subagents+compaction(plan pinned)+recall with sensible defaults, all override-able; example + docs; both review gates APPROVED. Completes Workstream A.
 2026-07-30  WC-A-004  TODO→DONE  claude  plan/wc-a-compaction  automatic context compaction: real BPE tokenizer budget + static/dynamic pins (always retained) + enforceContextBudget bound + example + docs; both review gates APPROVED
 2026-07-30  WC-D-001  TODO→DONE  claude  plan/wc-d-recall  automatic semantic long-term recall (Manager.WithVectorIndex + Recall + embed-on-write) + agent WithMemoryRecall (default-on, WC-A-004 seam) + example + docs

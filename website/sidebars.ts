@@ -31,6 +31,7 @@ const sidebars: SidebarsConfig = {
         'guides/subagents',
         'guides/mcp',
         'guides/agui',
+        'guides/a2a',
         'guides/memory',
         'guides/semantic-recall',
         'guides/context-management',
