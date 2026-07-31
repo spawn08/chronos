@@ -75,6 +75,44 @@ func TestCaptureFromSession(t *testing.T) {
 	}
 }
 
+func TestCaptureFromSession_SkipsMalformedPayload(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.New(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if migErr := store.Migrate(ctx); migErr != nil {
+		t.Fatal(migErr)
+	}
+	sid := "s-malformed"
+	if createErr := store.CreateSession(ctx, &storage.Session{ID: sid, AgentID: "a1", Status: "active"}); createErr != nil {
+		t.Fatal(createErr)
+	}
+	events := []*storage.Event{
+		// Non-map payload — must be skipped, not panic.
+		{ID: "e1", SessionID: sid, SeqNum: 1, Type: "chat_message", Payload: "not-a-map"},
+		// Non-chat event type — ignored.
+		{ID: "e2", SessionID: sid, SeqNum: 2, Type: "model_call", Payload: map[string]any{"role": "user", "content": "x"}},
+		// A valid pair.
+		{ID: "e3", SessionID: sid, SeqNum: 3, Type: "chat_message", Payload: map[string]any{"role": "user", "content": "q"}},
+		{ID: "e4", SessionID: sid, SeqNum: 4, Type: "chat_message", Payload: map[string]any{"role": "assistant", "content": "a"}},
+	}
+	for _, e := range events {
+		if appendErr := store.AppendEvent(ctx, e); appendErr != nil {
+			t.Fatal(appendErr)
+		}
+	}
+
+	ds, err := CaptureFromSession(ctx, store, sid, "d")
+	if err != nil {
+		t.Fatalf("CaptureFromSession: %v", err)
+	}
+	if len(ds.Cases) != 1 || ds.Cases[0].Input != "q" || ds.Cases[0].Expected != "a" {
+		t.Fatalf("expected exactly the valid pair, got %+v", ds.Cases)
+	}
+}
+
 func TestDatasetRunner(t *testing.T) {
 	ds := &Dataset{Name: "d", Cases: []DatasetCase{
 		{Input: "say paris", Expected: "Paris"},
@@ -129,11 +167,15 @@ func TestDatasetRunner(t *testing.T) {
 }
 
 func TestDatasetRunner_Misconfigured(t *testing.T) {
+	noop := func(context.Context, string) (string, error) { return "", nil }
 	if _, err := (&DatasetRunner{}).Run(context.Background(), &Dataset{}); err == nil {
 		t.Error("expected error with nil target")
 	}
-	if _, err := (&DatasetRunner{Target: func(context.Context, string) (string, error) { return "", nil }}).Run(context.Background(), &Dataset{}); err == nil {
+	if _, err := (&DatasetRunner{Target: noop}).Run(context.Background(), &Dataset{}); err == nil {
 		t.Error("expected error with no evaluators")
+	}
+	if _, err := (&DatasetRunner{Target: noop, Evaluators: []Eval{&ExactMatchEval{}}}).Run(context.Background(), nil); err == nil {
+		t.Error("expected error with nil dataset")
 	}
 }
 
@@ -206,18 +248,48 @@ func TestReportStore_HistoryAndBaseline(t *testing.T) {
 }
 
 func TestReportStore_TenantIsolation(t *testing.T) {
-	rs := NewMemReportStore()
-	ctxA := storage.WithTenant(context.Background(), "tenant-a")
-	ctxB := storage.WithTenant(context.Background(), "tenant-b")
-
-	_ = rs.SaveReport(ctxA, &DatasetReport{Dataset: "d", AvgScore: 0.9})
-
-	hB, _ := rs.History(ctxB, "d")
-	if len(hB) != 0 {
-		t.Errorf("tenant-b sees tenant-a history: %v", hB)
+	ctx := context.Background()
+	st, err := sqlite.New(":memory:")
+	if err != nil {
+		t.Fatal(err)
 	}
-	hA, _ := rs.History(ctxA, "d")
-	if len(hA) != 1 {
-		t.Errorf("tenant-a history len = %d, want 1", len(hA))
+	defer st.Close()
+	if migErr := st.Migrate(ctx); migErr != nil {
+		t.Fatal(migErr)
+	}
+
+	// Both implementations of the interface must isolate history by tenant.
+	stores := map[string]ReportStore{
+		"mem":     NewMemReportStore(),
+		"storage": NewStorageReportStore(st),
+	}
+	for name, rs := range stores {
+		t.Run(name, func(t *testing.T) {
+			ctxA := storage.WithTenant(context.Background(), "tenant-a")
+			ctxB := storage.WithTenant(context.Background(), "tenant-b")
+
+			// Both tenants use the SAME dataset name — the collision case.
+			if err := rs.SaveReport(ctxA, &DatasetReport{Dataset: "shared", AvgScore: 0.11}); err != nil {
+				t.Fatal(err)
+			}
+			if err := rs.SaveReport(ctxB, &DatasetReport{Dataset: "shared", AvgScore: 0.99}); err != nil {
+				t.Fatal(err)
+			}
+
+			hA, err := rs.History(ctxA, "shared")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(hA) != 1 || hA[0].AvgScore != 0.11 {
+				t.Fatalf("tenant-a history = %+v, want exactly its own [0.11]", hA)
+			}
+			hB, err := rs.History(ctxB, "shared")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(hB) != 1 || hB[0].AvgScore != 0.99 {
+				t.Fatalf("tenant-b history = %+v, want exactly its own [0.99]", hB)
+			}
+		})
 	}
 }

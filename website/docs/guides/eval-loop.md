@@ -100,6 +100,14 @@ baseline := evals.BaselineFrom(past) // nil on the first run
 _ = history.SaveReport(ctx, report)
 ```
 
+`StorageReportStore` records each run as an append-only checkpoint keyed by a
+tenant-scoped, per-dataset session id, so runs never overwrite one another and one
+tenant never sees another's history. Inspect it from the CLI:
+
+```bash
+chronos evals history <dataset>
+```
+
 ## Complete example
 
 See [`examples/eval_loop/`](https://github.com/spawn08/chronos/tree/main/examples/eval_loop)

@@ -1122,9 +1122,66 @@ func runEvalCmd() error {
 		return evalCapture(os.Args[3:])
 	case "gate":
 		return evalGate(os.Args[3:])
+	case "history":
+		return evalHistory(os.Args[3:])
 	default:
-		return fmt.Errorf("unknown eval subcommand: %s\nUsage: chronos eval [list|run|capture|gate]", sub)
+		return fmt.Errorf("unknown eval subcommand: %s\nUsage: chronos eval [list|run|capture|gate|history]", sub)
 	}
+}
+
+// parseEvalFlags parses "--flag value" pairs from args into a map. It fails on an
+// unknown flag, a flag missing its value, or a stray positional argument — so a
+// mistyped or misplaced flag surfaces as an error instead of silently disabling a
+// CI gate check.
+func parseEvalFlags(args []string, allowed ...string) (map[string]string, error) {
+	allow := make(map[string]bool, len(allowed))
+	for _, a := range allowed {
+		allow[a] = true
+	}
+	out := make(map[string]string)
+	for i := 0; i < len(args); i++ {
+		f := args[i]
+		if !allow[f] {
+			return nil, fmt.Errorf("unknown or misplaced flag %q", f)
+		}
+		if i+1 >= len(args) {
+			return nil, fmt.Errorf("flag %q needs a value", f)
+		}
+		out[f] = args[i+1]
+		i++
+	}
+	return out, nil
+}
+
+// evalFloatFlag parses a float flag value, erroring on a malformed number so a
+// typo cannot silently zero-out (and thereby disable) a gate threshold.
+func evalFloatFlag(flags map[string]string, name string, dst *float64) error {
+	v, ok := flags[name]
+	if !ok {
+		return nil
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return fmt.Errorf("flag %s: invalid number %q: %w", name, v, err)
+	}
+	*dst = f
+	return nil
+}
+
+// parseGateConfig builds a GateConfig from parsed flags, erroring on a malformed
+// threshold value.
+func parseGateConfig(flags map[string]string) (evals.GateConfig, error) {
+	var cfg evals.GateConfig
+	if err := evalFloatFlag(flags, "--min-score", &cfg.MinAvgScore); err != nil {
+		return cfg, err
+	}
+	if err := evalFloatFlag(flags, "--min-pass-rate", &cfg.MinPassRate); err != nil {
+		return cfg, err
+	}
+	if err := evalFloatFlag(flags, "--max-regression", &cfg.MaxRegression); err != nil {
+		return cfg, err
+	}
+	return cfg, nil
 }
 
 // evalCapture builds an eval dataset from a stored session's conversation and
@@ -1136,15 +1193,15 @@ func evalCapture(args []string) error {
 		return fmt.Errorf("usage: chronos evals capture <sessionID> [--name <name>] [--out <file>]")
 	}
 	sessionID := args[0]
-	name, out := sessionID, ""
-	for i := 1; i < len(args)-1; i++ {
-		switch args[i] {
-		case "--name":
-			name = args[i+1]
-		case "--out":
-			out = args[i+1]
-		}
+	flags, err := parseEvalFlags(args[1:], "--name", "--out")
+	if err != nil {
+		return err
 	}
+	name, out := sessionID, ""
+	if v, ok := flags["--name"]; ok {
+		name = v
+	}
+	out = flags["--out"]
 
 	store, err := openStore()
 	if err != nil {
@@ -1182,19 +1239,14 @@ func evalGate(args []string) error {
 		return fmt.Errorf("usage: chronos evals gate <report.json> [--baseline <f>] [--min-score <f>] [--min-pass-rate <f>] [--max-regression <f>]")
 	}
 	reportPath := args[0]
-	var baselinePath string
-	var cfg evals.GateConfig
-	for i := 1; i < len(args)-1; i++ {
-		switch args[i] {
-		case "--baseline":
-			baselinePath = args[i+1]
-		case "--min-score":
-			cfg.MinAvgScore, _ = strconv.ParseFloat(args[i+1], 64)
-		case "--min-pass-rate":
-			cfg.MinPassRate, _ = strconv.ParseFloat(args[i+1], 64)
-		case "--max-regression":
-			cfg.MaxRegression, _ = strconv.ParseFloat(args[i+1], 64)
-		}
+	flags, err := parseEvalFlags(args[1:], "--baseline", "--min-score", "--min-pass-rate", "--max-regression")
+	if err != nil {
+		return err
+	}
+	baselinePath := flags["--baseline"]
+	cfg, err := parseGateConfig(flags)
+	if err != nil {
+		return err
 	}
 
 	report, err := loadReportFile(reportPath)
@@ -1224,6 +1276,38 @@ func loadReportFile(path string) (*evals.DatasetReport, error) {
 		return nil, fmt.Errorf("read report %s: %w", path, err)
 	}
 	return evals.LoadReport(data)
+}
+
+// evalHistory prints the stored, tenant-scoped run history for a dataset so
+// scores are queryable over time. Usage:
+//
+//	chronos evals history <dataset>
+func evalHistory(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: chronos evals history <dataset>")
+	}
+	dataset := args[0]
+
+	store, err := openStore()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = store.Close() }()
+
+	hist, err := evals.NewStorageReportStore(store).History(context.Background(), dataset)
+	if err != nil {
+		return err
+	}
+	if len(hist) == 0 {
+		fmt.Printf("no eval history for dataset %q\n", dataset)
+		return nil
+	}
+	fmt.Printf("eval history for %q (%d runs):\n", dataset, len(hist))
+	for _, h := range hist {
+		fmt.Printf("  %s  avg_score=%.3f pass_rate=%.3f (%d/%d)\n",
+			h.RanAt.Format(time.RFC3339), h.AvgScore, h.PassRate, h.Passed, h.Total)
+	}
+	return nil
 }
 
 func evalList() error {

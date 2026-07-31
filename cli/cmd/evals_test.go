@@ -43,3 +43,32 @@ func TestEvalGate_Usage(t *testing.T) {
 		t.Error("expected usage error with no args")
 	}
 }
+
+// TestEvalGate_MalformedThresholdErrors guards the CI gate against silently
+// disabling itself on a mistyped threshold (BLOCK-Q01): a bad number must error,
+// not parse to 0 (which would turn the check off and let CI pass).
+func TestEvalGate_MalformedThresholdErrors(t *testing.T) {
+	report := writeReport(t, `{"dataset":"d","avg_score":0.5,"pass_rate":0.5}`)
+	if err := evalGate([]string{report, "--min-score", "O.9"}); err == nil { // letter O, not zero
+		t.Error("malformed --min-score should error, not silently disable the gate")
+	}
+	if err := evalGate([]string{report, "--min-score"}); err == nil {
+		t.Error("flag missing its value should error")
+	}
+	if err := evalGate([]string{report, "--bogus", "1"}); err == nil {
+		t.Error("unknown flag should error")
+	}
+}
+
+func TestParseEvalFlags(t *testing.T) {
+	flags, err := parseEvalFlags([]string{"--a", "1", "--b", "2"}, "--a", "--b")
+	if err != nil || flags["--a"] != "1" || flags["--b"] != "2" {
+		t.Fatalf("parse pairs: flags=%v err=%v", flags, err)
+	}
+	if _, err := parseEvalFlags([]string{"--a"}, "--a"); err == nil {
+		t.Error("trailing flag without value should error")
+	}
+	if _, err := parseEvalFlags([]string{"--x", "1"}, "--a"); err == nil {
+		t.Error("unknown flag should error")
+	}
+}

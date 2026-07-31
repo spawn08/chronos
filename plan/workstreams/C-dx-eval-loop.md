@@ -9,7 +9,34 @@
 ---
 
 ### WC-C-001 — Eval-driven dev loop (trace → dataset → eval → gate)
-- [ ] **Status:** TODO
+- [x] **Status:** DONE <!-- done: 2026-07-31 -->
+  - **Delivered:** the loop on top of the existing `evals` package (evaluators +
+    `AccuracyEval` LLM-judge). `evals/dataset.go` — `Dataset`/`DatasetCase` +
+    `CaptureFromSession` (pairs user→assistant from the tenant-scoped event ledger,
+    skipping tool-only turns) + JSON I/O. `evals/runner.go` — a `Target`
+    `func(ctx,input)(string,error)` seam (decouples `evals` from `sdk/agent` and
+    `engine/graph`), `DatasetRunner` producing a `DatasetReport` (per-case + AvgScore/
+    PassRate). `evals/gate.go` — `Gate(report, baseline, GateConfig)` with min-score /
+    min-pass-rate / max-regression-vs-baseline. `evals/store.go` — a `ReportStore`
+    (ISP) with `MemReportStore` and a checkpoint-backed `StorageReportStore` for
+    tenant-scoped, append-only trend history + `BaselineFrom`. CLI: `chronos evals
+    capture|gate|history` (strict flag parsing — a mistyped threshold errors rather
+    than silently disabling the gate). CI: an `eval-gate` job runs the loop and
+    asserts a regressed report is rejected. Example `examples/eval_loop/`
+    (key-free capture→run→gate, pass then regression), docs
+    `website/docs/guides/eval-loop.md`.
+  - **Review gates:** design-pattern-reviewer + code-quality-auditor both ran and
+    returned REQUEST_CHANGES; all findings fixed in-branch and re-verified:
+    (CRITICAL) `StorageReportStore` originally used a tenant-free memory-record key
+    → cross-tenant collision (Postgres disclosure / SQLite data loss); reworked onto
+    append-only checkpoints with the tenant folded into the session id (the
+    `(session_id, seq_num)` index is not itself tenant-scoped), which also removed the
+    read-modify-write blob race and the leaky redis memory-key path. (BLOCK) CLI gate
+    silently no-op'd on a malformed `--min-score` (discarded `ParseFloat` error / off-by-one
+    flag loop) → strict `parseEvalFlags`/`parseGateConfig` that error on bad/missing/unknown
+    flags. Added a table-driven tenant-isolation test over BOTH stores (the gap that hid
+    the CRITICAL), a malformed-threshold regression test, nil-dataset + non-string-payload
+    coverage, and wired the persistence subsystem to a live CLI caller (`evals history`).
 - **Problem:** `evals/` can score runs, but there is no loop: capture real traces, curate them
   into datasets, run evals against them, and gate regressions in CI. This is the core LangSmith
   workflow and the biggest DX moat.

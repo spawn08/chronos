@@ -97,9 +97,8 @@ func (r *DatasetRunner) runCase(ctx context.Context, c DatasetCase) CaseReport {
 			allPassed = false
 		}
 	}
-	if n := len(r.Evaluators); n > 0 {
-		cr.Score = scoreSum / float64(n)
-	}
+	// Run guarantees at least one evaluator before any case executes.
+	cr.Score = scoreSum / float64(len(r.Evaluators))
 	cr.Passed = allPassed
 	return cr
 }

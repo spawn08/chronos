@@ -4,11 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/spawn08/chronos/storage"
 )
+
+// maxHistory bounds how many summaries MemReportStore retains per dataset so an
+// ephemeral history does not grow without bound; the oldest are dropped.
+const maxHistory = 200
 
 // ReportSummary is the compact, trend-friendly record of one eval run kept in
 // history. It is what the gate compares across runs.
@@ -61,19 +66,32 @@ func BaselineFrom(history []ReportSummary) *DatasetReport {
 	}
 }
 
-// maxHistory bounds how many summaries are retained per dataset so a long-lived
-// history record does not grow without bound; the oldest are dropped.
-const maxHistory = 200
+// evalSessionPrefix namespaces eval-history checkpoints away from real run
+// sessions.
+const evalSessionPrefix = "__evals__"
 
-// evalsAgentID namespaces eval history under a reserved agent id in the memory
-// store (the memory record is keyed by agent id + key, and scoped to the tenant).
-const evalsAgentID = "__evals__"
+// evalSession folds the context tenant into the checkpoint session id. The
+// checkpoint uniqueness index is (session_id, seq_num) and is NOT itself
+// tenant-scoped, so the tenant must be part of the session id to keep one
+// tenant's history from colliding with another's on the same dataset name. Reads
+// additionally filter by the tenant_id column, so this is belt-and-suspenders.
+func evalSession(ctx context.Context, dataset string) string {
+	return evalSessionPrefix + "/" + storage.TenantFromContext(ctx) + "/" + dataset
+}
 
-func historyKey(dataset string) string { return "history/" + dataset }
-
-// StorageReportStore persists history in the memory table of a storage.Storage as
-// a single JSON record per (tenant, dataset), appended on each run. Tenant scoping
-// is inherited from the storage adapter (the record carries the context tenant).
+// StorageReportStore persists run history as append-only checkpoints (one per
+// run) in a storage.Storage, keyed by a tenant-scoped per-dataset session id.
+// Using checkpoints (rather than a single rewritten record) makes each run an
+// independent row, so there is no read-modify-write over a growing blob.
+//
+// Concurrency: two runs of the same (tenant, dataset) that race compute the same
+// next seq_num; the (session_id, seq_num) upsert means one overwrites the other's
+// summary at that slot — a single lost run, never corruption of the whole
+// history. Serialize concurrent runs of one dataset if that matters.
+//
+// It targets the tenant-scoped backends (sqlite, postgres). The experimental
+// adapters that do not yet enforce tenant scoping (PLAN.md P2-002 follow-up)
+// inherit that limitation here too.
 type StorageReportStore struct {
 	store storage.Storage
 }
@@ -87,56 +105,69 @@ func (s *StorageReportStore) SaveReport(ctx context.Context, r *DatasetReport) e
 	if r == nil {
 		return fmt.Errorf("save report: nil report")
 	}
-	history, err := s.History(ctx, r.Dataset)
+	sess := evalSession(ctx, r.Dataset)
+	var seq int64 = 1
+	if latest, err := s.store.GetLatestCheckpoint(ctx, sess); err == nil && latest != nil {
+		seq = latest.SeqNum + 1
+	}
+	state, err := summaryToState(summarize(r))
 	if err != nil {
 		return err
 	}
-	history = append(history, summarize(r))
-	if len(history) > maxHistory {
-		history = history[len(history)-maxHistory:]
-	}
-	data, err := json.Marshal(history)
-	if err != nil {
-		return fmt.Errorf("save report: marshal history: %w", err)
-	}
-	rec := &storage.MemoryRecord{
-		ID:        evalsAgentID + "/" + historyKey(r.Dataset),
-		AgentID:   evalsAgentID,
-		Kind:      "eval_history",
-		Key:       historyKey(r.Dataset),
-		Value:     string(data),
+	cp := &storage.Checkpoint{
+		ID:        sess + "/" + strconv.FormatInt(seq, 10),
+		SessionID: sess,
+		NodeID:    "eval",
+		State:     state,
+		SeqNum:    seq,
 		CreatedAt: time.Now(),
 	}
-	if err := s.store.PutMemory(ctx, rec); err != nil {
-		return fmt.Errorf("save report: put memory: %w", err)
+	if err := s.store.SaveCheckpoint(ctx, cp); err != nil {
+		return fmt.Errorf("save report: %w", err)
 	}
 	return nil
 }
 
 func (s *StorageReportStore) History(ctx context.Context, dataset string) ([]ReportSummary, error) {
-	rec, err := s.store.GetMemory(ctx, evalsAgentID, historyKey(dataset))
+	cps, err := s.store.ListCheckpoints(ctx, evalSession(ctx, dataset))
 	if err != nil {
-		// No record yet (or a cross-tenant miss) means no history — a first run.
-		return nil, nil
-	}
-	raw, ok := rec.Value.(string)
-	if !ok {
-		// Some adapters scan JSON columns into []byte.
-		if b, okb := rec.Value.([]byte); okb {
-			raw = string(b)
-		} else {
-			data, _ := json.Marshal(rec.Value)
-			raw = string(data)
-		}
-	}
-	if raw == "" {
-		return nil, nil
-	}
-	var history []ReportSummary
-	if err := json.Unmarshal([]byte(raw), &history); err != nil {
 		return nil, fmt.Errorf("read history: %w", err)
 	}
-	return history, nil
+	out := make([]ReportSummary, 0, len(cps))
+	for _, cp := range cps {
+		sum, convErr := stateToSummary(cp.State)
+		if convErr != nil {
+			return nil, convErr
+		}
+		out = append(out, sum)
+	}
+	return out, nil
+}
+
+// summaryToState renders a summary as a checkpoint state map via a JSON round-trip.
+func summaryToState(sum ReportSummary) (map[string]any, error) {
+	data, err := json.Marshal(sum)
+	if err != nil {
+		return nil, fmt.Errorf("marshal summary: %w", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, fmt.Errorf("encode summary state: %w", err)
+	}
+	return m, nil
+}
+
+// stateToSummary reconstructs a summary from a checkpoint state map.
+func stateToSummary(state map[string]any) (ReportSummary, error) {
+	data, err := json.Marshal(state)
+	if err != nil {
+		return ReportSummary{}, fmt.Errorf("encode history state: %w", err)
+	}
+	var sum ReportSummary
+	if err := json.Unmarshal(data, &sum); err != nil {
+		return ReportSummary{}, fmt.Errorf("decode history summary: %w", err)
+	}
+	return sum, nil
 }
 
 // MemReportStore is an in-memory ReportStore for tests and ephemeral use. It
