@@ -1271,6 +1271,8 @@ func evalGate(args []string) error {
 }
 
 func loadReportFile(path string) (*evals.DatasetReport, error) {
+	// #nosec G304 -- path is an operator-supplied CLI argument (the eval report to
+	// gate), intentional file access like the adjacent eval-suite/config readers.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read report %s: %w", path, err)
