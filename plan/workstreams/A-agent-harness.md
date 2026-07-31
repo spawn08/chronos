@@ -190,7 +190,35 @@ existing agent loop, plus built-in tools under `engine/tool/builtins/`.
 ---
 
 ### WC-A-005 — "Deep agent" harness preset
-- [ ] **Status:** TODO
+- [x] **Status:** DONE <!-- done: 2026-07-31 -->
+  - **Delivered:** `sdk/harness/preset.go` — `harness.NewDeepAgent(DeepAgentConfig)`
+    assembles the full harness in one call: the planning toolkit (WC-A-001) + virtual
+    filesystem toolkit (WC-A-002) added via the builder, the compaction policy
+    (WC-A-004) with the **live plan pinned** through the generic `WithContextPins`
+    seam (`planPin` loads the plan each turn and renders it as a system message, so
+    summarization never drops it — no `sdk/agent`→`builtins` coupling), optional
+    semantic recall (WC-D-001) when a `MemoryManager` is supplied, and a
+    `spawn_subagent` tool (WC-A-003) derived from the built parent via the documented
+    build→`NewSubAgentService`→`Register`→`Attach` ordering. Durable when given a
+    `Storage` backend (StoragePlanStore + StorageVFS; fails at construction if the
+    backend lacks `storage.SessionFileStore`), in-memory/ephemeral otherwise. An
+    opinionated default system prompt teaches the model to plan, offload, and delegate;
+    everything (prompt, context policy, subagent depth/runner/specs, extra
+    tools/toolkits, memory, broker, disable-subagents) is override-able. Runnable
+    key-free `examples/deep_agent/main.go` (plans → offloads a 3.4 KB artifact →
+    delegates to an isolated subagent → completes a report across two turns); docs
+    `website/docs/guides/deep-agent.md`. Tests `preset_test.go`: requires-model,
+    contradictory-config rejection, tool-wiring (+ subagents-disabled omits spawn),
+    storage-without-`SessionFileStore` fails at construction, storageless `Chat` runtime
+    path, and an end-to-end two-turn run asserting plan persisted+complete, artifact
+    offloaded to the VFS, subagent actually invoked, and the plan pinned into system
+    context across turns; all green under `-race`.
+  - **Review gates:** design-pattern-reviewer + code-quality-auditor both APPROVED
+    (zero CRITICAL/BLOCK). Findings fixed in-branch: reject contradictory
+    `DisableSubAgents`+`SubAgents`/`SubAgentRunner` config; clarified storageless-mode
+    docs (in-memory tools still need a `storage.WithSession` context; compaction needs
+    storage); guarded the example's discarded `Load` error; added a storageless runtime
+    test and a subagent-actually-ran assertion; renamed a cryptic test field.
 - **Problem:** Even with the primitives above, wiring them by hand is friction. DeepAgents wins
   on being *batteries-included*. Chronos needs a one-call preset.
 - **Location:** new `sdk/harness/preset.go`; builder sugar on `sdk/agent` (e.g.
