@@ -17,6 +17,42 @@ import (
 	_ "modernc.org/sqlite" // register the sqlite driver for the queue's *sql.DB
 )
 
+// errCheckpointStore is a storage.Storage whose GetLatestCheckpoint returns a
+// fixed error, used to prove DurableStore.Get distinguishes a genuine miss
+// (sql.ErrNoRows → ErrTaskNotFound) from a transient failure (surfaced wrapped,
+// not masked as not-found). Only GetLatestCheckpoint is exercised; the embedded
+// nil interface would panic if any other method were called.
+type errCheckpointStore struct {
+	storage.Storage
+	getErr error
+}
+
+func (e *errCheckpointStore) GetLatestCheckpoint(context.Context, string) (*storage.Checkpoint, error) {
+	return nil, e.getErr
+}
+
+func TestDurableStore_Get_TransientErrorNotMaskedAsNotFound(t *testing.T) {
+	boom := errors.New("db is down")
+	ds := NewDurableStore(nil, &errCheckpointStore{getErr: boom}, echoHandler)
+
+	_, err := ds.Get(context.Background(), "task_x")
+	if err == nil || errors.Is(err, ErrTaskNotFound) {
+		t.Fatalf("transient error must not be masked as ErrTaskNotFound, got %v", err)
+	}
+	if !errors.Is(err, boom) {
+		t.Fatalf("expected wrapped transient error, got %v", err)
+	}
+}
+
+func TestDurableStore_Get_NoRowsIsNotFound(t *testing.T) {
+	ds := NewDurableStore(nil, &errCheckpointStore{getErr: sql.ErrNoRows}, echoHandler)
+
+	_, err := ds.Get(context.Background(), "task_x")
+	if !errors.Is(err, ErrTaskNotFound) {
+		t.Fatalf("sql.ErrNoRows should map to ErrTaskNotFound, got %v", err)
+	}
+}
+
 // walDSN returns a WAL-mode SQLite DSN under the test temp dir, stable for the
 // test's lifetime so a "restarted" component can reopen the same file.
 func walDSN(t *testing.T, name string) string {

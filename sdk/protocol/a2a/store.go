@@ -30,7 +30,27 @@ type TaskStore interface {
 	Get(ctx context.Context, id string) (*Task, error)
 	// Cancel transitions a pending or running task to the canceled state and
 	// returns a snapshot. Terminal tasks are returned unchanged.
+	//
+	// Backends differ in whether Cancel preempts in-flight work: the in-memory
+	// store aborts the handler via context cancellation; the durable store records
+	// the cancellation and discards the handler's result when it finishes, but does
+	// not interrupt a running handler.
 	Cancel(ctx context.Context, id string) (*Task, error)
+}
+
+// snapshot returns a value copy of the task with its Metadata map deep-copied, so
+// a snapshot handed to a caller (or to a handler as its working copy) never shares
+// mutable map state with the live task under the store's lock.
+func (t *Task) snapshot() Task {
+	cp := *t
+	if t.Metadata != nil {
+		m := make(map[string]any, len(t.Metadata))
+		for k, v := range t.Metadata {
+			m[k] = v
+		}
+		cp.Metadata = m
+	}
+	return cp
 }
 
 // defaultWatchPoll is the interval at which watch polls a task for changes.
@@ -102,6 +122,10 @@ func watch(ctx context.Context, store TaskStore, id string, interval time.Durati
 // partitioned by the context tenant so it is safe-by-default behind the
 // tenant-scoped served endpoint — a task created under one tenant is invisible
 // to another, matching the TaskStore contract.
+//
+// Note: terminal tasks are retained for the process lifetime (no TTL/eviction),
+// so a long-lived server accumulates one record per task ever submitted. It is
+// intended as the dev/default backend; use NewDurableStore for production.
 type memStore struct {
 	handler Handler
 	mu      sync.Mutex
@@ -144,7 +168,7 @@ func (m *memStore) Submit(ctx context.Context, input string, metadata map[string
 	key := memKey(ctx, task.ID)
 	m.tasks[key] = task
 	m.cancels[key] = cancel
-	snapshot := *task
+	snapshot := task.snapshot()
 	m.mu.Unlock()
 
 	go m.execute(execCtx, task.ID)
@@ -158,7 +182,7 @@ func (m *memStore) Get(ctx context.Context, id string) (*Task, error) {
 	if !ok {
 		return nil, ErrTaskNotFound
 	}
-	snapshot := *task
+	snapshot := task.snapshot()
 	return &snapshot, nil
 }
 
@@ -178,7 +202,7 @@ func (m *memStore) Cancel(ctx context.Context, id string) (*Task, error) {
 			delete(m.cancels, key)
 		}
 	}
-	snapshot := *task
+	snapshot := task.snapshot()
 	return &snapshot, nil
 }
 
@@ -196,7 +220,7 @@ func (m *memStore) execute(ctx context.Context, id string) {
 	}
 	task.Status = TaskStatusRunning
 	task.UpdatedAt = time.Now()
-	work := *task
+	work := task.snapshot()
 	m.mu.Unlock()
 
 	err := m.handler(ctx, &work)

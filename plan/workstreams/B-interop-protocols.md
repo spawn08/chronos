@@ -12,7 +12,7 @@ sub-packages `a2a/`, `mcpserver/`, `agui/`.
 ---
 
 ### WC-B-001 — A2A (agent-to-agent) client + server
-- [x] **Status:** DONE <!-- done: 2026-07-30 -->
+- [x] **Status:** DONE <!-- done: 2026-07-31 -->
   - **Delivered:** built on the existing `sdk/protocol/a2a` package (reused, not moved to
     `engine/interop/a2a`, to keep the change additive). A `TaskStore` interface (`store.go`) is the
     swap seam behind the HTTP `Server`: `memStore` (in-memory default, tenant-partitioned and
@@ -30,12 +30,22 @@ sub-packages `a2a/`, `mcpserver/`, `agui/`.
     `examples/a2a_interop/main.go` (key-free durable round-trip), docs `website/docs/guides/a2a.md`.
     Tests: memStore/durable/stream/tool + `os` tenant-rejection (cross-tenant → 404, unauth → 401);
     durable restart-resume and retry-on-failure; `-race` green; full module suite green.
-  - **Review gates:** the two adversarial gates (design-pattern-reviewer, code-quality-auditor) could
-    not be executed — all four runs (incl. one synchronous) died on background-agent infrastructure
-    errors, not on findings. A structured self-review stood in and applied two fixes in-branch:
-    `memStore` made tenant-partitioned (safe-by-default behind the served endpoint, with a test) and
-    `awaitRemote` cancels its stream on return (no goroutine leak). Owner accepted the self-review in
-    lieu of the automated gates; re-running the gates when infra recovers is recommended follow-up.
+  - **Recovery note:** this work was written on a prior branch (PR #40) that merged into the AG-UI
+    branch, not `main`, so it never landed; `main` still carried only the prototype A2A. It was
+    recovered onto current `main` via a clean cherry-pick (only STATUS.md conflicted).
+  - **Review gates:** both adversarial gates (design-pattern-reviewer + code-quality-auditor) — which
+    never ran successfully on the original — were run fresh on the recovered code; both APPROVED the
+    architecture (clean layering, textbook `TaskStore` swap-seam, tenant isolation correct and tested
+    on both backends) but returned REQUEST_CHANGES on two blockers, both fixed in-branch:
+    (1) the `/a2a/` create endpoint now enforces the control plane's `MaxBytesReader` body cap in
+    `handleA2A` (it was the one externally-facing endpoint bypassing it); (2) `DurableStore.Get` now
+    distinguishes `sql.ErrNoRows` (→ `ErrTaskNotFound`) from a transient read failure (surfaced
+    wrapped), and `Executor` no longer reconstructs-and-reruns a task on a transient error (which
+    could resurrect a finished/canceled task). Also fixed: JSON-safe error envelope, client
+    marshal-error handling, deep-copied `Metadata` in memStore snapshots (data-race guard),
+    documented cancellation-semantics divergence + at-least-once idempotency + memStore growth, and
+    the forbidden `_boost`/`_extra` coverage-padding test files were replaced with behavior-named
+    tests (`client_test.go`). New regression tests cover both blockers.
 - **Problem:** Chronos agents cannot call, or be called by, agents from other frameworks. This
   is the interop standard ADK is standardizing the ecosystem around.
 - **Location:** new `engine/interop/a2a/` (protocol types + client); served endpoint in

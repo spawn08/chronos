@@ -66,7 +66,9 @@ func CardFromSkills(name, description, version string, reg *skill.Registry) Agen
 	return card
 }
 
-// Handler processes A2A tasks.
+// Handler processes A2A tasks. It should be idempotent: on the durable backend a
+// task may be executed more than once (queue retries and orphan recovery are
+// at-least-once), and re-running simply overwrites the task's output.
 type Handler func(ctx context.Context, task *Task) error
 
 // Server exposes an agent as an A2A endpoint. Task lifecycle is delegated to a
@@ -121,7 +123,10 @@ func writeStoreError(w http.ResponseWriter, err error) {
 		http.Error(w, `{"error":"task not found"}`, http.StatusNotFound)
 		return
 	}
-	http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusInternalServerError)
+	// Build the envelope with json.Marshal — %q is Go quoting, not JSON escaping,
+	// so an exotic rune in the error could otherwise emit invalid JSON.
+	body, _ := json.Marshal(map[string]string{"error": err.Error()})
+	http.Error(w, string(body), http.StatusInternalServerError)
 }
 
 func (s *Server) handleAgentCard(w http.ResponseWriter, _ *http.Request) {
@@ -171,7 +176,9 @@ func (s *Server) handleCancelTask(w http.ResponseWriter, r *http.Request, taskID
 }
 
 // handleStreamTask streams task snapshots as Server-Sent Events until the task
-// reaches a terminal state or the client disconnects.
+// reaches a terminal state or the client disconnects. There is no server-imposed
+// max stream duration: a task that stays running holds the connection (and its
+// poll goroutine) until it terminates or the client's context is canceled.
 func (s *Server) handleStreamTask(w http.ResponseWriter, r *http.Request, taskID string) {
 	// Resolve first so an unknown/cross-tenant task is a clean 404 rather than an
 	// empty stream.
@@ -243,7 +250,10 @@ func (c *Client) CreateTask(ctx context.Context, input string, metadata map[stri
 	if metadata != nil {
 		body["metadata"] = metadata
 	}
-	data, _ := json.Marshal(body)
+	data, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("a2a create task: marshal body: %w", err)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		c.baseURL+"/a2a/tasks", strings.NewReader(string(data)))

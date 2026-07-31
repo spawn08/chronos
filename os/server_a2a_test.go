@@ -141,6 +141,34 @@ func TestA2AServedTenantIsolation(t *testing.T) {
 	})
 }
 
+// TestA2ABodyLimitEnforced proves the A2A create endpoint is subject to the
+// control plane's request-body cap even though the handler is mounted as an
+// opaque http.Handler (the limit is applied in handleA2A).
+func TestA2ABodyLimitEnforced(t *testing.T) {
+	a2aSrv := a2a.NewServerWithStore(a2a.AgentCard{Name: "chronos", Version: "1"}, newTenantA2AStore())
+	const key = "key-a"
+	s := NewWithOptions(":0", memory.New(),
+		WithAPIKeyAuth(auth.APIKeyConfig{
+			HeaderName: "X-Api-Key",
+			Keys:       map[string]auth.APIKeyEntry{key: {Scope: "admin", UserID: "ua", TenantID: "tenant-a"}},
+		}),
+		WithMaxBodyBytes(64), // tiny cap so a modest body trips it
+		WithA2A(a2aSrv),
+	)
+
+	oversized := `{"input":"` + strings.Repeat("x", 512) + `"}`
+	r := httptest.NewRequest(http.MethodPost, "/a2a/tasks", strings.NewReader(oversized))
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("X-Api-Key", key)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, r)
+
+	// MaxBytesReader makes the decode fail; the handler returns 400 (bad json).
+	if w.Code == http.StatusCreated {
+		t.Fatalf("oversized body was accepted (status %d); body cap not enforced", w.Code)
+	}
+}
+
 // TestA2ADisabledByDefault confirms the endpoint is absent unless WithA2A is set.
 func TestA2ADisabledByDefault(t *testing.T) {
 	s := NewWithOptions(":0", memory.New())

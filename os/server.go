@@ -552,6 +552,10 @@ func (s *Server) handleA2A(w http.ResponseWriter, r *http.Request) {
 		streaming(s.a2aHandler.ServeHTTP)(w, r)
 		return
 	}
+	// The A2A handler is mounted as an opaque http.Handler, so it does not go
+	// through decodeJSONBody; enforce the same request-body cap here so this
+	// externally-facing endpoint gets the control plane's uniform hardening.
+	r.Body = http.MaxBytesReader(w, r.Body, s.maxBodyBytes)
 	s.a2aHandler.ServeHTTP(w, r)
 }
 

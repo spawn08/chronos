@@ -3,8 +3,10 @@ package a2a
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -83,13 +85,19 @@ func (d *DurableStore) Submit(ctx context.Context, input string, metadata map[st
 	return &snapshot, nil
 }
 
-// Get returns the task record for the context tenant, or ErrTaskNotFound.
+// Get returns the task record for the context tenant, or ErrTaskNotFound. A
+// genuine miss (including a cross-tenant miss, which the tenant-scoped query
+// renders as no rows) maps to ErrTaskNotFound; a transient read failure (DB down,
+// context canceled) is surfaced wrapped so callers do not mistake an outage for a
+// missing task and, critically, so Executor does not reconstruct-and-rerun a task
+// whose record merely failed to load.
 func (d *DurableStore) Get(ctx context.Context, id string) (*Task, error) {
 	cp, err := d.store.GetLatestCheckpoint(ctx, id)
 	if err != nil {
-		// A missing row — including a cross-tenant miss — is a not-found, matching
-		// the control plane's treatment of GetLatestCheckpoint.
-		return nil, ErrTaskNotFound
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrTaskNotFound
+		}
+		return nil, fmt.Errorf("a2a get task %s: %w", id, err)
 	}
 	task, err := stateToTask(cp.State)
 	if err != nil {
@@ -126,7 +134,17 @@ func (d *DurableStore) Executor(ctx context.Context, run *queue.Run) queue.Resul
 	}
 	execCtx := storage.WithTenant(ctx, p.Tenant)
 
-	task := d.load(execCtx, run.SessionID, p)
+	task, err := d.Get(execCtx, run.SessionID)
+	switch {
+	case errors.Is(err, ErrTaskNotFound):
+		// Genuinely absent — e.g. volatile storage lost the record across a restart.
+		// Reconstruct a fresh pending task from the durable queue payload.
+		task = d.pendingFromPayload(run.SessionID, p)
+	case err != nil:
+		// Transient read failure: do NOT reconstruct-and-rerun (that could resurrect
+		// an already finished/canceled task). Return an error so the queue retries.
+		return queue.Result{Err: fmt.Errorf("a2a executor: load task: %w", err)}
+	}
 	// A task canceled (or already finished) before this attempt needs no work.
 	if isTerminal(task.Status) {
 		return queue.Result{}
@@ -141,7 +159,11 @@ func (d *DurableStore) Executor(ctx context.Context, run *queue.Run) queue.Resul
 	work := *task
 	handlerErr := d.handler(execCtx, &work)
 
-	// Honor a cancellation that landed while the handler ran.
+	// Honor a cancellation that landed while the handler ran. A cancel that lands
+	// in the narrow window between this check and the terminal save below can still
+	// be clobbered — the checkpoint is last-writer-wins with no optimistic
+	// concurrency (the same whole-record limitation as UpdateSession/Metadata in
+	// this repo). Acceptable: the task simply completes despite a late cancel.
 	if latest, err := d.Get(execCtx, run.SessionID); err == nil && latest.Status == TaskStatusCancelled {
 		return queue.Result{}
 	}
@@ -170,12 +192,10 @@ func (d *DurableStore) Executor(ctx context.Context, run *queue.Run) queue.Resul
 	return queue.Result{}
 }
 
-// load reads the task record, reconstructing a pending task from the run payload
-// if the checkpoint is absent (e.g. lost across a restart with volatile storage).
-func (d *DurableStore) load(ctx context.Context, id string, p durablePayload) *Task {
-	if task, err := d.Get(ctx, id); err == nil {
-		return task
-	}
+// pendingFromPayload reconstructs a fresh pending task from the run payload, used
+// only when the checkpoint is genuinely absent (e.g. lost across a restart with
+// volatile storage). A transient read failure must NOT land here — see Executor.
+func (d *DurableStore) pendingFromPayload(id string, p durablePayload) *Task {
 	now := d.now()
 	return &Task{
 		ID:        id,
