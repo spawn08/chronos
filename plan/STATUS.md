@@ -23,7 +23,7 @@ Legend: `TODO` · `IN-PROGRESS` · `REVIEW` · `DONE`
 
 | Item | Title | Status | Owner / Agent | Branch | Depends on |
 |------|-------|:------:|---------------|--------|------------|
-| WC-C-001 | Eval-driven loop (trace→dataset→eval→gate) | TODO | — | — | none |
+| WC-C-001 | Eval-driven loop (trace→dataset→eval→gate) | DONE | claude | plan/wc-c-eval-loop | none |
 | WC-C-002 | Visual studio / graph debugger | TODO | — | — | B-003 |
 | WC-C-003 | One-command deploy | TODO | — | — | C-002 |
 | WC-D-001 | Automatic semantic long-term recall | DONE | claude | plan/wc-d-recall | none |
@@ -47,6 +47,7 @@ Append a line when an item changes state (newest first):
 YYYY-MM-DD  WC-X-000  TODO→IN-PROGRESS  agent/owner  plan/wc-x-slug  note
 ```
 
+2026-07-31  WC-C-001  TODO→DONE  claude  plan/wc-c-eval-loop  eval-driven loop: CaptureFromSession + DatasetRunner(Target seam) + Gate(regression) + tenant-scoped checkpoint-backed ReportStore + CLI capture/gate/history + CI eval-gate job; both gates run, fixed CRITICAL tenant collision (reworked onto checkpoints) + BLOCK strict flag parsing
 2026-07-31  WC-B-001  TODO→DONE  claude  plan/wc-b-a2a  A2A client+server recovered onto main (PR #40 had merged to the wrong branch); TaskStore seam + tenant-partitioned memStore + queue-backed DurableStore + SSE + NewRemoteAgentTool + WithA2A(auth+tenant); both gates run fresh, 2 blockers fixed (A2A body cap; DurableStore.Get error masking) + padding tests replaced
 2026-07-31  WC-A-005  TODO→DONE  claude  plan/wc-a-deep-agent  deep-agent preset: NewDeepAgent assembles planning+VFS+subagents+compaction(plan pinned)+recall with sensible defaults, all override-able; example + docs; both review gates APPROVED. Completes Workstream A.
 2026-07-30  WC-A-004  TODO→DONE  claude  plan/wc-a-compaction  automatic context compaction: real BPE tokenizer budget + static/dynamic pins (always retained) + enforceContextBudget bound + example + docs; both review gates APPROVED

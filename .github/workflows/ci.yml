@@ -132,6 +132,39 @@ jobs:
         run: go run ./examples/multi_provider/main.go
 
   # ────────────────────────────────────────────────────────────
+  # Eval gate (WC-C-001): demonstrate the trace→dataset→eval→gate loop
+  # blocks regressions. The job is green when the gate correctly passes a
+  # healthy report and fails a regressed one.
+  # ────────────────────────────────────────────────────────────
+  eval-gate:
+    name: Eval Gate
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run the eval-loop example (capture → run → gate)
+        run: go run ./examples/eval_loop/main.go
+
+      - name: Gate passes a healthy report
+        run: go run ./cli evals gate evals/testdata/report_baseline.json --min-score 0.9
+
+      - name: Gate blocks a regression (must exit non-zero)
+        run: |
+          if go run ./cli evals gate evals/testdata/report_regressed.json --min-score 0.9; then
+            echo "::error::eval gate should have failed on the regressed report"
+            exit 1
+          fi
+          echo "gate correctly blocked the regression"
+
+  # ────────────────────────────────────────────────────────────
   # Docker build (verify image builds)
   # ────────────────────────────────────────────────────────────
   docker:
