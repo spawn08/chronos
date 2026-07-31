@@ -48,7 +48,13 @@ type DeepAgentConfig struct {
 	// Storage, when set, makes the plan and virtual filesystem durable and
 	// enables session compaction via Agent.ChatWithSession. It must implement
 	// storage.SessionFileStore (sqlite and postgres do) to back the VFS. When nil,
-	// the plan and VFS are in-memory (ephemeral) and only Agent.Chat is available.
+	// the plan and VFS are in-memory (ephemeral) and compaction is unavailable
+	// (compaction needs a session), so drive the agent with Agent.Chat.
+	//
+	// Note: the plan and VFS tools are session-scoped even in memory, so any call
+	// path must carry a session-scoped context (storage.WithSession); ChatWithSession
+	// does this automatically. For storageless use, wrap the context yourself:
+	//	ctx = storage.WithSession(ctx, "some-session-id")
 	Storage storage.Storage
 
 	// MemoryManager, when set, is attached so cross-session semantic recall
@@ -103,6 +109,9 @@ type DeepAgentConfig struct {
 func NewDeepAgent(cfg DeepAgentConfig) (*agent.Agent, error) {
 	if cfg.Model == nil {
 		return nil, fmt.Errorf("harness: NewDeepAgent requires a model")
+	}
+	if cfg.DisableSubAgents && (len(cfg.SubAgents) > 0 || cfg.SubAgentRunner != nil) {
+		return nil, fmt.Errorf("harness: DisableSubAgents is set but SubAgents/SubAgentRunner were provided (contradictory config)")
 	}
 	id, name := cfg.ID, cfg.Name
 	if id == "" {

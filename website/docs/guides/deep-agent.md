@@ -68,7 +68,16 @@ everything else on the agent (streaming, hooks, guardrails, teams) still applies
 With a `Storage` backend the plan and the virtual filesystem are durable and
 `ChatWithSession` compacts the conversation automatically as it approaches the
 model's context window. Without storage, the plan and VFS are in-memory
-(ephemeral) and only `Chat` is available (single-turn, no compaction).
+(ephemeral) and compaction is unavailable, so drive the agent with `Chat`.
+
+The plan and VFS tools are **session-scoped even in memory**, so any call path
+must carry a session-scoped context. `ChatWithSession` sets this for you; for
+storageless `Chat`, wrap the context yourself:
+
+```go
+ctx = storage.WithSession(ctx, "some-session-id")
+resp, _ := a.Chat(ctx, "…")
+```
 
 The active plan is **pinned** into the system context every turn via the
 `WithContextPins` seam, so summarization never drops it — the agent always sees

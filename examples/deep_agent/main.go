@@ -83,7 +83,10 @@ func main() {
 
 	// Show the durable side effects the harness produced.
 	sctx := storage.WithSession(ctx, sessionID)
-	plan, _ := builtins.NewStoragePlanStore(store).Load(sctx)
+	plan, err := builtins.NewStoragePlanStore(store).Load(sctx)
+	if err != nil {
+		log.Fatalf("load plan: %v", err)
+	}
 	fmt.Printf("\nFinal plan (complete=%v):\n%s\n", plan.Complete(), plan.Summary())
 
 	vfs, _ := builtins.NewStorageVFS(store)

@@ -21,15 +21,19 @@ const deepResearcherPrompt = "You are a focused researcher. Return one concise f
 // context sent on each deep-agent turn so tests can assert the pinned plan is
 // present. It is deterministic and key-free.
 type deepMock struct {
-	mu       sync.Mutex
-	step     int
-	systemsA [][]string // system-message contents captured per deep-agent turn
+	mu               sync.Mutex
+	step             int
+	deepAgentSystems [][]string // system-message contents captured per deep-agent turn
+	subagentRan      bool       // set when the subagent role executed
 }
 
 func (m *deepMock) Chat(_ context.Context, req *model.ChatRequest) (*model.ChatResponse, error) {
 	// Subagent role: its distinct prompt is present. Return only a finding.
 	for i := range req.Messages {
 		if req.Messages[i].Role == model.RoleSystem && req.Messages[i].Content == deepResearcherPrompt {
+			m.mu.Lock()
+			m.subagentRan = true
+			m.mu.Unlock()
 			return end("Go was released by Google in 2009."), nil
 		}
 	}
@@ -44,7 +48,7 @@ func (m *deepMock) Chat(_ context.Context, req *model.ChatRequest) (*model.ChatR
 			systems = append(systems, req.Messages[i].Content)
 		}
 	}
-	m.systemsA = append(m.systemsA, systems)
+	m.deepAgentSystems = append(m.deepAgentSystems, systems)
 
 	step := m.step
 	m.step++
@@ -226,12 +230,17 @@ func TestNewDeepAgent_EndToEnd(t *testing.T) {
 		t.Error("offloaded artifact is empty")
 	}
 
-	// Compaction seam: once the plan existed, later turns pinned it in the system
-	// context so it survives summarization.
+	// Delegation: the subagent role actually executed during the spawn_subagent call.
 	mock.mu.Lock()
 	defer mock.mu.Unlock()
+	if !mock.subagentRan {
+		t.Error("subagent was never invoked via spawn_subagent")
+	}
+
+	// Compaction seam: once the plan existed, later turns pinned it in the system
+	// context so it survives summarization.
 	pinnedOnce := false
-	for _, systems := range mock.systemsA {
+	for _, systems := range mock.deepAgentSystems {
 		for _, s := range systems {
 			if strings.Contains(s, "Current plan") {
 				pinnedOnce = true
@@ -240,5 +249,37 @@ func TestNewDeepAgent_EndToEnd(t *testing.T) {
 	}
 	if !pinnedOnce {
 		t.Error("active plan was never pinned into the system context")
+	}
+}
+
+// TestNewDeepAgent_StoragelessChat exercises the ephemeral (no Storage) mode:
+// the in-memory plan/VFS tools still work, but the caller must supply a
+// session-scoped context (compaction is unavailable without storage).
+func TestNewDeepAgent_StoragelessChat(t *testing.T) {
+	a, err := NewDeepAgent(DeepAgentConfig{Model: &deepMock{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Storageless mode still needs a session scope for the plan/VFS tools.
+	ctx := storage.WithSession(context.Background(), "storageless-1")
+	resp, err := a.Chat(ctx, "Plan a tiny task.")
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	// deepMock step 0 calls update_plan (against the in-memory store); a
+	// successful reply proves the tool ran without a storage backend.
+	if resp == nil || !strings.Contains(resp.Content, "Plan ready") {
+		t.Fatalf("unexpected storageless response: %+v", resp)
+	}
+}
+
+func TestNewDeepAgent_ContradictorySubAgentConfig(t *testing.T) {
+	_, err := NewDeepAgent(DeepAgentConfig{
+		Model:            &deepMock{},
+		DisableSubAgents: true,
+		SubAgents:        []SubAgentSpec{{Name: "x", SystemPrompt: "y"}},
+	})
+	if err == nil {
+		t.Fatal("expected error for DisableSubAgents + SubAgents")
 	}
 }
