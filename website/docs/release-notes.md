@@ -11,7 +11,7 @@ every tagged release; see [CLI Install](getting-started/cli-install.md).
 This page tracks user-facing features. Auto-generated per-tag changelogs (commit
 list) are on each [GitHub Release](https://github.com/spawn08/chronos/releases).
 
-## Unreleased — "World-Class Agentic Framework" wave
+## v0.10.0 — "World-Class Agentic Framework" wave
 
 A large capability wave that takes Chronos from *correct, durable, and
 enterprise-safe* to *feature-competitive with the best agentic frameworks* — while
