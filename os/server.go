@@ -62,6 +62,12 @@ type Server struct {
 	mux             *http.ServeMux
 	ready           atomic.Bool
 
+	// a2aHandler, when set (WithA2A), serves the Agent-to-Agent protocol under
+	// /a2a/ behind the auth chain and scoped to the caller's tenant. It is an
+	// http.Handler (typically an *a2a.Server) so the control plane does not
+	// depend on the sdk layer.
+	a2aHandler http.Handler
+
 	// Middleware / hardening configuration. Defaults are set in New and can
 	// be overridden with the With... options passed to NewWithOptions.
 	authMW           func(http.Handler) http.Handler // nil => no authentication
@@ -180,6 +186,17 @@ func WithApproval(svc *approval.Service) Option {
 			s.Approval = svc
 		}
 	}
+}
+
+// WithA2A serves an Agent-to-Agent (A2A) endpoint under /a2a/, exposing a
+// Chronos agent to external A2A clients. The handler is typically an
+// *a2a.Server (from sdk/protocol/a2a); it is accepted as an http.Handler so the
+// control plane stays independent of the sdk layer. The route sits behind the
+// auth middleware chain and every request is scoped to the caller's tenant, so
+// a task created by one tenant is invisible (404) to another. Passing nil leaves
+// the endpoint unregistered.
+func WithA2A(h http.Handler) Option {
+	return func(s *Server) { s.a2aHandler = h }
 }
 
 // WithRateLimiter selects the rate-limit backend. Passing a store-backed
@@ -411,6 +428,12 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/approval/respond", s.handleApprovalRespond)
 	s.mux.HandleFunc("/metrics", s.handleMetrics)
 
+	// Agent-to-Agent (A2A) protocol endpoint, when configured via WithA2A. It is
+	// tenant-scoped and stays behind the auth chain (not in defaultAuthSkipPaths).
+	if s.a2aHandler != nil {
+		s.mux.HandleFunc("/a2a/", s.handleA2A)
+	}
+
 	// Scheduler API
 	s.mux.HandleFunc("/api/schedules", s.handleSchedules)
 	s.mux.HandleFunc("/api/schedules/", s.handleScheduleByID)
@@ -507,6 +530,29 @@ func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
 // @Router      /api/agui/stream [get]
 func (s *Server) handleAGUIStream(w http.ResponseWriter, r *http.Request) {
 	streaming(agui.Handler(s.Broker))(w, r)
+}
+
+// handleA2A serves the Agent-to-Agent protocol (configured via WithA2A). Every
+// request is scoped to the caller's tenant so tasks are isolated across tenants
+// (cross-tenant access resolves to 404). The task-stream sub-route is served
+// through the streaming wrapper so a long-lived SSE response is not cut off by
+// the global write timeout.
+//
+// @Summary     Agent-to-Agent (A2A) protocol
+// @Description Exposes a Chronos agent over the A2A protocol: GET /a2a/agent (card), POST /a2a/tasks (create), GET /a2a/tasks/{id} (status), GET /a2a/tasks/{id}/stream (SSE updates), DELETE /a2a/tasks/{id} (cancel). Tenant-scoped.
+// @Tags        interop
+// @Success     200 {object} map[string]interface{} "A2A response"
+// @Failure     404 {object} map[string]interface{} "unknown or cross-tenant task"
+// @Security    BearerAuth
+// @Security    ApiKeyAuth
+// @Router      /a2a/agent [get]
+func (s *Server) handleA2A(w http.ResponseWriter, r *http.Request) {
+	r = r.WithContext(s.tenantContext(r))
+	if strings.HasSuffix(r.URL.Path, "/stream") {
+		streaming(s.a2aHandler.ServeHTTP)(w, r)
+		return
+	}
+	s.a2aHandler.ServeHTTP(w, r)
 }
 
 // streaming wraps a streaming handler (e.g. SSE) to clear the connection's

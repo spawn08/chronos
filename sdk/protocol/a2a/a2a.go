@@ -3,15 +3,22 @@
 package a2a
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
+
+	"github.com/spawn08/chronos/sdk/skill"
 )
+
+// maxStreamLine caps a single SSE data line the client will buffer (1 MiB),
+// guarding against an unbounded server response.
+const maxStreamLine = 1 << 20
 
 // Task represents an A2A task.
 type Task struct {
@@ -46,25 +53,41 @@ type AgentCard struct {
 	OutputSchema any      `json:"output_schema,omitempty"`
 }
 
+// CardFromSkills builds an AgentCard whose Capabilities are the names of the
+// skills installed in reg, so an A2A peer discovers exactly what the agent can
+// do. A nil registry yields a card with no capabilities.
+func CardFromSkills(name, description, version string, reg *skill.Registry) AgentCard {
+	card := AgentCard{Name: name, Description: description, Version: version}
+	if reg != nil {
+		for _, s := range reg.List() {
+			card.Capabilities = append(card.Capabilities, s.Name)
+		}
+	}
+	return card
+}
+
 // Handler processes A2A tasks.
 type Handler func(ctx context.Context, task *Task) error
 
-// Server exposes an agent as an A2A endpoint.
+// Server exposes an agent as an A2A endpoint. Task lifecycle is delegated to a
+// TaskStore, so the same HTTP surface serves both the in-memory default and the
+// durable, restart-resumable queue backend (see NewDurableStore).
 type Server struct {
-	card    AgentCard
-	handler Handler
-	mu      sync.RWMutex
-	tasks   map[string]*Task
-	counter int64
+	card  AgentCard
+	store TaskStore
 }
 
-// NewServer creates an A2A server for the given agent.
+// NewServer creates an A2A server backed by the default in-memory store, which
+// runs handler in a goroutine per task. Tasks do not survive a restart; use
+// NewServerWithStore with a durable store for resumable tasks.
 func NewServer(card AgentCard, handler Handler) *Server {
-	return &Server{
-		card:    card,
-		handler: handler,
-		tasks:   make(map[string]*Task),
-	}
+	return &Server{card: card, store: newMemStore(handler)}
+}
+
+// NewServerWithStore creates an A2A server backed by an explicit TaskStore
+// (e.g. NewDurableStore for queue-backed, restart-resumable tasks).
+func NewServerWithStore(card AgentCard, store TaskStore) *Server {
+	return &Server{card: card, store: store}
 }
 
 // ServeHTTP handles A2A protocol requests.
@@ -77,14 +100,28 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case path == "/tasks" && r.Method == http.MethodPost:
 		s.handleCreateTask(w, r)
 	case strings.HasPrefix(path, "/tasks/") && r.Method == http.MethodGet:
-		taskID := strings.TrimPrefix(path, "/tasks/")
-		s.handleGetTask(w, r, taskID)
+		rest := strings.TrimPrefix(path, "/tasks/")
+		if taskID, ok := strings.CutSuffix(rest, "/stream"); ok {
+			s.handleStreamTask(w, r, taskID)
+		} else {
+			s.handleGetTask(w, r, rest)
+		}
 	case strings.HasPrefix(path, "/tasks/") && r.Method == http.MethodDelete:
 		taskID := strings.TrimPrefix(path, "/tasks/")
 		s.handleCancelTask(w, r, taskID)
 	default:
 		http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
 	}
+}
+
+// writeStoreError maps a TaskStore error to an HTTP response: ErrTaskNotFound
+// (including a cross-tenant miss) becomes 404, anything else 500.
+func writeStoreError(w http.ResponseWriter, err error) {
+	if errors.Is(err, ErrTaskNotFound) {
+		http.Error(w, `{"error":"task not found"}`, http.StatusNotFound)
+		return
+	}
+	http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusInternalServerError)
 }
 
 func (s *Server) handleAgentCard(w http.ResponseWriter, _ *http.Request) {
@@ -102,99 +139,81 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.mu.Lock()
-	s.counter++
-	task := &Task{
-		ID:        fmt.Sprintf("task_%d", s.counter),
-		Status:    TaskStatusPending,
-		Input:     req.Input,
-		Metadata:  req.Metadata,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+	task, err := s.store.Submit(r.Context(), req.Input, req.Metadata)
+	if err != nil {
+		writeStoreError(w, err)
+		return
 	}
-	s.tasks[task.ID] = task
-
-	// Snapshot for the response — executeTask will mutate task concurrently.
-	snapshot := *task
-	s.mu.Unlock()
-
-	go s.executeTask(task)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(&snapshot)
+	_ = json.NewEncoder(w).Encode(task)
 }
 
-func (s *Server) handleGetTask(w http.ResponseWriter, _ *http.Request, taskID string) {
-	s.mu.RLock()
-	task, ok := s.tasks[taskID]
-	var snapshot Task
-	if ok {
-		snapshot = *task
-	}
-	s.mu.RUnlock()
-
-	if !ok {
-		http.Error(w, `{"error":"task not found"}`, http.StatusNotFound)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(&snapshot)
-}
-
-func (s *Server) handleCancelTask(w http.ResponseWriter, _ *http.Request, taskID string) {
-	s.mu.Lock()
-	task, ok := s.tasks[taskID]
-	if ok && (task.Status == TaskStatusPending || task.Status == TaskStatusRunning) {
-		task.Status = TaskStatusCancelled
-		task.UpdatedAt = time.Now()
-	}
-	var snapshot Task
-	if ok {
-		snapshot = *task
-	}
-	s.mu.Unlock()
-
-	if !ok {
-		http.Error(w, `{"error":"task not found"}`, http.StatusNotFound)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(&snapshot)
-}
-
-func (s *Server) executeTask(task *Task) {
-	s.mu.Lock()
-	task.Status = TaskStatusRunning
-	task.UpdatedAt = time.Now()
-	s.mu.Unlock()
-
-	err := s.handler(context.Background(), task)
-
-	s.mu.Lock()
+func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request, taskID string) {
+	task, err := s.store.Get(r.Context(), taskID)
 	if err != nil {
-		task.Status = TaskStatusFailed
-		task.Error = err.Error()
-	} else {
-		task.Status = TaskStatusCompleted
+		writeStoreError(w, err)
+		return
 	}
-	task.UpdatedAt = time.Now()
-	s.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(task)
+}
+
+func (s *Server) handleCancelTask(w http.ResponseWriter, r *http.Request, taskID string) {
+	task, err := s.store.Cancel(r.Context(), taskID)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(task)
+}
+
+// handleStreamTask streams task snapshots as Server-Sent Events until the task
+// reaches a terminal state or the client disconnects.
+func (s *Server) handleStreamTask(w http.ResponseWriter, r *http.Request, taskID string) {
+	// Resolve first so an unknown/cross-tenant task is a clean 404 rather than an
+	// empty stream.
+	if _, err := s.store.Get(r.Context(), taskID); err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, `{"error":"streaming unsupported"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	for task := range watch(r.Context(), s.store, taskID, 0) {
+		data, err := json.Marshal(task)
+		if err != nil {
+			continue
+		}
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		flusher.Flush()
+	}
 }
 
 // Client connects to an external A2A agent.
 type Client struct {
 	baseURL string
 	client  *http.Client
+	// streamClient has no request timeout: an SSE task stream may stay open far
+	// longer than a unary call, so it is bounded by the caller's context instead.
+	streamClient *http.Client
 }
 
 // NewClient creates an A2A client for connecting to an external agent.
 func NewClient(baseURL string) *Client {
 	return &Client{
-		baseURL: strings.TrimRight(baseURL, "/"),
-		client:  &http.Client{Timeout: 30 * time.Second},
+		baseURL:      strings.TrimRight(baseURL, "/"),
+		client:       &http.Client{Timeout: 30 * time.Second},
+		streamClient: &http.Client{},
 	}
 }
 
@@ -293,10 +312,71 @@ func (c *Client) WaitForCompletion(ctx context.Context, taskID string, pollInter
 			if err != nil {
 				return nil, err
 			}
-			switch task.Status {
-			case TaskStatusCompleted, TaskStatusFailed, TaskStatusCancelled:
+			if isTerminal(task.Status) {
 				return task, nil
 			}
 		}
 	}
+}
+
+// StreamTask consumes the server's Server-Sent Events for a task, delivering a
+// snapshot on each state transition until the task reaches a terminal state, the
+// server closes the stream, or ctx is done. Exactly one of the two returned
+// channels produces a value before both are closed: the task channel yields
+// snapshots (the last being terminal), the error channel yields a single error.
+func (c *Client) StreamTask(ctx context.Context, taskID string) (snapshots <-chan Task, errc <-chan error) {
+	tasks := make(chan Task)
+	errs := make(chan error, 1)
+
+	go func() {
+		defer close(tasks)
+		defer close(errs)
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+			c.baseURL+"/a2a/tasks/"+taskID+"/stream", http.NoBody)
+		if err != nil {
+			errs <- fmt.Errorf("a2a stream task: %w", err)
+			return
+		}
+		req.Header.Set("Accept", "text/event-stream")
+
+		resp, err := c.streamClient.Do(req)
+		if err != nil {
+			errs <- fmt.Errorf("a2a stream task: %w", err)
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode >= 400 {
+			body, _ := io.ReadAll(resp.Body)
+			errs <- fmt.Errorf("a2a stream task: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+			return
+		}
+
+		scanner := bufio.NewScanner(resp.Body)
+		scanner.Buffer(make([]byte, 0, 64*1024), maxStreamLine)
+		for scanner.Scan() {
+			line := scanner.Text()
+			payload, ok := strings.CutPrefix(line, "data: ")
+			if !ok {
+				continue // skip blank separators and non-data fields
+			}
+			var task Task
+			if err := json.Unmarshal([]byte(payload), &task); err != nil {
+				errs <- fmt.Errorf("a2a stream task decode: %w", err)
+				return
+			}
+			select {
+			case tasks <- task:
+			case <-ctx.Done():
+				errs <- ctx.Err()
+				return
+			}
+		}
+		if err := scanner.Err(); err != nil && ctx.Err() == nil {
+			errs <- fmt.Errorf("a2a stream task read: %w", err)
+		}
+	}()
+
+	return tasks, errs
 }
