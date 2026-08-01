@@ -171,6 +171,143 @@ agents:
 	}
 }
 
+func TestLoadFileWithAzureDefaults(t *testing.T) {
+	t.Setenv("AZURE_VERSION", "2025-01-01-preview")
+	yaml := `
+defaults:
+  model:
+    provider: azure
+    deployment: gpt-5.5
+    endpoint: https://example.openai.azure.com
+    api_version: ${AZURE_VERSION}
+    api_key: default-key
+  storage:
+    backend: none
+
+agents:
+  - id: researcher
+    name: Researcher
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	fc, err := LoadFile(path)
+	if err != nil {
+		t.Fatalf("LoadFile: %v", err)
+	}
+
+	cfg := fc.Agents[0]
+	if cfg.Model.Provider != "azure" {
+		t.Errorf("provider = %q, want azure", cfg.Model.Provider)
+	}
+	if cfg.Model.Deployment != "gpt-5.5" {
+		t.Errorf("deployment = %q, want gpt-5.5", cfg.Model.Deployment)
+	}
+	if cfg.Model.Endpoint != "https://example.openai.azure.com" {
+		t.Errorf("endpoint = %q, want inherited Azure endpoint", cfg.Model.Endpoint)
+	}
+	if cfg.Model.APIVersion != "2025-01-01-preview" {
+		t.Errorf("api_version = %q, want env-expanded inherited version", cfg.Model.APIVersion)
+	}
+
+	provider, err := BuildProvider(cfg.Model)
+	if err != nil {
+		t.Fatalf("BuildProvider: %v", err)
+	}
+	if provider.Name() != "azure-openai" || provider.Model() != "gpt-5.5" {
+		t.Fatalf("provider = %s/%s, want azure-openai/gpt-5.5", provider.Name(), provider.Model())
+	}
+}
+
+func TestLoadFileWithAzureModelEnvAndBaseURL(t *testing.T) {
+	t.Setenv("AZURE_DEPLOYMENT", "gpt4o-prod")
+	yaml := `
+agents:
+  - id: researcher
+    name: Researcher
+    model:
+      provider: azure
+      model: ${AZURE_DEPLOYMENT}
+      base_url: https://example.openai.azure.com
+      api_key: key
+    storage:
+      backend: none
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	fc, err := LoadFile(path)
+	if err != nil {
+		t.Fatalf("LoadFile: %v", err)
+	}
+
+	cfg := fc.Agents[0]
+	if cfg.Model.Model != "gpt4o-prod" {
+		t.Errorf("model = %q, want env-expanded deployment", cfg.Model.Model)
+	}
+	provider, err := BuildProvider(cfg.Model)
+	if err != nil {
+		t.Fatalf("BuildProvider: %v", err)
+	}
+	if provider.Model() != "gpt4o-prod" {
+		t.Fatalf("provider model = %q, want gpt4o-prod", provider.Model())
+	}
+}
+
+func TestBuildProviderAzureEnvFallbackAndValidation(t *testing.T) {
+	t.Setenv("AZURE_OPENAI_ENDPOINT", "https://env.openai.azure.com")
+	t.Setenv("AZURE_OPENAI_DEPLOYMENT", "env-deployment")
+	t.Setenv("AZURE_OPENAI_API_KEY", "env-key")
+	t.Setenv("AZURE_OPENAI_API_VERSION", "2025-01-01-preview")
+
+	provider, err := BuildProvider(ModelConfig{Provider: "azure"})
+	if err != nil {
+		t.Fatalf("BuildProvider env fallback: %v", err)
+	}
+	if provider.Name() != "azure-openai" || provider.Model() != "env-deployment" {
+		t.Fatalf("provider = %s/%s, want azure-openai/env-deployment", provider.Name(), provider.Model())
+	}
+
+	t.Setenv("AZURE_OPENAI_ENDPOINT", "")
+	t.Setenv("AZURE_OPENAI_DEPLOYMENT", "")
+	_, err = BuildProvider(ModelConfig{Provider: "azure"})
+	if err == nil {
+		t.Fatal("expected missing Azure endpoint/deployment error")
+	}
+}
+
+func TestBuildProviderEnvFallbacksAndCompatibleValidation(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "openai-env-key")
+	t.Setenv("GROQ_API_KEY", "groq-env-key")
+
+	openaiProvider, err := BuildProvider(ModelConfig{Provider: "openai", Model: "gpt-4o"})
+	if err != nil {
+		t.Fatalf("openai BuildProvider: %v", err)
+	}
+	if openaiProvider.Name() != "openai" || openaiProvider.Model() != "gpt-4o" {
+		t.Fatalf("openai provider = %s/%s", openaiProvider.Name(), openaiProvider.Model())
+	}
+
+	groqProvider, err := BuildProvider(ModelConfig{Provider: "groq", Model: "llama-3.3-70b-versatile"})
+	if err != nil {
+		t.Fatalf("groq BuildProvider: %v", err)
+	}
+	if groqProvider.Name() != "groq" || groqProvider.Model() != "llama-3.3-70b-versatile" {
+		t.Fatalf("groq provider = %s/%s", groqProvider.Name(), groqProvider.Model())
+	}
+
+	_, err = BuildProvider(ModelConfig{Provider: "compatible", Model: "custom-model"})
+	if err == nil {
+		t.Fatal("expected compatible provider without base_url to fail")
+	}
+}
+
 func TestFindAgent(t *testing.T) {
 	fc := &FileConfig{
 		Agents: []AgentConfig{

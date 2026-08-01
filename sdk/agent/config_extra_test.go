@@ -57,7 +57,7 @@ func TestBuildProvider_AllProviders(t *testing.T) {
 		{"mistral", ModelConfig{Provider: "mistral", APIKey: "key"}, "mistral"},
 		{"ollama", ModelConfig{Provider: "ollama"}, "ollama"},
 		{"ollama with host", ModelConfig{Provider: "ollama", BaseURL: "http://localhost:11434", Model: "llama3"}, "ollama"},
-		{"azure", ModelConfig{Provider: "azure", APIKey: "key", Deployment: "gpt4", APIVersion: "2024-02-01"}, "azure-openai"},
+		{"azure", ModelConfig{Provider: "azure", APIKey: "key", Endpoint: "https://example.openai.azure.com", Deployment: "gpt4", APIVersion: "2024-02-01"}, "azure-openai"},
 		{"groq", ModelConfig{Provider: "groq", APIKey: "key"}, "groq"},
 		{"together", ModelConfig{Provider: "together", APIKey: "key"}, "together"},
 		{"deepseek", ModelConfig{Provider: "deepseek", APIKey: "key"}, "deepseek"},

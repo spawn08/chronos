@@ -315,7 +315,7 @@ func buildProvider(cfg ModelConfig) (model.Provider, error) {
 			modelID = "gpt-4o"
 		}
 		return model.NewOpenAIWithConfig(model.ProviderConfig{
-			APIKey: apiKey, Model: modelID, BaseURL: cfg.BaseURL,
+			APIKey: firstNonEmpty(apiKey, os.Getenv("OPENAI_API_KEY")), Model: modelID, BaseURL: cfg.BaseURL,
 			OrgID: cfg.OrgID, TimeoutSec: cfg.TimeoutSec,
 		}), nil
 
@@ -324,7 +324,7 @@ func buildProvider(cfg ModelConfig) (model.Provider, error) {
 			modelID = "claude-sonnet-4-6"
 		}
 		return model.NewAnthropicWithConfig(model.ProviderConfig{
-			APIKey: apiKey, Model: modelID, BaseURL: cfg.BaseURL,
+			APIKey: firstNonEmpty(apiKey, os.Getenv("ANTHROPIC_API_KEY")), Model: modelID, BaseURL: cfg.BaseURL,
 			TimeoutSec: cfg.TimeoutSec,
 		}), nil
 
@@ -333,7 +333,7 @@ func buildProvider(cfg ModelConfig) (model.Provider, error) {
 			modelID = "gemini-2.0-flash"
 		}
 		return model.NewGeminiWithConfig(model.ProviderConfig{
-			APIKey: apiKey, Model: modelID, BaseURL: cfg.BaseURL,
+			APIKey: firstNonEmpty(apiKey, os.Getenv("GEMINI_API_KEY"), os.Getenv("GOOGLE_API_KEY")), Model: modelID, BaseURL: cfg.BaseURL,
 			TimeoutSec: cfg.TimeoutSec,
 		}), nil
 
@@ -342,7 +342,7 @@ func buildProvider(cfg ModelConfig) (model.Provider, error) {
 			modelID = "mistral-large-latest"
 		}
 		return model.NewMistralWithConfig(model.ProviderConfig{
-			APIKey: apiKey, Model: modelID, BaseURL: cfg.BaseURL,
+			APIKey: firstNonEmpty(apiKey, os.Getenv("MISTRAL_API_KEY")), Model: modelID, BaseURL: cfg.BaseURL,
 			TimeoutSec: cfg.TimeoutSec,
 		}), nil
 
@@ -357,38 +357,57 @@ func buildProvider(cfg ModelConfig) (model.Provider, error) {
 		return model.NewOllama(host, modelID), nil
 
 	case "azure":
+		endpoint := firstNonEmpty(cfg.Endpoint, cfg.BaseURL, os.Getenv("AZURE_OPENAI_ENDPOINT"))
+		deployment := firstNonEmpty(cfg.Deployment, modelID, os.Getenv("AZURE_OPENAI_DEPLOYMENT"))
+		apiKey = firstNonEmpty(apiKey, os.Getenv("AZURE_OPENAI_API_KEY"))
+		apiVersion := firstNonEmpty(cfg.APIVersion, os.Getenv("AZURE_OPENAI_API_VERSION"))
+		if endpoint == "" {
+			return nil, fmt.Errorf("azure provider requires endpoint or base_url (or AZURE_OPENAI_ENDPOINT)")
+		}
+		if deployment == "" {
+			return nil, fmt.Errorf("azure provider requires deployment or model (or AZURE_OPENAI_DEPLOYMENT)")
+		}
 		azCfg := model.AzureConfig{
 			ProviderConfig: model.ProviderConfig{
 				APIKey:     apiKey,
-				BaseURL:    cfg.Endpoint,
-				Model:      cfg.Deployment,
+				BaseURL:    endpoint,
+				Model:      deployment,
 				TimeoutSec: cfg.TimeoutSec,
 			},
-			Deployment: cfg.Deployment,
-			APIVersion: cfg.APIVersion,
+			Deployment: deployment,
+			APIVersion: apiVersion,
 		}
 		return model.NewAzureOpenAIWithConfig(azCfg), nil
 
 	case "groq":
-		return model.NewGroq(apiKey, modelID), nil
+		return buildOpenAICompatibleProvider("groq", "https://api.groq.com/openai/v1", cfg, os.Getenv("GROQ_API_KEY")), nil
 	case "together":
-		return model.NewTogether(apiKey, modelID), nil
+		return buildOpenAICompatibleProvider("together", "https://api.together.xyz/v1", cfg, os.Getenv("TOGETHER_API_KEY")), nil
 	case "deepseek":
-		return model.NewDeepSeek(apiKey, modelID), nil
+		return buildOpenAICompatibleProvider("deepseek", "https://api.deepseek.com/v1", cfg, os.Getenv("DEEPSEEK_API_KEY")), nil
 	case "openrouter":
-		return model.NewOpenRouter(apiKey, modelID), nil
+		return buildOpenAICompatibleProvider("openrouter", "https://openrouter.ai/api/v1", cfg, os.Getenv("OPENROUTER_API_KEY")), nil
 	case "fireworks":
-		return model.NewFireworks(apiKey, modelID), nil
+		return buildOpenAICompatibleProvider("fireworks", "https://api.fireworks.ai/inference/v1", cfg, os.Getenv("FIREWORKS_API_KEY")), nil
 	case "perplexity":
-		return model.NewPerplexity(apiKey, modelID), nil
+		return buildOpenAICompatibleProvider("perplexity", "https://api.perplexity.ai", cfg, os.Getenv("PERPLEXITY_API_KEY")), nil
 	case "anyscale":
-		return model.NewAnyscale(apiKey, modelID), nil
+		return buildOpenAICompatibleProvider("anyscale", "https://api.endpoints.anyscale.com/v1", cfg, os.Getenv("ANYSCALE_API_KEY")), nil
 	case "compatible", "custom":
 		name := "custom"
 		if cfg.Provider == "compatible" {
 			name = "compatible"
 		}
-		return model.NewOpenAICompatible(name, cfg.BaseURL, apiKey, modelID), nil
+		baseURL := cfg.BaseURL
+		if baseURL == "" {
+			return nil, fmt.Errorf("%s provider requires base_url", name)
+		}
+		return model.NewOpenAICompatibleWithConfig(name, model.ProviderConfig{
+			APIKey:     apiKey,
+			BaseURL:    baseURL,
+			Model:      modelID,
+			TimeoutSec: cfg.TimeoutSec,
+		}), nil
 
 	default:
 		return nil, fmt.Errorf("unknown provider %q (supported: openai, anthropic, gemini, mistral, ollama, azure, groq, together, deepseek, openrouter, fireworks, perplexity, anyscale, compatible)", cfg.Provider)
@@ -581,9 +600,11 @@ func expandEnvInConfig(cfg *AgentConfig) {
 // expandModelEnv replaces ${VAR} references in a ModelConfig's string fields.
 func expandModelEnv(m *ModelConfig) {
 	m.APIKey = expandEnv(m.APIKey)
+	m.Model = expandEnv(m.Model)
 	m.BaseURL = expandEnv(m.BaseURL)
 	m.Endpoint = expandEnv(m.Endpoint)
 	m.Deployment = expandEnv(m.Deployment)
+	m.APIVersion = expandEnv(m.APIVersion)
 	m.OrgID = expandEnv(m.OrgID)
 }
 
@@ -592,6 +613,24 @@ func expandEnv(s string) string {
 		return s
 	}
 	return os.ExpandEnv(s)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func buildOpenAICompatibleProvider(name, defaultBaseURL string, cfg ModelConfig, envAPIKey string) model.Provider {
+	return model.NewOpenAICompatibleWithConfig(name, model.ProviderConfig{
+		APIKey:     firstNonEmpty(cfg.APIKey, envAPIKey),
+		BaseURL:    firstNonEmpty(cfg.BaseURL, defaultBaseURL),
+		Model:      cfg.Model,
+		TimeoutSec: cfg.TimeoutSec,
+	})
 }
 
 func applyDefaults(cfg, defaults *AgentConfig) {
@@ -606,6 +645,15 @@ func applyDefaults(cfg, defaults *AgentConfig) {
 	}
 	if cfg.Model.BaseURL == "" {
 		cfg.Model.BaseURL = defaults.Model.BaseURL
+	}
+	if cfg.Model.Endpoint == "" {
+		cfg.Model.Endpoint = defaults.Model.Endpoint
+	}
+	if cfg.Model.Deployment == "" {
+		cfg.Model.Deployment = defaults.Model.Deployment
+	}
+	if cfg.Model.APIVersion == "" {
+		cfg.Model.APIVersion = defaults.Model.APIVersion
 	}
 	if cfg.Model.OrgID == "" {
 		cfg.Model.OrgID = defaults.Model.OrgID
