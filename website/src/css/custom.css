@@ -1,30 +1,26 @@
-/**
- * Any CSS included here will be global. The classic template
- * bundles Infima by default. Infima is a CSS framework designed to
- * work well for content-centric websites.
- */
-
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root {
   --ifm-font-family-base: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --ifm-font-family-monospace: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Consolas', monospace;
-}
-
-/* Chronos brand palette (violet) — light mode. */
-:root {
+  --ifm-font-family-monospace: 'JetBrains Mono', 'SF Mono', 'Fira Code', Consolas, monospace;
   --ifm-color-primary: #6d28d9;
   --ifm-color-primary-dark: #6224c3;
   --ifm-color-primary-darker: #5c22b8;
   --ifm-color-primary-darkest: #4c1c98;
-  --ifm-color-primary-light: #7a3ce0;
-  --ifm-color-primary-lighter: #8149e2;
-  --ifm-color-primary-lightest: #9d74e9;
-  --ifm-code-font-size: 95%;
+  --ifm-color-primary-light: #7c3aed;
+  --ifm-color-primary-lighter: #8b5cf6;
+  --ifm-color-primary-lightest: #a78bfa;
+  --ifm-heading-font-weight: 800;
+  --ifm-heading-letter-spacing: -0.035em;
+  --ifm-navbar-height: 4.25rem;
+  --ifm-global-radius: 14px;
+  --ifm-code-font-size: 92%;
+  --ifm-background-color: #f8fafc;
+  --ifm-background-surface-color: #ffffff;
+  --ifm-footer-background-color: #0f172a;
   --docusaurus-highlighted-code-line-bg: rgba(109, 40, 217, 0.08);
 }
 
-/* Lighter violet in dark mode for contrast on the dark background. */
 [data-theme='dark'] {
   --ifm-color-primary: #a78bfa;
   --ifm-color-primary-dark: #8f69f8;
@@ -33,5 +29,132 @@
   --ifm-color-primary-light: #bfadfc;
   --ifm-color-primary-lighter: #cbbefc;
   --ifm-color-primary-lightest: #eae1fe;
+  --ifm-background-color: #0b1120;
+  --ifm-background-surface-color: #111827;
+  --ifm-color-emphasis-100: #111827;
+  --ifm-color-emphasis-200: #1f2937;
+  --ifm-color-emphasis-300: #334155;
   --docusaurus-highlighted-code-line-bg: rgba(167, 139, 250, 0.18);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  background:
+    radial-gradient(circle at top left, rgba(109, 40, 217, 0.08), transparent 28rem),
+    var(--ifm-background-color);
+}
+
+.navbar {
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+  background: color-mix(in srgb, var(--ifm-background-surface-color), transparent 12%);
+  backdrop-filter: blur(18px);
+  box-shadow: none;
+}
+
+.navbar__brand {
+  font-weight: 900;
+  letter-spacing: -0.04em;
+}
+
+.navbar__logo img {
+  border-radius: 10px;
+}
+
+.navbar__link {
+  font-weight: 700;
+}
+
+.footer {
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.theme-doc-sidebar-container {
+  border-right: 1px solid var(--ifm-color-emphasis-200) !important;
+}
+
+.menu__link {
+  border-radius: 10px;
+  font-weight: 650;
+}
+
+.menu__link--active:not(.menu__link--sublist) {
+  background: color-mix(in srgb, var(--ifm-color-primary), transparent 88%);
+}
+
+.table-of-contents__link--active,
+.table-of-contents__link:hover {
+  color: var(--ifm-color-primary);
+}
+
+.markdown h1 {
+  font-size: clamp(2.2rem, 4vw, 3.4rem);
+  line-height: 1.02;
+}
+
+.markdown h2 {
+  margin-top: 3rem;
+}
+
+.markdown > p,
+.markdown li {
+  line-height: 1.78;
+}
+
+.markdown a {
+  font-weight: 650;
+  text-underline-offset: 0.18em;
+}
+
+.theme-code-block,
+.markdown pre {
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 16px;
+  box-shadow: 0 14px 40px rgba(15, 23, 42, 0.08);
+}
+
+.alert {
+  border-radius: 16px;
+  box-shadow: none;
+}
+
+.card,
+.pagination-nav__link {
+  border-radius: 16px;
+}
+
+.button {
+  border-radius: 999px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.button--primary {
+  border: 0;
+  background: linear-gradient(135deg, #7c3aed, #2563eb 55%, #0891b2);
+  box-shadow: 0 12px 28px rgba(37, 99, 235, 0.22);
+}
+
+.button--primary:hover {
+  filter: brightness(1.06);
+}
+
+.button--secondary {
+  border-color: var(--ifm-color-emphasis-300);
+  background: color-mix(in srgb, var(--ifm-background-surface-color), transparent 12%);
+}
+
+.mermaid {
+  display: flex;
+  justify-content: center;
+  margin: 1.5rem 0;
+  padding: 1rem;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 18px;
+  background: var(--ifm-background-surface-color);
+  overflow-x: auto;
 }
