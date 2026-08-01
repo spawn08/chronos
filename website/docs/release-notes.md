@@ -5,6 +5,18 @@ sidebar_label: "Release Notes"
 
 Chronos is distributed as a Go module (`github.com/spawn08/chronos`), cross-platform CLI binaries, and a container image. Tagged releases include checksums, an SBOM, and signed artifacts. See [CLI Install](getting-started/cli-install.md) for installation options.
 
+## v0.10.2 — CLI approval reliability
+
+This patch release improves interactive CLI approval handling for tool calls that require human review.
+
+- **Interactive approvals** — the CLI now prompts correctly when an agent requests approval-gated tool execution, keeping terminal sessions responsive and explicit.
+
+## v0.10.1 — YAML provider resolution
+
+This patch release strengthens YAML-based agent configuration.
+
+- **Model provider resolution** — YAML model configuration now resolves providers more defensively, improving reliability for declarative agent setups.
+
 ## v0.10.0 — Production agent platform
 
 This release focuses on the capabilities required to move from prototype agents to durable, governed, production-ready systems.
