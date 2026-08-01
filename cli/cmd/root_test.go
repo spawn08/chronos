@@ -5,10 +5,13 @@ import (
 	"context"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/spawn08/chronos/engine/tool"
+	"github.com/spawn08/chronos/engine/tool/builtins"
 	"github.com/spawn08/chronos/sdk/agent"
 	"github.com/spawn08/chronos/sdk/team"
 	"github.com/spawn08/chronos/storage"
@@ -71,6 +74,48 @@ func TestHumanizeBytes(t *testing.T) {
 				t.Errorf("humanizeBytes(%d) = %q, want %q", tt.b, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestInstallInteractiveApprovalHandlers_AllowsApprovalGatedTool(t *testing.T) {
+	tmp := t.TempDir()
+	approvalInput, err := os.CreateTemp(t.TempDir(), "approval-*.txt")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	_, err = approvalInput.WriteString("y\n")
+	if err != nil {
+		t.Fatalf("WriteString: %v", err)
+	}
+	_, err = approvalInput.Seek(0, 0)
+	if err != nil {
+		t.Fatalf("Seek: %v", err)
+	}
+
+	oldStdin := os.Stdin
+	os.Stdin = approvalInput
+	t.Cleanup(func() {
+		os.Stdin = oldStdin
+		_ = approvalInput.Close()
+	})
+
+	a := &agent.Agent{Tools: tool.NewRegistry()}
+	a.Tools.Register(builtins.NewFileWriteTool(tmp))
+	installInteractiveApprovalHandlers(a)
+
+	_, err = a.Tools.Execute(context.Background(), "file_write", map[string]any{
+		"path":    "approved.txt",
+		"content": "approved content",
+	})
+	if err != nil {
+		t.Fatalf("Execute file_write: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(tmp, "approved.txt"))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(data) != "approved content" {
+		t.Fatalf("file content = %q, want approved content", string(data))
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spawn08/chronos/cli/repl"
@@ -339,7 +340,12 @@ func loadAgentByID(idOrName string) (*agent.Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	return agent.BuildAgent(context.Background(), cfg)
+	a, err := agent.BuildAgent(context.Background(), cfg)
+	if err != nil {
+		return nil, err
+	}
+	installInteractiveApprovalHandlers(a)
+	return a, nil
 }
 
 // loadDefaultAgent loads the first agent from YAML config.
@@ -351,7 +357,61 @@ func loadDefaultAgent() (*agent.Agent, error) {
 	if len(fc.Agents) == 0 {
 		return nil, fmt.Errorf("no agents defined in config")
 	}
-	return agent.BuildAgent(context.Background(), &fc.Agents[0])
+	a, err := agent.BuildAgent(context.Background(), &fc.Agents[0])
+	if err != nil {
+		return nil, err
+	}
+	installInteractiveApprovalHandlers(a)
+	return a, nil
+}
+
+func installInteractiveApprovalHandlers(agents ...*agent.Agent) {
+	reader := bufio.NewReader(os.Stdin)
+	var mu sync.Mutex
+	handler := func(ctx context.Context, toolName string, args map[string]any) (bool, error) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		fmt.Fprintf(os.Stderr, "\nApproval required for tool %q\nArgs: %s\nApprove? [y/N]: ", toolName, summarizeApprovalArgs(args))
+		line, err := reader.ReadString('\n')
+		if err != nil && strings.TrimSpace(line) == "" {
+			return false, fmt.Errorf("read approval response: %w", err)
+		}
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		default:
+		}
+		answer := strings.ToLower(strings.TrimSpace(line))
+		return answer == "y" || answer == "yes", nil
+	}
+	for _, a := range agents {
+		if a != nil && a.Tools != nil {
+			a.Tools.SetApprovalHandler(handler)
+		}
+	}
+}
+
+func summarizeApprovalArgs(args map[string]any) string {
+	const maxArgLen = 500
+	const maxJSONLen = 2000
+	redacted := make(map[string]any, len(args))
+	for k, v := range args {
+		if s, ok := v.(string); ok && len(s) > maxArgLen {
+			redacted[k] = s[:maxArgLen] + fmt.Sprintf("... [truncated, %d bytes total]", len(s))
+			continue
+		}
+		redacted[k] = v
+	}
+	data, err := json.MarshalIndent(redacted, "", "  ")
+	if err != nil {
+		return fmt.Sprint(redacted)
+	}
+	out := string(data)
+	if len(out) > maxJSONLen {
+		return out[:maxJSONLen] + fmt.Sprintf("... [truncated, %d bytes total]", len(out))
+	}
+	return out
 }
 
 func runREPL() error {
@@ -389,6 +449,11 @@ func attachRoster(r *repl.REPL, activeID string) error {
 	if err != nil {
 		return fmt.Errorf("build agents: %w", err)
 	}
+	builtAgents := make([]*agent.Agent, 0, len(agents))
+	for _, a := range agents {
+		builtAgents = append(builtAgents, a)
+	}
+	installInteractiveApprovalHandlers(builtAgents...)
 
 	// Preserve config order for stable listing.
 	list := make([]*agent.Agent, 0, len(fc.Agents))
@@ -813,6 +878,11 @@ func buildTeamByID(ctx context.Context, teamID string) (*team.Team, error) {
 	if err != nil {
 		return nil, fmt.Errorf("build agents: %w", err)
 	}
+	builtAgents := make([]*agent.Agent, 0, len(agents))
+	for _, a := range agents {
+		builtAgents = append(builtAgents, a)
+	}
+	installInteractiveApprovalHandlers(builtAgents...)
 
 	strategy, err := parseStrategy(tc.Strategy)
 	if err != nil {
