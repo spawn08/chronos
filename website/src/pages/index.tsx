@@ -160,7 +160,7 @@ function RuntimeVisual() {
           <defs>
             <linearGradient id="edge" x1="0" x2="1">
               <stop offset="0%" stopColor="#8b5cf6" />
-              <stop offset="100%" stopColor="#22d3ee" />
+              <stop offset="100%" stopColor="#a78bfa" />
             </linearGradient>
             <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
               <feGaussianBlur stdDeviation="4" result="blur" />
@@ -187,7 +187,7 @@ function RuntimeVisual() {
             </g>
           ))}
           <g opacity=".9">
-            <rect x="34" y="196" width="116" height="34" rx="10" fill="rgba(34,211,238,.12)" stroke="rgba(34,211,238,.35)" />
+            <rect x="34" y="196" width="116" height="34" rx="10" fill="rgba(167,139,250,.12)" stroke="rgba(167,139,250,.35)" />
             <text x="92" y="218" textAnchor="middle" fill="currentColor" fontSize="13">checkpoint</text>
             <rect x="370" y="196" width="116" height="34" rx="10" fill="rgba(139,92,246,.12)" stroke="rgba(139,92,246,.35)" />
             <text x="428" y="218" textAnchor="middle" fill="currentColor" fontSize="13">resume</text>
