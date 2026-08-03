@@ -1,0 +1,34 @@
+---
+title: Architecture
+description: Chronos architecture, execution paths, extension interfaces, and deployment model.
+---
+
+import ArchitectureExplorer from '@site/src/components/ArchitectureExplorer';
+
+<ArchitectureExplorer />
+
+## Package reference
+
+The visual overview above is a guide to the codebase. Use these source locations when you need the concrete implementation details.
+
+| Area | Primary packages | What it owns |
+| --- | --- | --- |
+| Application API | [`sdk/agent`](https://github.com/spawn08/chronos/tree/main/sdk/agent), [`sdk/team`](https://github.com/spawn08/chronos/tree/main/sdk/team), [`sdk/memory`](https://github.com/spawn08/chronos/tree/main/sdk/memory), [`sdk/knowledge`](https://github.com/spawn08/chronos/tree/main/sdk/knowledge) | Agent construction, teams, memory, retrieval, and skills. |
+| Runtime | [`engine/graph`](https://github.com/spawn08/chronos/tree/main/engine/graph), [`engine/model`](https://github.com/spawn08/chronos/tree/main/engine/model), [`engine/tool`](https://github.com/spawn08/chronos/tree/main/engine/tool) | StateGraph execution, model providers, tools, policy, hooks, streaming, and queueing. |
+| Control plane | [`os`](https://github.com/spawn08/chronos/tree/main/os), [`os/auth`](https://github.com/spawn08/chronos/tree/main/os/auth), [`os/approval`](https://github.com/spawn08/chronos/tree/main/os/approval) | HTTP APIs, authentication, human approval, tracing, scheduling, and metrics. |
+| Persistence | [`storage`](https://github.com/spawn08/chronos/tree/main/storage), [`storage/adapters`](https://github.com/spawn08/chronos/tree/main/storage/adapters) | Relational/NoSQL persistence, vector search, migrations, and backend adapters. |
+| Isolation | [`sandbox`](https://github.com/spawn08/chronos/tree/main/sandbox) | Process, container, WASM, and Kubernetes backends for untrusted execution. |
+
+## Design guarantees
+
+- **Durable graph execution:** completed nodes checkpoint progress and can resume from the latest sequence number.
+- **Policy before action:** guardrails, permissions, and optional approval gates sit in the request and tool paths.
+- **Provider neutrality:** models, storage, vectors, and sandboxes are selected through narrow interfaces rather than application rewrites.
+- **Distributed safety:** lease-backed workers and transactional persistence allow runs to move safely between workers.
+
+## Continue exploring
+
+- [Durable execution](/guides/durable-execution) — checkpointing, interruption, queueing, and resume behavior.
+- [Agent builder](/api/agent-builder) — the application-facing API.
+- [Interfaces](/api/interfaces) — exact Go signatures for Chronos extension seams.
+- [Scaling best practices](/guides/scaling-best-practices) — operating Chronos across replicas.
