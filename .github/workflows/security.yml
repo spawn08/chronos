@@ -66,7 +66,7 @@ jobs:
         run: gosec -no-fail -fmt sarif -out gosec.sarif ./...
 
       - name: Upload gosec SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: gosec.sarif
           category: gosec
@@ -92,16 +92,16 @@ jobs:
           cache: true
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: go
           queries: security-and-quality
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
+        uses: github/codeql-action/autobuild@v4
 
       - name: Perform CodeQL analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: "/language:go"
 
@@ -131,7 +131,7 @@ jobs:
           ignore-unfixed: true
 
       - name: Upload Trivy SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-fs.sarif
           category: trivy-fs
