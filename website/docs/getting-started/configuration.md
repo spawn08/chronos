@@ -316,10 +316,10 @@ agents:
 
 ## Real-World Examples
 
-For complete, runnable YAML configurations with step-by-step setup instructions, see the [YAML Agent Examples](/guides/yaml-examples/) guide:
+For focused, runnable configurations organized by complexity, see the [YAML Agent Examples](/guides/yaml-examples/) learning path:
 
-- **Customer Support Router** — Three specialist agents with intelligent routing
-- **Content Creation Pipeline** — Sequential research → write → edit workflow
-- **Software Development Team** — Coordinator-driven task decomposition
-- **Multi-Provider Setup** — Mix OpenAI, Anthropic, Gemini, and Ollama
-- **Parallel Analysis Team** — Multiple perspectives on the same question
+- **Simple** — Single assistant, streaming, defaults, and local Ollama
+- **Intermediate** — Customer-support routing and sequential content pipelines
+- **Advanced** — Coordinator, parallel, swarm, and hierarchy teams
+- **Production** — Tool permissions, approvals, native reasoning, tracing, PostgreSQL, and sandbox deployment
+- **Reference** — Provider recipes plus CLI and team strategy commands

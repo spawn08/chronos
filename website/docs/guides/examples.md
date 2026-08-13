@@ -15,7 +15,7 @@ Chronos ships with **25+ runnable examples** covering every major feature. Most 
 | [Durability & Sandboxing](./examples/durability.md) | Durable queue, human-in-the-loop resume, process sandboxing |
 | [Enterprise & Multi-Tenancy](./examples/enterprise.md) | OIDC/JWKS SSO, data residency, per-tenant memory isolation |
 | [Observability & CLI](./examples/observability-cli.md) | Metrics/cost/cache/retry hooks, CLI-driven agents and ops |
-| [YAML Configs](./yaml-examples.md) | Declarative agent and team definitions |
+| [YAML Agent Examples](./yaml-examples.md) | Progressive YAML applications: single agents, routers, pipelines, advanced teams, and governed deployments |
 
 ## Running Examples
 

@@ -69,7 +69,19 @@ const sidebars: SidebarsConfig = {
         'guides/examples/durability',
         'guides/examples/enterprise',
         'guides/examples/observability-cli',
-        'guides/yaml-examples',
+        {
+          type: 'category',
+          label: 'YAML Agent Examples',
+          link: {type: 'doc', id: 'guides/yaml-examples'},
+          items: [
+            'guides/yaml-examples/simple-agent',
+            'guides/yaml-examples/intermediate-workflows',
+            'guides/yaml-examples/advanced-multi-agent',
+            'guides/yaml-examples/production-applications',
+            'guides/yaml-examples/providers',
+            'guides/yaml-examples/cli-reference',
+          ],
+        },
       ],
     },
     {

@@ -85,7 +85,7 @@ go run ./examples/azure_rag/
 - `knowledge.NewVectorKnowledge(...)` — ingest, embed, similarity-search
 - Implementing `storage.VectorStore` in-memory, and grounding a chat answer with retrieved context
 
-See also the [`azure-team.yaml`](../yaml-examples.md) config for a declarative multi-agent Azure team.
+See also the [Azure YAML recipe](../yaml-examples/providers#azure-openai) and bundled [`azure-team.yaml`](https://github.com/spawn08/chronos/blob/main/examples/yaml-configs/azure-team.yaml) for declarative Azure agents.
 
 ---
 

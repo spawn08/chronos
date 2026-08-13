@@ -1098,6 +1098,6 @@ The patterns above map to concrete production use cases:
 - [StateGraph Runtime](/guides/stategraph/) — Deep dive into graph patterns
 - [Tools & Function Calling](/guides/tools/) — Built-in and custom tools
 - [Multi-Agent Teams](/guides/teams/) — All team strategies with examples
-- [YAML Examples](/guides/yaml-examples/) — 5 ready-to-run YAML configurations
+- [YAML Agent Examples](/guides/yaml-examples/) — Progressive simple, intermediate, advanced, and production YAML applications
 - [Storage Adapters](/guides/storage/) — SQLite, PostgreSQL, Redis, and more
 - [CLI Reference](/api/cli) — Every command with examples

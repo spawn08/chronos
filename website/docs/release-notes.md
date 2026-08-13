@@ -12,6 +12,7 @@ Chronos is distributed as a Go module (`github.com/spawn08/chronos`), cross-plat
 - **Streaming preference** — YAML `stream` is honored by REPL and headless runs, with `--stream` and `--no-stream` overrides.
 - **Native reasoning** — normalized reasoning configuration maps to OpenAI reasoning effort, Anthropic thinking budgets, and Gemini thinking configuration; reasoning output remains separate from final answer text.
 - **CLI observability** — YAML/CLI debug and trace controls wire model/tool spans for blocking and streaming execution.
+- **Progressive YAML gallery** — the documentation now separates simple agents, intermediate routers/pipelines, advanced teams, production governance, provider recipes, and CLI reference into focused pages.
 
 ## v0.10.2 — CLI approval reliability
 
