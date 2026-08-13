@@ -14,7 +14,14 @@ The CLI and `agent.LoadFile("")` look for config in this order:
 3. **`agents.yaml`** — Config in the current directory.
 4. **`~/.chronos/agents.yaml`** — User-level global config.
 
-Both `.yaml` and `.yml` extensions are supported. To force a specific file:
+Both `.yaml` and `.yml` extensions are supported. Configuration parsing is strict: unknown fields, duplicate agent IDs, invalid permission modes, and invalid reasoning settings return a path-aware error instead of being ignored. Validate without running an agent:
+
+```bash
+chronos -c ./agents.yaml config validate
+# Configuration is valid: 2 agent(s), 1 team(s).
+```
+
+To force a specific file:
 
 ```bash
 export CHRONOS_CONFIG=/path/to/agents.yaml
@@ -41,6 +48,16 @@ defaults:
     dsn: chronos.db
   system_prompt: ""
   num_history_runs: 0
+  stream: true
+  debug: false
+  tracing: false
+  permission_mode: prompt          # prompt, auto_approve, deny
+  reasoning:
+    strategy: none                 # none, cot, reflection
+    native: false
+    effort: ""                     # low, medium, high when native: true
+    budget_tokens: 0
+    summary: false
   context:
     max_tokens: 0
     summarize_threshold: 0.8
@@ -68,13 +85,27 @@ agents:
     instructions:
       - Additional instruction 1
       - Additional instruction 2
-    tools: []
+    tools:
+      - name: file_read
+        permission: allow          # allow, require_approval, deny
+      - name: file_write
+        permission: require_approval
+        requires_confirmation: false
     capabilities: []
     mcp_servers: []                # Model Context Protocol servers (see guide)
     sub_agents: []
     output_schema: {}
     num_history_runs: 0
-    stream: false
+    stream: true                   # CLI/REPL default; flags can override
+    debug: false
+    tracing: false
+    permission_mode: prompt        # prompt, auto_approve, deny
+    reasoning:
+      strategy: none
+      native: false
+      effort: ""
+      budget_tokens: 0
+      summary: false
     context:
       max_tokens: 0
       summarize_threshold: 0.8
@@ -106,6 +137,32 @@ teams:
 | `endpoint` | Azure resource endpoint |
 | `deployment` | Azure deployment name |
 | `api_version` | Azure API version (e.g., `2024-06-01`) |
+
+## Agent runtime fields
+
+| Field | Description |
+|-------|-------------|
+| `stream` | Preferred CLI response mode. `true` streams tokens; `false` waits for the complete response. `--stream` / `--no-stream` override it. |
+| `debug` | Emit detailed agent execution logs to stderr. |
+| `tracing` | Persist model, tool, and graph spans through the agent's configured storage. |
+| `permission_mode` | `prompt`, `auto_approve`, or `deny` for approval-gated tools. Explicit tool `deny` is never bypassed. |
+| `reasoning.strategy` | Prompt strategy: `none`, `cot`, or `reflection`. |
+| `reasoning.native` | Enable provider-native reasoning/thinking where supported. |
+| `reasoning.effort` | Native reasoning effort (`low`, `medium`, `high`) for providers that expose it. |
+| `reasoning.budget_tokens` | Thinking-token budget for Anthropic/Gemini-style APIs. |
+| `reasoning.summary` | Make provider-approved reasoning output available separately from answer content and display streaming reasoning on CLI stderr. |
+
+## Tool configuration
+
+Each `tools` entry supports `name`, `description`, `parameters`, and these policy fields:
+
+| Field | Description |
+|-------|-------------|
+| `permission` | `allow`, `require_approval`, or `deny`. When omitted, the built-in tool's safe default is preserved. |
+| `requires_confirmation` | Explicitly require or remove a confirmation gate. |
+| `requires_user_input` | Ask the registered user-input handler before execution. |
+
+See [Tools & Function Calling](/guides/tools) and [CLI Runtime Controls](/guides/cli-runtime-controls).
 
 ## StorageConfig
 

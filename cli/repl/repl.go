@@ -67,6 +67,9 @@ func (r *REPL) SetStream(enabled bool) {
 func (r *REPL) SetAgent(a *agent.Agent) {
 	r.agent = a
 	if a != nil {
+		if a.StreamConfigured {
+			r.stream = a.Stream
+		}
 		if _, exists := r.agents[a.ID]; !exists {
 			r.order = append(r.order, a.ID)
 		}
@@ -88,6 +91,9 @@ func (r *REPL) SetAgents(agents []*agent.Agent) {
 		r.agents[a.ID] = a
 		if r.agent == nil {
 			r.agent = a
+			if a.StreamConfigured {
+				r.stream = a.Stream
+			}
 		}
 	}
 	r.registerAgentCommands()
@@ -163,6 +169,9 @@ func (r *REPL) handleAgentCommand(args string) error {
 			return fmt.Errorf("unknown agent %q (use /agent to list)", target)
 		}
 		r.agent = a
+		if a.StreamConfigured {
+			r.stream = a.Stream
+		}
 		fmt.Printf("Switched to: %s (%s)\n", a.Name, a.ID)
 		return nil
 	}
@@ -469,6 +478,9 @@ func (r *REPL) chatWithAgent(message string) {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		return
 	}
+	if resp.Reasoning != "" && r.agent.ReasoningConfig.Summary {
+		fmt.Fprintf(os.Stderr, "[reasoning summary]\n%s\n[/reasoning summary]\n", resp.Reasoning)
+	}
 	fmt.Println()
 	fmt.Println(resp.Content)
 	fmt.Println()
@@ -487,18 +499,31 @@ func (r *REPL) chatStream(message string) {
 	fmt.Println()
 	var usage model.Usage
 	var printed bool
+	var reasoningStarted bool
 	for chunk := range ch {
 		if chunk.Err != nil {
 			fmt.Fprintf(os.Stderr, "\nError: %v\n", chunk.Err)
 			return
 		}
 		if chunk.Delta {
-			fmt.Print(chunk.Content)
-			printed = true
+			if chunk.Reasoning != "" {
+				if !reasoningStarted {
+					fmt.Fprintln(os.Stderr, "[reasoning summary]")
+					reasoningStarted = true
+				}
+				fmt.Fprint(os.Stderr, chunk.Reasoning)
+			}
+			if chunk.Content != "" {
+				fmt.Print(chunk.Content)
+				printed = true
+			}
 			continue
 		}
 		// Final summary chunk carries usage totals.
 		usage = chunk.Usage
+	}
+	if reasoningStarted {
+		fmt.Fprintln(os.Stderr, "\n[/reasoning summary]")
 	}
 	if printed {
 		fmt.Println()

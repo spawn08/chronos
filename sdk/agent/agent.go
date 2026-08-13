@@ -66,10 +66,13 @@ type Agent struct {
 	Examples       []Example
 
 	// Reasoning and iteration control
-	Reasoning      ReasoningStrategy
-	ReasoningModel model.Provider // separate, more capable model for reasoning steps
-	Debug          bool           // when set, logs detailed execution info
-	MaxIterations  int            // max tool-calling loop iterations; 0 = default (25)
+	Reasoning        ReasoningStrategy
+	ReasoningConfig  model.ReasoningConfig // provider-native reasoning/thinking settings
+	ReasoningModel   model.Provider        // separate, more capable model for reasoning steps
+	Debug            bool                  // when set, logs detailed execution info
+	MaxIterations    int                   // max tool-calling loop iterations; 0 = default (25)
+	Stream           bool                  // preferred CLI response mode
+	StreamConfigured bool                  // distinguishes an explicit YAML value from the default
 
 	// MCP servers
 	MCPClients []*mcp.Client
@@ -147,17 +150,26 @@ func New(id, name string) *Builder {
 	}
 }
 
-func (b *Builder) Description(d string) *Builder                 { b.agent.Description = d; return b }
-func (b *Builder) WithUserID(id string) *Builder                 { b.agent.UserID = id; return b }
-func (b *Builder) WithModel(p model.Provider) *Builder           { b.agent.Model = p; return b }
-func (b *Builder) WithStorage(s storage.Storage) *Builder        { b.agent.Storage = s; return b }
-func (b *Builder) WithMemory(m *memory.Store) *Builder           { b.agent.Memory = m; return b }
-func (b *Builder) WithKnowledge(k knowledge.Knowledge) *Builder  { b.agent.Knowledge = k; return b }
-func (b *Builder) WithMemoryManager(m *memory.Manager) *Builder  { b.agent.MemoryManager = m; return b }
-func (b *Builder) WithOutputSchema(s map[string]any) *Builder    { b.agent.OutputSchema = s; return b }
-func (b *Builder) WithHistoryRuns(n int) *Builder                { b.agent.NumHistoryRuns = n; return b }
-func (b *Builder) WithMaxIterations(n int) *Builder              { b.agent.MaxIterations = n; return b }
-func (b *Builder) WithReasoningModel(p model.Provider) *Builder  { b.agent.ReasoningModel = p; return b }
+func (b *Builder) Description(d string) *Builder                { b.agent.Description = d; return b }
+func (b *Builder) WithUserID(id string) *Builder                { b.agent.UserID = id; return b }
+func (b *Builder) WithModel(p model.Provider) *Builder          { b.agent.Model = p; return b }
+func (b *Builder) WithStorage(s storage.Storage) *Builder       { b.agent.Storage = s; return b }
+func (b *Builder) WithMemory(m *memory.Store) *Builder          { b.agent.Memory = m; return b }
+func (b *Builder) WithKnowledge(k knowledge.Knowledge) *Builder { b.agent.Knowledge = k; return b }
+func (b *Builder) WithMemoryManager(m *memory.Manager) *Builder { b.agent.MemoryManager = m; return b }
+func (b *Builder) WithOutputSchema(s map[string]any) *Builder   { b.agent.OutputSchema = s; return b }
+func (b *Builder) WithHistoryRuns(n int) *Builder               { b.agent.NumHistoryRuns = n; return b }
+func (b *Builder) WithMaxIterations(n int) *Builder             { b.agent.MaxIterations = n; return b }
+func (b *Builder) WithReasoningModel(p model.Provider) *Builder { b.agent.ReasoningModel = p; return b }
+func (b *Builder) WithReasoningConfig(cfg model.ReasoningConfig) *Builder {
+	b.agent.ReasoningConfig = cfg
+	return b
+}
+func (b *Builder) WithStreaming(enabled bool) *Builder {
+	b.agent.Stream = enabled
+	b.agent.StreamConfigured = true
+	return b
+}
 func (b *Builder) WithContextConfig(cfg ContextConfig) *Builder  { b.agent.ContextCfg = cfg; return b }
 func (b *Builder) WithMemoryRecall(cfg RecallConfig) *Builder    { b.agent.MemoryRecall = cfg; return b }
 func (b *Builder) WithBroker(br *stream.Broker) *Builder         { b.agent.Broker = br; return b }
@@ -450,6 +462,10 @@ func (a *Agent) buildChatRequest(ctx context.Context, userMessage string) (*mode
 	req := &model.ChatRequest{
 		Messages: messages,
 	}
+	if a.ReasoningConfig.Enabled {
+		reasoning := a.ReasoningConfig
+		req.Reasoning = &reasoning
+	}
 
 	// Apply output schema — pass the full JSON Schema, not just json_object mode
 	applyOutputSchema(req, a.OutputSchema)
@@ -506,7 +522,11 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 	var modelSpan *storage.Trace
 	if a.Tracer != nil {
 		var spanErr error
-		modelSpan, spanErr = a.Tracer.StartSpan(ctx, a.ID, "model:"+a.Model.Name(), "model_call")
+		sessionID := storage.SessionFromContext(ctx)
+		if sessionID == "" {
+			sessionID = a.ID
+		}
+		modelSpan, spanErr = a.Tracer.StartSpan(ctx, sessionID, "model:"+a.Model.Name(), "model_call")
 		if spanErr != nil {
 			modelSpan = nil
 		}
@@ -704,8 +724,40 @@ func (a *Agent) streamLoop(ctx context.Context, req *model.ChatRequest, messages
 // for the caller's tool-loop decision.
 func (a *Agent) streamOnce(ctx context.Context, req *model.ChatRequest, out chan<- *model.ChatResponse) (*model.ChatResponse, error) {
 	a.debugLog("streaming %d messages to model %q (tools=%d)", len(req.Messages), a.Model.Name(), len(req.Tools))
+	modelEvt := &hooks.Event{
+		Type:  hooks.EventModelCallBefore,
+		Name:  a.Model.Name(),
+		Input: req,
+		Metadata: map[string]any{
+			"provider": a.Model,
+			"request":  req,
+			"stream":   true,
+		},
+	}
+	if err := a.Hooks.Before(ctx, modelEvt); err != nil {
+		return nil, fmt.Errorf("hook before streaming model call: %w", err)
+	}
+
+	var modelSpan *storage.Trace
+	if a.Tracer != nil {
+		sessionID := storage.SessionFromContext(ctx)
+		if sessionID == "" {
+			sessionID = a.ID
+		}
+		span, spanErr := a.Tracer.StartSpan(ctx, sessionID, "model:"+a.Model.Name(), "model_call")
+		if spanErr == nil {
+			modelSpan = span
+		}
+	}
+
 	ch, err := a.Model.StreamChat(ctx, req)
 	if err != nil {
+		modelEvt.Type = hooks.EventModelCallAfter
+		modelEvt.Error = err
+		_ = a.Hooks.After(ctx, modelEvt)
+		if modelSpan != nil {
+			_ = a.Tracer.EndSpan(ctx, modelSpan, nil, err.Error())
+		}
 		return nil, err
 	}
 
@@ -715,6 +767,15 @@ func (a *Agent) streamOnce(ctx context.Context, req *model.ChatRequest, out chan
 		for cr := range ch {
 			if cr == nil {
 				continue
+			}
+			// Forward provider-approved reasoning separately when explicitly
+			// requested. It is never mixed into final answer content.
+			if cr.Reasoning != "" && cr.Err == nil && a.ReasoningConfig.Summary {
+				sendStream(ctx, out, &model.ChatResponse{
+					Role:      model.RoleAssistant,
+					Reasoning: cr.Reasoning,
+					Delta:     true,
+				})
 			}
 			// Forward live text to the consumer; tool-call fragments and usage
 			// are carried through to the aggregator only.
@@ -738,7 +799,22 @@ func (a *Agent) streamOnce(ctx context.Context, req *model.ChatRequest, out chan
 		}
 	}()
 
-	return model.AggregateStream(ctx, agg)
+	resp, err := model.AggregateStream(ctx, agg)
+	modelEvt.Type = hooks.EventModelCallAfter
+	modelEvt.Output = resp
+	modelEvt.Error = err
+	_ = a.Hooks.After(ctx, modelEvt)
+	if modelSpan != nil {
+		if err != nil {
+			_ = a.Tracer.EndSpan(ctx, modelSpan, nil, err.Error())
+		} else {
+			_ = a.Tracer.EndSpan(ctx, modelSpan, map[string]any{
+				"stop_reason": string(resp.StopReason),
+				"stream":      true,
+			}, "")
+		}
+	}
+	return resp, err
 }
 
 // emitError sends err as a terminal chunk on the stream.
@@ -823,7 +899,26 @@ func (a *Agent) executeToolCalls(ctx context.Context, messages []model.Message, 
 			return messages, fmt.Errorf("hook before tool %q: %w", tc.Name, err)
 		}
 
+		var toolSpan *storage.Trace
+		if a.Tracer != nil {
+			sessionID := storage.SessionFromContext(ctx)
+			if sessionID == "" {
+				sessionID = a.ID
+			}
+			span, spanErr := a.Tracer.StartSpan(ctx, sessionID, "tool:"+tc.Name, "tool_call")
+			if spanErr == nil {
+				toolSpan = span
+			}
+		}
+
 		result, err := a.Tools.Execute(ctx, tc.Name, args)
+		if toolSpan != nil {
+			if err != nil {
+				_ = a.Tracer.EndSpan(ctx, toolSpan, nil, err.Error())
+			} else {
+				_ = a.Tracer.EndSpan(ctx, toolSpan, result, "")
+			}
+		}
 
 		toolEvt.Type = hooks.EventToolCallAfter
 		toolEvt.Output = result

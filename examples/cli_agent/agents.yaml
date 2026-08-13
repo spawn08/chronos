@@ -19,6 +19,10 @@ defaults:
   storage:
     backend: sqlite
     dsn: cli_agent.db
+  stream: true
+  permission_mode: prompt
+  debug: false
+  tracing: false
 
 agents:
   # A general-purpose assistant — the simplest possible agent.
@@ -50,10 +54,13 @@ agents:
     tools:
       - name: file_read
         description: Read a file from the working directory
+        permission: allow
       - name: file_list
         description: List files in a directory
+        permission: allow
       - name: file_grep
         description: Search file contents with a pattern
+        permission: allow
       # A CUSTOM tool declared in YAML registers only as a placeholder (no real
       # handler). To give it behavior, wire it in Go — see custom_tool.go.
       - name: word_count

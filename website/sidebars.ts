@@ -27,6 +27,7 @@ const sidebars: SidebarsConfig = {
         'guides/agents',
         'guides/models',
         'guides/tools',
+        'guides/cli-runtime-controls',
         'guides/planning',
         'guides/virtual-filesystem',
         'guides/subagents',

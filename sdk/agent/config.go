@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/spawn08/chronos/engine/model"
 	"github.com/spawn08/chronos/engine/tool"
 	"github.com/spawn08/chronos/engine/tool/builtins"
+	chronostrace "github.com/spawn08/chronos/os/trace"
 	"github.com/spawn08/chronos/storage"
 	"github.com/spawn08/chronos/storage/adapters/postgres"
 	"github.com/spawn08/chronos/storage/adapters/sqlite"
@@ -29,6 +31,7 @@ type AgentConfig struct {
 	Model        ModelConfig   `yaml:"model"`
 	Storage      StorageConfig `yaml:"storage,omitempty"`
 	System       string        `yaml:"system_prompt,omitempty"`
+	SystemLegacy string        `yaml:"system,omitempty"` // backward-compatible alias
 	Instructions []string      `yaml:"instructions,omitempty"`
 	Tools        []ToolConfig  `yaml:"tools,omitempty"`
 	Capabilities []string      `yaml:"capabilities,omitempty"`
@@ -37,10 +40,15 @@ type AgentConfig struct {
 	// registered with the agent when ConnectMCP is called after Build.
 	MCPServers []mcp.ServerConfig `yaml:"mcp_servers,omitempty"`
 
-	OutputSchema   map[string]any `yaml:"output_schema,omitempty"`
-	NumHistoryRuns int            `yaml:"num_history_runs,omitempty"`
-	Stream         bool           `yaml:"stream,omitempty"`
-	Context        ContextYAML    `yaml:"context,omitempty"`
+	OutputSchema     map[string]any      `yaml:"output_schema,omitempty"`
+	NumHistoryRuns   int                 `yaml:"num_history_runs,omitempty"`
+	Stream           bool                `yaml:"stream,omitempty"`
+	StreamConfigured bool                `yaml:"-"`
+	Debug            bool                `yaml:"debug,omitempty"`
+	Tracing          bool                `yaml:"tracing,omitempty"`
+	PermissionMode   tool.PermissionMode `yaml:"permission_mode,omitempty"`
+	Reasoning        ReasoningYAML       `yaml:"reasoning,omitempty"`
+	Context          ContextYAML         `yaml:"context,omitempty"`
 
 	// Team nesting: an agent config can reference sub-agents by ID
 	SubAgents []string `yaml:"sub_agents,omitempty"`
@@ -75,9 +83,21 @@ type StorageConfig struct {
 
 // ToolConfig describes a tool to register on the agent.
 type ToolConfig struct {
-	Name        string         `yaml:"name"`
-	Description string         `yaml:"description"`
-	Parameters  map[string]any `yaml:"parameters,omitempty"` // JSON Schema
+	Name                 string          `yaml:"name"`
+	Description          string          `yaml:"description"`
+	Parameters           map[string]any  `yaml:"parameters,omitempty"` // JSON Schema
+	Permission           tool.Permission `yaml:"permission,omitempty"`
+	RequiresConfirmation *bool           `yaml:"requires_confirmation,omitempty"`
+	RequiresUserInput    *bool           `yaml:"requires_user_input,omitempty"`
+}
+
+// ReasoningYAML configures prompt-based and provider-native reasoning.
+type ReasoningYAML struct {
+	Strategy     string `yaml:"strategy,omitempty"` // none, cot, reflection
+	Native       bool   `yaml:"native,omitempty"`
+	Effort       string `yaml:"effort,omitempty"` // low, medium, high
+	BudgetTokens int    `yaml:"budget_tokens,omitempty"`
+	Summary      bool   `yaml:"summary,omitempty"`
 }
 
 // ContextYAML is the YAML-serializable form of ContextConfig.
@@ -148,8 +168,21 @@ func LoadFile(path string) (*FileConfig, error) {
 	}
 
 	var fc FileConfig
-	if err := yaml.Unmarshal(data, &fc); err != nil {
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&fc); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", resolvedPath, err)
+	}
+	markExplicitStreamFields(data, &fc)
+
+	// Normalize backward-compatible aliases before applying defaults.
+	if fc.Defaults != nil && fc.Defaults.System == "" {
+		fc.Defaults.System = fc.Defaults.SystemLegacy
+	}
+	for i := range fc.Agents {
+		if fc.Agents[i].System == "" {
+			fc.Agents[i].System = fc.Agents[i].SystemLegacy
+		}
 	}
 
 	// Apply defaults to each agent
@@ -167,8 +200,126 @@ func LoadFile(path string) (*FileConfig, error) {
 	for i := range fc.Teams {
 		expandModelEnv(&fc.Teams[i].RouterModel)
 	}
+	if err := validateFileConfig(&fc); err != nil {
+		return nil, fmt.Errorf("validate %s: %w", resolvedPath, err)
+	}
 
 	return &fc, nil
+}
+
+// markExplicitStreamFields preserves AgentConfig.Stream as a bool for Go API
+// compatibility while still distinguishing omitted YAML from `stream: false`.
+func markExplicitStreamFields(data []byte, fc *FileConfig) {
+	var document yaml.Node
+	if err := yaml.Unmarshal(data, &document); err != nil || len(document.Content) == 0 {
+		return
+	}
+	root := document.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return
+	}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		key, value := root.Content[i], root.Content[i+1]
+		switch key.Value {
+		case "defaults":
+			if fc.Defaults != nil && mappingHasKey(value, "stream") {
+				fc.Defaults.StreamConfigured = true
+			}
+		case "agents":
+			if value.Kind != yaml.SequenceNode {
+				continue
+			}
+			for agentIndex, agentNode := range value.Content {
+				if agentIndex < len(fc.Agents) && mappingHasKey(agentNode, "stream") {
+					fc.Agents[agentIndex].StreamConfigured = true
+				}
+			}
+		}
+	}
+}
+
+func mappingHasKey(node *yaml.Node, name string) bool {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return false
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == name {
+			return true
+		}
+	}
+	return false
+}
+
+func validateFileConfig(fc *FileConfig) error {
+	agentIDs := make(map[string]struct{}, len(fc.Agents))
+	exactAgentIDs := make(map[string]struct{}, len(fc.Agents))
+	for i := range fc.Agents {
+		cfg := &fc.Agents[i]
+		if strings.TrimSpace(cfg.ID) == "" {
+			return fmt.Errorf("agents[%d].id is required", i)
+		}
+		normalizedID := strings.ToLower(strings.TrimSpace(cfg.ID))
+		if _, exists := agentIDs[normalizedID]; exists {
+			return fmt.Errorf("duplicate agent id %q (agent IDs are case-insensitive)", cfg.ID)
+		}
+		agentIDs[normalizedID] = struct{}{}
+		exactAgentIDs[cfg.ID] = struct{}{}
+		if strings.TrimSpace(cfg.Model.Provider) == "" {
+			return fmt.Errorf("agent %q model.provider is required", cfg.ID)
+		}
+		if _, err := tool.ParsePermissionMode(string(cfg.PermissionMode)); err != nil {
+			return fmt.Errorf("agent %q permission_mode: %w", cfg.ID, err)
+		}
+		if _, err := parseReasoningStrategy(cfg.Reasoning.Strategy); err != nil {
+			return fmt.Errorf("agent %q reasoning.strategy: %w", cfg.ID, err)
+		}
+		switch cfg.Reasoning.Effort {
+		case "", "low", "medium", "high":
+		default:
+			return fmt.Errorf("agent %q reasoning.effort %q is invalid (want low, medium, or high)", cfg.ID, cfg.Reasoning.Effort)
+		}
+		if cfg.Reasoning.BudgetTokens < 0 {
+			return fmt.Errorf("agent %q reasoning.budget_tokens must be non-negative", cfg.ID)
+		}
+		providerName := strings.ToLower(strings.TrimSpace(cfg.Model.Provider))
+		if cfg.Reasoning.Native && len(cfg.Tools) > 0 && (providerName == "anthropic" || providerName == "gemini" || providerName == "google") {
+			return fmt.Errorf("agent %q: %s native reasoning with tools is not supported because signed thinking blocks cannot be preserved", cfg.ID, providerName)
+		}
+		for j := range cfg.Tools {
+			if strings.TrimSpace(cfg.Tools[j].Name) == "" {
+				return fmt.Errorf("agent %q tools[%d].name is required", cfg.ID, j)
+			}
+			switch cfg.Tools[j].Permission {
+			case "", tool.PermAllow, tool.PermRequireApproval, tool.PermDeny:
+			default:
+				return fmt.Errorf("agent %q tool %q permission %q is invalid", cfg.ID, cfg.Tools[j].Name, cfg.Tools[j].Permission)
+			}
+		}
+	}
+
+	teamIDs := make(map[string]struct{}, len(fc.Teams))
+	for i := range fc.Teams {
+		teamCfg := &fc.Teams[i]
+		if strings.TrimSpace(teamCfg.ID) == "" {
+			return fmt.Errorf("teams[%d].id is required", i)
+		}
+		normalizedID := strings.ToLower(strings.TrimSpace(teamCfg.ID))
+		if _, exists := teamIDs[normalizedID]; exists {
+			return fmt.Errorf("duplicate team id %q (team IDs are case-insensitive)", teamCfg.ID)
+		}
+		teamIDs[normalizedID] = struct{}{}
+		for _, agentID := range teamCfg.Agents {
+			if _, exists := exactAgentIDs[agentID]; !exists {
+				return fmt.Errorf("team %q references unknown agent %q (IDs are case-sensitive in team membership)", teamCfg.ID, agentID)
+			}
+		}
+		if teamCfg.Coordinator != "" {
+			if _, exists := exactAgentIDs[teamCfg.Coordinator]; !exists {
+				return fmt.Errorf("team %q references unknown coordinator %q", teamCfg.ID, teamCfg.Coordinator)
+			}
+		}
+	}
+	return nil
 }
 
 // FindAgent looks up an agent by ID or name (case-insensitive) within a FileConfig.
@@ -217,6 +368,28 @@ func BuildAgent(ctx context.Context, cfg *AgentConfig, opts ...BuildOption) (*Ag
 	if cfg.NumHistoryRuns > 0 {
 		b.WithHistoryRuns(cfg.NumHistoryRuns)
 	}
+	if cfg.StreamConfigured || cfg.Stream {
+		b.WithStreaming(cfg.Stream)
+	}
+	b.WithDebug(cfg.Debug)
+	reasoningStrategy, reasoningErr := parseReasoningStrategy(cfg.Reasoning.Strategy)
+	if reasoningErr != nil {
+		return nil, fmt.Errorf("agent %q reasoning: %w", cfg.ID, reasoningErr)
+	}
+	b.WithReasoning(reasoningStrategy)
+	b.WithReasoningConfig(model.ReasoningConfig{
+		Enabled:      cfg.Reasoning.Native,
+		Effort:       cfg.Reasoning.Effort,
+		BudgetTokens: cfg.Reasoning.BudgetTokens,
+		Summary:      cfg.Reasoning.Summary,
+	})
+	permissionMode, permissionErr := tool.ParsePermissionMode(string(cfg.PermissionMode))
+	if permissionErr != nil {
+		return nil, fmt.Errorf("agent %q permission mode: %w", cfg.ID, permissionErr)
+	}
+	if err := b.agent.Tools.SetPermissionMode(permissionMode); err != nil {
+		return nil, fmt.Errorf("agent %q permission mode: %w", cfg.ID, err)
+	}
 	if cfg.Context.MaxTokens > 0 || cfg.Context.SummarizeThreshold > 0 || cfg.Context.PreserveRecentTurns > 0 {
 		b.WithContextConfig(ContextConfig{
 			MaxContextTokens:    cfg.Context.MaxTokens,
@@ -264,6 +437,9 @@ func BuildAgent(ctx context.Context, cfg *AgentConfig, opts ...BuildOption) (*Ag
 			}
 		}
 		b.WithStorage(store)
+		if cfg.Tracing {
+			b.WithTracer(chronostrace.NewCollector(store))
+		}
 	}
 
 	return b.Build()
@@ -496,21 +672,23 @@ func postgresPoolOptions(cfg StorageConfig) []postgres.Option {
 //     skipped (returns nil, nil).
 func buildToolFromConfig(tc ToolConfig, handlers *toolHandlerRegistry) (*tool.Definition, error) {
 	basePath := "."
+	var def *tool.Definition
+
 	switch tc.Name {
 	case "shell":
-		return builtins.NewShellTool(nil, 0), nil
+		def = builtins.NewShellTool(nil, 0)
 	case "shell_auto":
-		return builtins.NewAutoShellTool(nil, 0), nil
+		def = builtins.NewAutoShellTool(nil, 0)
 	case "file_read":
-		return builtins.NewFileReadTool(basePath), nil
+		def = builtins.NewFileReadTool(basePath)
 	case "file_write":
-		return builtins.NewFileWriteTool(basePath), nil
+		def = builtins.NewFileWriteTool(basePath)
 	case "file_list":
-		return builtins.NewFileListTool(basePath), nil
+		def = builtins.NewFileListTool(basePath)
 	case "file_glob":
-		return builtins.NewFileGlobTool(basePath), nil
+		def = builtins.NewFileGlobTool(basePath)
 	case "file_grep":
-		return builtins.NewFileGrepTool(basePath), nil
+		def = builtins.NewFileGrepTool(basePath)
 	default:
 		if factory, ok := handlers.lookup(tc.Name); ok {
 			handler, err := factory(tc)
@@ -520,27 +698,57 @@ func buildToolFromConfig(tc ToolConfig, handlers *toolHandlerRegistry) (*tool.De
 			if handler == nil {
 				return nil, fmt.Errorf("registered factory returned a nil handler")
 			}
-			return &tool.Definition{
+			def = &tool.Definition{
 				Name:        tc.Name,
 				Description: tc.Description,
 				Parameters:  tc.Parameters,
 				Permission:  tool.PermAllow,
 				Handler:     handler,
-			}, nil
+			}
+		} else {
+			if tc.Description == "" {
+				return nil, nil
+			}
+			name := tc.Name
+			def = &tool.Definition{
+				Name:        tc.Name,
+				Description: tc.Description,
+				Parameters:  tc.Parameters,
+				Permission:  tool.PermAllow,
+				Handler: func(_ context.Context, _ map[string]any) (any, error) {
+					return nil, fmt.Errorf("tool %q has no registered handler: pass agent.WithToolHandler(%q, ...) to BuildAgent/BuildAll", name, name)
+				},
+			}
 		}
-		if tc.Description == "" {
-			return nil, nil
+	}
+
+	if tc.Permission != "" {
+		switch tc.Permission {
+		case tool.PermAllow, tool.PermRequireApproval, tool.PermDeny:
+			def.Permission = tc.Permission
+		default:
+			return nil, fmt.Errorf("unknown permission %q (want allow, require_approval, or deny)", tc.Permission)
 		}
-		name := tc.Name
-		return &tool.Definition{
-			Name:        tc.Name,
-			Description: tc.Description,
-			Parameters:  tc.Parameters,
-			Permission:  tool.PermAllow,
-			Handler: func(_ context.Context, _ map[string]any) (any, error) {
-				return nil, fmt.Errorf("tool %q has no registered handler: pass agent.WithToolHandler(%q, ...) to BuildAgent/BuildAll", name, name)
-			},
-		}, nil
+	}
+	if tc.RequiresConfirmation != nil {
+		def.RequiresConfirmation = *tc.RequiresConfirmation
+	}
+	if tc.RequiresUserInput != nil {
+		def.RequiresUserInput = *tc.RequiresUserInput
+	}
+	return def, nil
+}
+
+func parseReasoningStrategy(value string) (ReasoningStrategy, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "none", "off":
+		return ReasoningNone, nil
+	case "cot", "chain_of_thought", "chain-of-thought":
+		return ReasoningCoT, nil
+	case "reflection", "reflect":
+		return ReasoningReflection, nil
+	default:
+		return ReasoningNone, fmt.Errorf("unknown strategy %q (want none, cot, or reflection)", value)
 	}
 }
 
@@ -672,6 +880,34 @@ func applyDefaults(cfg, defaults *AgentConfig) {
 	}
 	if cfg.NumHistoryRuns == 0 {
 		cfg.NumHistoryRuns = defaults.NumHistoryRuns
+	}
+	if !cfg.StreamConfigured && defaults.StreamConfigured {
+		cfg.Stream = defaults.Stream
+		cfg.StreamConfigured = true
+	}
+	if !cfg.Debug {
+		cfg.Debug = defaults.Debug
+	}
+	if !cfg.Tracing {
+		cfg.Tracing = defaults.Tracing
+	}
+	if cfg.PermissionMode == "" {
+		cfg.PermissionMode = defaults.PermissionMode
+	}
+	if cfg.Reasoning.Strategy == "" {
+		cfg.Reasoning.Strategy = defaults.Reasoning.Strategy
+	}
+	if !cfg.Reasoning.Native {
+		cfg.Reasoning.Native = defaults.Reasoning.Native
+	}
+	if cfg.Reasoning.Effort == "" {
+		cfg.Reasoning.Effort = defaults.Reasoning.Effort
+	}
+	if cfg.Reasoning.BudgetTokens == 0 {
+		cfg.Reasoning.BudgetTokens = defaults.Reasoning.BudgetTokens
+	}
+	if !cfg.Reasoning.Summary {
+		cfg.Reasoning.Summary = defaults.Reasoning.Summary
 	}
 	if cfg.Context.MaxTokens == 0 {
 		cfg.Context.MaxTokens = defaults.Context.MaxTokens

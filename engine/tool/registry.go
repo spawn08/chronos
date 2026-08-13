@@ -4,6 +4,7 @@ package tool
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -15,6 +16,30 @@ const (
 	PermRequireApproval Permission = "require_approval" // needs human approval
 	PermDeny            Permission = "deny"             // blocked
 )
+
+// PermissionMode controls how approval-gated tools are handled by a registry.
+// Explicitly denied tools are never bypassed, including in auto-approve mode.
+type PermissionMode string
+
+const (
+	PermissionModePrompt      PermissionMode = "prompt"
+	PermissionModeAutoApprove PermissionMode = "auto_approve"
+	PermissionModeDeny        PermissionMode = "deny"
+)
+
+// ParsePermissionMode normalizes CLI/YAML aliases and rejects unknown modes.
+func ParsePermissionMode(value string) (PermissionMode, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "default", "prompt", "ask":
+		return PermissionModePrompt, nil
+	case "auto_approve", "auto-approve", "bypass":
+		return PermissionModeAutoApprove, nil
+	case "deny":
+		return PermissionModeDeny, nil
+	default:
+		return "", fmt.Errorf("unknown permission mode %q (want prompt, auto_approve, or deny)", value)
+	}
+}
 
 // Definition describes a callable tool.
 type Definition struct {
@@ -49,17 +74,40 @@ type UserInputFunc func(ctx context.Context, toolName string, prompt string) (st
 
 // Registry manages tool definitions, permissions, and execution.
 type Registry struct {
-	mu        sync.RWMutex
-	tools     map[string]*Definition
-	approval  ApprovalFunc
-	userInput UserInputFunc
+	mu             sync.RWMutex
+	tools          map[string]*Definition
+	approval       ApprovalFunc
+	userInput      UserInputFunc
+	permissionMode PermissionMode
 }
 
 // NewRegistry creates a new tool registry.
 func NewRegistry() *Registry {
 	return &Registry{
-		tools: make(map[string]*Definition),
+		tools:          make(map[string]*Definition),
+		permissionMode: PermissionModePrompt,
 	}
+}
+
+// SetPermissionMode configures registry-wide handling for tools that require
+// approval. Auto-approve skips approval and confirmation prompts but still
+// respects PermDeny. Deny rejects every approval-gated tool without prompting.
+func (r *Registry) SetPermissionMode(mode PermissionMode) error {
+	normalized, err := ParsePermissionMode(string(mode))
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.permissionMode = normalized
+	return nil
+}
+
+// PermissionMode returns the registry's current approval handling mode.
+func (r *Registry) PermissionMode() PermissionMode {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.permissionMode
 }
 
 // SetApprovalHandler sets the function called for tools requiring approval.
@@ -113,6 +161,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]any
 	def, ok := r.tools[name]
 	approval := r.approval
 	userInput := r.userInput
+	permissionMode := r.permissionMode
 	r.mu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("tool %q not found", name)
@@ -122,28 +171,45 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]any
 	case PermDeny:
 		return nil, fmt.Errorf("tool %q is denied", name)
 	case PermRequireApproval:
-		if approval == nil {
-			return nil, fmt.Errorf("tool %q requires approval but no handler set", name)
-		}
-		approved, err := approval(ctx, name, args)
-		if err != nil {
-			return nil, fmt.Errorf("approval for %q: %w", name, err)
-		}
-		if !approved {
-			return nil, fmt.Errorf("tool %q: approval denied", name)
+		switch permissionMode {
+		case PermissionModeAutoApprove:
+			// Explicit local/operator override. PermDeny was already enforced.
+		case PermissionModeDeny:
+			return nil, fmt.Errorf("tool %q requires approval but permission mode is deny", name)
+		default:
+			if approval == nil {
+				return nil, fmt.Errorf("tool %q requires approval but no handler set", name)
+			}
+			approved, err := approval(ctx, name, args)
+			if err != nil {
+				return nil, fmt.Errorf("approval for %q: %w", name, err)
+			}
+			if !approved {
+				return nil, fmt.Errorf("tool %q: approval denied", name)
+			}
 		}
 	}
 
-	if def.RequiresConfirmation {
-		if approval == nil {
-			return nil, fmt.Errorf("tool %q requires confirmation but no approval handler set", name)
-		}
-		confirmed, err := approval(ctx, name, args)
-		if err != nil {
-			return nil, fmt.Errorf("confirmation for %q: %w", name, err)
-		}
-		if !confirmed {
-			return nil, fmt.Errorf("tool %q: confirmation denied", name)
+	// A permission approval also satisfies confirmation for this call, avoiding
+	// two identical prompts for definitions that set both fields.
+	needsConfirmation := def.RequiresConfirmation && def.Permission != PermRequireApproval
+	if needsConfirmation {
+		switch permissionMode {
+		case PermissionModeAutoApprove:
+			// Explicit local/operator override.
+		case PermissionModeDeny:
+			return nil, fmt.Errorf("tool %q requires confirmation but permission mode is deny", name)
+		default:
+			if approval == nil {
+				return nil, fmt.Errorf("tool %q requires confirmation but no approval handler set", name)
+			}
+			confirmed, err := approval(ctx, name, args)
+			if err != nil {
+				return nil, fmt.Errorf("confirmation for %q: %w", name, err)
+			}
+			if !confirmed {
+				return nil, fmt.Errorf("tool %q: confirmation denied", name)
+			}
 		}
 	}
 

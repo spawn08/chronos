@@ -130,6 +130,7 @@ Input to a chat completion:
 | `Tools` | []ToolDefinition | Function definitions for tool calling |
 | `Stop` | []string | Stop sequences |
 | `ResponseFormat` | string | `"json_object"` for JSON mode |
+| `Reasoning` | *ReasoningConfig | Provider-native reasoning/thinking settings |
 
 ## ChatResponse
 
@@ -143,7 +144,48 @@ Output of a chat completion:
 | `Usage` | Usage | Token counts |
 | `ToolCalls` | []ToolCall | Requested tool invocations |
 | `StopReason` | StopReason | Why generation stopped |
+| `Reasoning` | string | Provider-approved reasoning output, kept separate from final answer text |
 | `Delta` | bool | True when streaming partial response |
+
+## Native reasoning and thinking
+
+Use `ReasoningConfig` to request native reasoning without embedding provider-specific request fields in application code:
+
+```go
+req := &model.ChatRequest{
+    Messages: messages,
+    Reasoning: &model.ReasoningConfig{
+        Enabled:      true,
+        Effort:       "high",
+        BudgetTokens: 4096,
+        Summary:      true,
+    },
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `Enabled` | Request native reasoning when the provider supports it. When false, all other native reasoning fields are ignored. |
+| `Effort` | Normalized effort (`low`, `medium`, `high`); mapped to OpenAI-compatible `reasoning_effort` |
+| `BudgetTokens` | Thinking budget; mapped to Anthropic `thinking` and Gemini `thinkingConfig` |
+| `Summary` | Request provider-approved reasoning/thought output where supported |
+
+YAML agents expose the same controls plus Chronos prompt strategies:
+
+```yaml
+reasoning:
+  strategy: reflection  # none, cot, reflection
+  native: true
+  effort: high
+  budget_tokens: 4096
+  summary: true
+```
+
+Provider and model support varies. `Content` always remains the final answer; available reasoning is returned separately in `ChatResponse.Reasoning`. Applications should avoid displaying reasoning unless the user explicitly requested it.
+
+:::caution Native reasoning with tools
+Anthropic and Gemini attach signed thought blocks to tool calls. Chronos currently fails closed when native reasoning and tools are combined for those providers, rather than dropping signatures and producing an invalid follow-up request. OpenAI-compatible reasoning with tools remains available. Use prompt strategy reasoning or disable tools until signed thought-block preservation is supported.
+:::
 
 ## Usage
 

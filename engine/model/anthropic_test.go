@@ -305,11 +305,12 @@ func TestAnthropic_ConvertResponse_StopSequence(t *testing.T) {
 		ID:         "msg_05",
 		StopReason: "stop_sequence",
 		Content: []struct {
-			Type  string `json:"type"`
-			Text  string `json:"text,omitempty"`
-			ID    string `json:"id,omitempty"`
-			Name  string `json:"name,omitempty"`
-			Input any    `json:"input,omitempty"`
+			Type     string `json:"type"`
+			Text     string `json:"text,omitempty"`
+			Thinking string `json:"thinking,omitempty"`
+			ID       string `json:"id,omitempty"`
+			Name     string `json:"name,omitempty"`
+			Input    any    `json:"input,omitempty"`
 		}{
 			{Type: "text", Text: "done."},
 		},

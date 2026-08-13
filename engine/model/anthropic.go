@@ -46,6 +46,9 @@ func (a *Anthropic) Name() string  { return "anthropic" }
 func (a *Anthropic) Model() string { return a.config.Model }
 
 func (a *Anthropic) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
+	if err := validateReasoningToolCompatibility(a.Name(), req); err != nil {
+		return nil, fmt.Errorf("anthropic chat: %w", err)
+	}
 	body := a.buildRequestBody(req, false)
 
 	resp, err := a.http.post(ctx, "/v1/messages", body)
@@ -66,6 +69,9 @@ func (a *Anthropic) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, 
 }
 
 func (a *Anthropic) StreamChat(ctx context.Context, req *ChatRequest) (<-chan *ChatResponse, error) {
+	if err := validateReasoningToolCompatibility(a.Name(), req); err != nil {
+		return nil, fmt.Errorf("anthropic stream: %w", err)
+	}
 	body := a.buildRequestBody(req, true)
 
 	resp, err := a.http.postStream(ctx, "/v1/messages", body)
@@ -153,6 +159,16 @@ func (a *Anthropic) buildRequestBody(req *ChatRequest, stream bool) map[string]a
 	if len(req.Stop) > 0 {
 		body["stop_sequences"] = req.Stop
 	}
+	if req.Reasoning != nil && req.Reasoning.Enabled {
+		budget := req.Reasoning.BudgetTokens
+		if budget <= 0 {
+			budget = 1024
+		}
+		body["thinking"] = map[string]any{"type": "enabled", "budget_tokens": budget}
+		if maxTokens, _ := body["max_tokens"].(int); maxTokens <= budget {
+			body["max_tokens"] = budget + 4096
+		}
+	}
 	if len(req.Tools) > 0 {
 		tools := make([]map[string]any, len(req.Tools))
 		for i, t := range req.Tools {
@@ -181,10 +197,13 @@ func (a *Anthropic) convertResponse(raw *anthropicResponse) *ChatResponse {
 	}
 
 	var textParts []string
+	var reasoningParts []string
 	for _, block := range raw.Content {
 		switch block.Type {
 		case "text":
 			textParts = append(textParts, block.Text)
+		case "thinking":
+			reasoningParts = append(reasoningParts, block.Thinking)
 		case "tool_use":
 			argsJSON, _ := json.Marshal(block.Input)
 			cr.ToolCalls = append(cr.ToolCalls, ToolCall{
@@ -195,6 +214,7 @@ func (a *Anthropic) convertResponse(raw *anthropicResponse) *ChatResponse {
 		}
 	}
 	cr.Content = strings.Join(textParts, "")
+	cr.Reasoning = strings.Join(reasoningParts, "")
 
 	switch raw.StopReason {
 	case "end_turn", "stop_sequence":
@@ -225,6 +245,7 @@ func (a *Anthropic) readSSEStream(ctx context.Context, resp *http.Response, ch c
 			Delta struct {
 				Type        string `json:"type"`
 				Text        string `json:"text"`
+				Thinking    string `json:"thinking"`
 				PartialJSON string `json:"partial_json"`
 				StopReason  string `json:"stop_reason"`
 			} `json:"delta"`
@@ -285,6 +306,10 @@ func (a *Anthropic) readSSEStream(ctx context.Context, resp *http.Response, ch c
 				if !sendCtx(ctx, ch, &ChatResponse{Content: event.Delta.Text, Role: RoleAssistant, Delta: true}) {
 					return
 				}
+			case "thinking_delta":
+				if !sendCtx(ctx, ch, &ChatResponse{Reasoning: event.Delta.Thinking, Role: RoleAssistant, Delta: true}) {
+					return
+				}
 			case "input_json_delta":
 				// Streamed fragment of a tool call's JSON arguments.
 				if !sendCtx(ctx, ch, &ChatResponse{Role: RoleAssistant, Delta: true,
@@ -337,11 +362,12 @@ type anthropicResponse struct {
 	Type    string `json:"type"`
 	Role    string `json:"role"`
 	Content []struct {
-		Type  string `json:"type"`
-		Text  string `json:"text,omitempty"`
-		ID    string `json:"id,omitempty"`
-		Name  string `json:"name,omitempty"`
-		Input any    `json:"input,omitempty"`
+		Type     string `json:"type"`
+		Text     string `json:"text,omitempty"`
+		Thinking string `json:"thinking,omitempty"`
+		ID       string `json:"id,omitempty"`
+		Name     string `json:"name,omitempty"`
+		Input    any    `json:"input,omitempty"`
 	} `json:"content"`
 	StopReason string `json:"stop_reason"`
 	Usage      struct {

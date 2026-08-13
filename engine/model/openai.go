@@ -152,6 +152,9 @@ func buildOpenAIRequestBody(req *ChatRequest, defaultModel string, stream bool) 
 	if req.ResponseFormat == "json_object" {
 		body["response_format"] = map[string]string{"type": "json_object"}
 	}
+	if req.Reasoning != nil && req.Reasoning.Enabled && req.Reasoning.Effort != "" {
+		body["reasoning_effort"] = req.Reasoning.Effort
+	}
 	if stream {
 		body["stream"] = true
 	}

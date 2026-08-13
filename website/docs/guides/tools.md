@@ -63,6 +63,34 @@ Example:
 | `PermRequireApproval` | `"require_approval"` | Blocks until `ApprovalFunc` returns true |
 | `PermDeny` | `"deny"` | Always blocked |
 
+### YAML permissions
+
+YAML-defined tools can override a built-in's default permission:
+
+```yaml
+agents:
+  - id: developer
+    name: Developer
+    permission_mode: prompt
+    tools:
+      - name: file_read
+        permission: allow
+      - name: file_write
+        permission: require_approval
+      - name: shell
+        permission: deny
+```
+
+`permission_mode` controls approval-gated tools for that agent:
+
+| Mode | Behavior |
+|------|----------|
+| `prompt` | Invoke the approval handler (default) |
+| `auto_approve` | Skip approval/confirmation prompts, while still respecting explicit `deny` |
+| `deny` | Reject approval-gated tools without prompting |
+
+The optional `requires_confirmation` and `requires_user_input` fields override those flags on a tool definition. If a tool both requires approval and confirmation, one successful approval satisfies the confirmation for that call—Chronos does not prompt twice.
+
 ## tool.Registry
 
 The registry manages tool definitions, permissions, and execution:
@@ -73,6 +101,8 @@ The registry manages tool definitions, permissions, and execution:
 | `List()` | Return all registered tools |
 | `Execute(ctx, name, args)` | Run a tool by name (enforces permissions) |
 | `SetApprovalHandler(fn ApprovalFunc)` | Set handler for `PermRequireApproval` tools |
+| `SetPermissionMode(mode)` | Set `prompt`, `auto_approve`, or `deny` handling for approval-gated tools |
+| `PermissionMode()` | Return the current registry permission mode |
 
 ## Adding Tools via Builder
 
@@ -150,6 +180,22 @@ a.Tools.SetApprovalHandler(func(ctx context.Context, toolName string, args map[s
 ```
 
 If no handler is set and a tool requires approval, execution returns an error.
+
+In the Chronos CLI, enter `a` at a prompt to approve the current call and auto-approve later approval-gated tools for the rest of the session:
+
+```text
+Approve? [y/N/a=all for session]: a
+```
+
+You can also choose a process-wide mode:
+
+```bash
+chronos --permission-mode auto_approve repl
+chronos --dangerously-skip-permissions run "perform the trusted task"
+chronos --permission-mode deny pipe
+```
+
+The dangerous shortcut never overrides a tool declared with `permission: deny`. See [CLI Runtime Controls](/guides/cli-runtime-controls) for precedence and non-interactive behavior.
 
 ## Complete Example: Weather Tool
 

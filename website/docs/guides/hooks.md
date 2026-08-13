@@ -5,7 +5,7 @@ title: "Hooks & Observability"
 
 # Hooks & Observability
 
-Hooks are middleware that intercept model calls, tool calls, and session events. They provide a composable way to add caching, retry logic, cost tracking, rate limiting, metrics, and logging without modifying agent code.
+Hooks are middleware that intercept model calls, tool calls, and session events. They provide a composable way to add caching, retry logic, cost tracking, rate limiting, metrics, and logging without modifying agent code. Blocking and streaming agent model calls emit the same `model_call.before` / `model_call.after` hook lifecycle.
 
 The snippets on this page assume these imports:
 
@@ -201,3 +201,28 @@ func (h *AuditHook) After(_ context.Context, evt *hooks.Event) error {
 ```
 
 See the [hooks_observability example](https://github.com/spawn08/chronos/tree/main/examples/hooks_observability) for a complete runnable demonstration.
+
+## CLI debug logs and persisted traces
+
+YAML-built CLI agents can enable diagnostics without custom Go wiring:
+
+```yaml
+agents:
+  - id: observed
+    name: Observed Agent
+    debug: true
+    tracing: true
+    storage:
+      backend: sqlite
+      dsn: chronos.db
+```
+
+Or enable them for one process:
+
+```bash
+chronos --debug --trace run --stream "investigate the failure"
+```
+
+`debug` writes execution details to stderr. `tracing` attaches the storage-backed collector; model, tool, and graph spans are persisted through the configured `storage.Storage`. Trace exporter failures remain best-effort and do not replace the agent's primary result.
+
+See [CLI Runtime Controls](/guides/cli-runtime-controls) for flags and environment variables.

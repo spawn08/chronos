@@ -95,7 +95,16 @@ as the error from `ChatStream` itself, before any channel is produced.
 
 ## CLI Streaming
 
-The interactive REPL streams responses **by default**. Start it with:
+The interactive REPL streams responses **by default**, unless the active agent has an explicit YAML preference:
+
+```yaml
+agents:
+  - id: assistant
+    name: Assistant
+    stream: true
+```
+
+Start it with:
 
 ```bash
 chronos repl                 # uses the default agent from .chronos/agents.yaml
@@ -140,14 +149,15 @@ agent> /stream          # show current state
 Streaming is on.
 ```
 
-For one-shot headless runs, opt in with the `--stream` (`-s`) flag:
+For one-shot headless runs, YAML `stream` supplies the default. Force either behavior with `--stream` (`-s`) or `--no-stream`:
 
 ```bash
 chronos run --stream "Summarize the latest release notes"
 chronos run --agent support-bot -s "Draft a reply to ticket 4821"
+chronos run --no-stream "Validate the complete answer before displaying it"
 ```
 
-Without `--stream`, `chronos run` prints the full response once it completes.
+When neither flag is present, an explicit agent `stream` value is honored; otherwise headless `run` prints the full response once it completes. CLI flags take precedence over YAML.
 
 Multi-agent teams accept the same flag. Each agent's output is printed under a
 labeled header so you can tell whose tokens are whose:
@@ -210,6 +220,10 @@ The stream always ends with exactly one terminal event: `TeamEventComplete`
 
 The same guardrail/schema timing caveat as [Agent Streaming](#agent-streaming)
 applies to each agent's output.
+
+### Reasoning deltas
+
+`ChatResponse.Reasoning` carries provider-approved reasoning separately from `Content`. When YAML sets `reasoning.summary: true`, agent streaming forwards those deltas and the CLI renders them on **stderr**, leaving final answer tokens on stdout. Reasoning output is not displayed by default.
 
 ## Graph Execution Streaming
 

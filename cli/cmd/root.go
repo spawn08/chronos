@@ -18,8 +18,10 @@ import (
 	"github.com/spawn08/chronos/cli/repl"
 	"github.com/spawn08/chronos/engine/graph"
 	"github.com/spawn08/chronos/engine/model"
+	"github.com/spawn08/chronos/engine/tool"
 	"github.com/spawn08/chronos/evals"
 	chronosos "github.com/spawn08/chronos/os"
+	chronostrace "github.com/spawn08/chronos/os/trace"
 	"github.com/spawn08/chronos/sdk/agent"
 	"github.com/spawn08/chronos/sdk/team"
 	"github.com/spawn08/chronos/storage"
@@ -39,7 +41,9 @@ var (
 
 // Execute runs the root CLI command.
 func Execute() error {
-	stripConfigFlag()
+	if err := stripGlobalFlags(); err != nil {
+		return err
+	}
 	if len(os.Args) < 2 {
 		return printUsage()
 	}
@@ -79,33 +83,81 @@ func Execute() error {
 	}
 }
 
-// stripConfigFlag extracts a global config-file flag — `-c <path>`,
-// `--config <path>`, or the `--config=<path>` / `-c=<path>` forms — from
-// os.Args and exposes it via the CHRONOS_CONFIG environment variable, which
-// every subcommand already honors. It runs before command dispatch so the flag
-// can appear anywhere on the line, and removing the tokens keeps each
-// subcommand's positional argument indexing (os.Args[2], os.Args[3], …) intact.
-func stripConfigFlag() {
+// stripGlobalFlags extracts process-wide flags before command dispatch. Values
+// are exposed through environment variables so every existing subcommand and
+// YAML build path observes the same override without duplicating parsing.
+func stripGlobalFlags() error {
 	kept := os.Args[:1] // preserve the program name
 	rest := os.Args[1:]
 	for i := 0; i < len(rest); i++ {
 		arg := rest[i]
 		switch {
 		case arg == "-c" || arg == "--config":
-			if i+1 < len(rest) {
-				_ = os.Setenv("CHRONOS_CONFIG", rest[i+1])
-				i++ // consume the value token
+			if i+1 >= len(rest) || strings.TrimSpace(rest[i+1]) == "" {
+				return fmt.Errorf("global flag %s requires a config path", arg)
 			}
+			if err := os.Setenv("CHRONOS_CONFIG", rest[i+1]); err != nil {
+				return fmt.Errorf("set CHRONOS_CONFIG: %w", err)
+			}
+			i++ // consume the value token
 		case strings.HasPrefix(arg, "--config="):
-			_ = os.Setenv("CHRONOS_CONFIG", strings.TrimPrefix(arg, "--config="))
+			value := strings.TrimPrefix(arg, "--config=")
+			if value == "" {
+				return fmt.Errorf("global flag --config requires a config path")
+			}
+			if err := os.Setenv("CHRONOS_CONFIG", value); err != nil {
+				return fmt.Errorf("set CHRONOS_CONFIG: %w", err)
+			}
 		case strings.HasPrefix(arg, "-c="):
-			_ = os.Setenv("CHRONOS_CONFIG", strings.TrimPrefix(arg, "-c="))
+			value := strings.TrimPrefix(arg, "-c=")
+			if value == "" {
+				return fmt.Errorf("global flag -c requires a config path")
+			}
+			if err := os.Setenv("CHRONOS_CONFIG", value); err != nil {
+				return fmt.Errorf("set CHRONOS_CONFIG: %w", err)
+			}
+		case arg == "--permission-mode":
+			if i+1 >= len(rest) {
+				return fmt.Errorf("global flag --permission-mode requires a value")
+			}
+			value := rest[i+1]
+			if _, err := tool.ParsePermissionMode(value); err != nil {
+				return fmt.Errorf("global flag --permission-mode: %w", err)
+			}
+			if err := os.Setenv("CHRONOS_PERMISSION_MODE", value); err != nil {
+				return fmt.Errorf("set CHRONOS_PERMISSION_MODE: %w", err)
+			}
+			i++
+		case strings.HasPrefix(arg, "--permission-mode="):
+			value := strings.TrimPrefix(arg, "--permission-mode=")
+			if _, err := tool.ParsePermissionMode(value); err != nil {
+				return fmt.Errorf("global flag --permission-mode: %w", err)
+			}
+			if err := os.Setenv("CHRONOS_PERMISSION_MODE", value); err != nil {
+				return fmt.Errorf("set CHRONOS_PERMISSION_MODE: %w", err)
+			}
+		case arg == "--dangerously-skip-permissions":
+			if err := os.Setenv("CHRONOS_PERMISSION_MODE", string(tool.PermissionModeAutoApprove)); err != nil {
+				return fmt.Errorf("set CHRONOS_PERMISSION_MODE: %w", err)
+			}
+		case arg == "--debug":
+			if err := os.Setenv("CHRONOS_DEBUG", "true"); err != nil {
+				return fmt.Errorf("set CHRONOS_DEBUG: %w", err)
+			}
+		case arg == "--trace":
+			if err := os.Setenv("CHRONOS_TRACE", "true"); err != nil {
+				return fmt.Errorf("set CHRONOS_TRACE: %w", err)
+			}
 		default:
 			kept = append(kept, arg)
 		}
 	}
 	os.Args = kept
+	return nil
 }
+
+// stripConfigFlag is retained for compatibility with focused parser tests.
+func stripConfigFlag() { _ = stripGlobalFlags() }
 
 func printUsage() error {
 	fmt.Println(`Chronos CLI — Agentic Framework
@@ -115,11 +167,16 @@ Usage:
 
 Global options:
   -c, --config <file>       Path to the agents YAML config (same as CHRONOS_CONFIG)
+  --permission-mode <mode>  prompt (default), auto_approve, or deny
+  --dangerously-skip-permissions
+                            Auto-approve approval-gated tools for this CLI process
+  --debug                   Enable agent execution logs on stderr
+  --trace                   Persist model/graph spans in the configured storage
 
 Commands:
   repl                      Start interactive REPL (loads agent from YAML config)
   serve [addr]              Start ChronosOS control plane server (default :8420)
-  run [--agent <id>] [--stream] <msg>  Run an agent in headless mode (--stream for live tokens)
+  run [--agent <id>] [--stream|--no-stream] <msg>  Run an agent in headless mode
   pipe                      Non-interactive mode: reads from stdin, writes to stdout
   agent list                List agents defined in config
   agent show <id>           Show agent configuration details
@@ -134,7 +191,7 @@ Commands:
   eval list                 List available eval suites
   eval run <suite.yaml>     Run evaluation suite
   monitor                   Live terminal dashboard (sessions, metrics, latency)
-  config                    Configuration (show)
+  config                    Configuration (show, validate)
   version                   Print version
   help                      Show this help
 
@@ -147,8 +204,11 @@ Agent Configuration:
   the CLI at your file with -c. Example: chronos -c content-pipeline.yaml team show pipeline
 
 Environment:
-  CHRONOS_CONFIG    Path to agents YAML config file
-  CHRONOS_API_KEY   Default API key for model providers
+  CHRONOS_CONFIG          Path to agents YAML config file
+  CHRONOS_API_KEY         Default API key for model providers
+  CHRONOS_PERMISSION_MODE prompt | auto_approve | deny
+  CHRONOS_DEBUG           true to enable debug logs
+  CHRONOS_TRACE           true to persist execution spans
 
 Storage (default: SQLite — fully backward compatible):
   CHRONOS_STORAGE_BACKEND  sqlite (default) | postgres | redis
@@ -344,6 +404,9 @@ func loadAgentByID(idOrName string) (*agent.Agent, error) {
 	if err != nil {
 		return nil, err
 	}
+	if overrideErr := applyCLIRuntimeOverrides(a); overrideErr != nil {
+		return nil, overrideErr
+	}
 	installInteractiveApprovalHandlers(a)
 	return a, nil
 }
@@ -361,18 +424,47 @@ func loadDefaultAgent() (*agent.Agent, error) {
 	if err != nil {
 		return nil, err
 	}
+	if overrideErr := applyCLIRuntimeOverrides(a); overrideErr != nil {
+		return nil, overrideErr
+	}
 	installInteractiveApprovalHandlers(a)
 	return a, nil
+}
+
+func applyCLIRuntimeOverrides(a *agent.Agent) error {
+	if a == nil {
+		return nil
+	}
+	if strings.EqualFold(os.Getenv("CHRONOS_DEBUG"), "true") {
+		a.Debug = true
+	}
+	if strings.EqualFold(os.Getenv("CHRONOS_TRACE"), "true") && a.Storage != nil {
+		a.Tracer = chronostrace.NewCollector(a.Storage)
+	}
+	if modeValue := strings.TrimSpace(os.Getenv("CHRONOS_PERMISSION_MODE")); modeValue != "" && a.Tools != nil {
+		mode, err := tool.ParsePermissionMode(modeValue)
+		if err != nil {
+			return fmt.Errorf("CLI permission mode: %w", err)
+		}
+		if err := a.Tools.SetPermissionMode(mode); err != nil {
+			return fmt.Errorf("CLI permission mode: %w", err)
+		}
+	}
+	return nil
 }
 
 func installInteractiveApprovalHandlers(agents ...*agent.Agent) {
 	reader := bufio.NewReader(os.Stdin)
 	var mu sync.Mutex
+	approveAll := false
 	handler := func(ctx context.Context, toolName string, args map[string]any) (bool, error) {
 		mu.Lock()
 		defer mu.Unlock()
+		if approveAll {
+			return true, nil
+		}
 
-		fmt.Fprintf(os.Stderr, "\nApproval required for tool %q\nArgs: %s\nApprove? [y/N]: ", toolName, summarizeApprovalArgs(args))
+		fmt.Fprintf(os.Stderr, "\nApproval required for tool %q\nArgs: %s\nApprove? [y/N/a=all for session]: ", toolName, summarizeApprovalArgs(args))
 		line, err := reader.ReadString('\n')
 		if err != nil && strings.TrimSpace(line) == "" {
 			return false, fmt.Errorf("read approval response: %w", err)
@@ -383,6 +475,16 @@ func installInteractiveApprovalHandlers(agents ...*agent.Agent) {
 		default:
 		}
 		answer := strings.ToLower(strings.TrimSpace(line))
+		if answer == "a" || answer == "all" {
+			approveAll = true
+			for _, a := range agents {
+				if a != nil && a.Tools != nil {
+					_ = a.Tools.SetPermissionMode(tool.PermissionModeAutoApprove)
+				}
+			}
+			fmt.Fprintln(os.Stderr, "Auto-approving approval-gated tools for the rest of this CLI session. Explicitly denied tools remain blocked.")
+			return true, nil
+		}
 		return answer == "y" || answer == "yes", nil
 	}
 	for _, a := range agents {
@@ -451,6 +553,9 @@ func attachRoster(r *repl.REPL, activeID string) error {
 	}
 	builtAgents := make([]*agent.Agent, 0, len(agents))
 	for _, a := range agents {
+		if overrideErr := applyCLIRuntimeOverrides(a); overrideErr != nil {
+			return overrideErr
+		}
 		builtAgents = append(builtAgents, a)
 	}
 	installInteractiveApprovalHandlers(builtAgents...)
@@ -560,10 +665,11 @@ func swaggerHost(addr string) string {
 }
 
 func runAgent() error {
-	// Parse: chronos run [--agent <id>] [--stream] <message...>
+	// Parse: chronos run [--agent <id>] [--stream|--no-stream] <message...>
 	args := os.Args[2:]
 	agentID := ""
 	streaming := false
+	streamSet := false
 	var msgParts []string
 
 	for i := 0; i < len(args); i++ {
@@ -576,6 +682,10 @@ func runAgent() error {
 			i++
 		case "--stream", "-s":
 			streaming = true
+			streamSet = true
+		case "--no-stream":
+			streaming = false
+			streamSet = true
 		default:
 			msgParts = append(msgParts, args[i])
 		}
@@ -598,6 +708,9 @@ func runAgent() error {
 		fmt.Printf("Message: %s\n", message)
 		fmt.Println("Create .chronos/agents.yaml to configure agents. Run 'chronos help' for details.")
 		return nil
+	}
+	if !streamSet && a.StreamConfigured {
+		streaming = a.Stream
 	}
 
 	// When no agent was explicitly chosen and the config defines more than one,
@@ -626,6 +739,9 @@ func runAgent() error {
 	if err != nil {
 		return fmt.Errorf("chat: %w", err)
 	}
+	if resp.Reasoning != "" && a.ReasoningConfig.Summary {
+		fmt.Fprintf(os.Stderr, "[reasoning summary]\n%s\n[/reasoning summary]\n", resp.Reasoning)
+	}
 	fmt.Println(resp.Content)
 	if resp.Usage.PromptTokens > 0 || resp.Usage.CompletionTokens > 0 {
 		fmt.Printf("\n[tokens: %d prompt + %d completion]\n", resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
@@ -640,15 +756,26 @@ func runAgentStream(a *agent.Agent, message string) error {
 		return fmt.Errorf("chat: %w", err)
 	}
 	var usage model.Usage
+	reasoningStarted := false
 	for chunk := range ch {
 		if chunk.Err != nil {
 			return fmt.Errorf("chat: %w", chunk.Err)
 		}
 		if chunk.Delta {
+			if chunk.Reasoning != "" {
+				if !reasoningStarted {
+					fmt.Fprintln(os.Stderr, "[reasoning summary]")
+					reasoningStarted = true
+				}
+				fmt.Fprint(os.Stderr, chunk.Reasoning)
+			}
 			fmt.Print(chunk.Content)
 			continue
 		}
 		usage = chunk.Usage
+	}
+	if reasoningStarted {
+		fmt.Fprintln(os.Stderr, "\n[/reasoning summary]")
 	}
 	fmt.Println()
 	if usage.PromptTokens > 0 || usage.CompletionTokens > 0 {
@@ -744,8 +871,15 @@ func agentShow(idOrName string) error {
 	if len(cfg.SubAgents) > 0 {
 		fmt.Printf("  Sub-agents:    %s\n", strings.Join(cfg.SubAgents, ", "))
 	}
-	if cfg.Stream {
-		fmt.Printf("  Stream:        true\n")
+	if cfg.StreamConfigured {
+		fmt.Printf("  Stream:        %t\n", cfg.Stream)
+	}
+	if cfg.PermissionMode != "" {
+		fmt.Printf("  Permissions:   %s\n", cfg.PermissionMode)
+	}
+	if cfg.Reasoning.Native || cfg.Reasoning.Strategy != "" {
+		fmt.Printf("  Reasoning:     strategy=%s native=%t effort=%s budget=%d\n",
+			cfg.Reasoning.Strategy, cfg.Reasoning.Native, cfg.Reasoning.Effort, cfg.Reasoning.BudgetTokens)
 	}
 	return nil
 }
@@ -880,6 +1014,9 @@ func buildTeamByID(ctx context.Context, teamID string) (*team.Team, error) {
 	}
 	builtAgents := make([]*agent.Agent, 0, len(agents))
 	for _, a := range agents {
+		if overrideErr := applyCLIRuntimeOverrides(a); overrideErr != nil {
+			return nil, overrideErr
+		}
 		builtAgents = append(builtAgents, a)
 	}
 	installInteractiveApprovalHandlers(builtAgents...)
@@ -1727,8 +1864,15 @@ func runConfig() error {
 			return nil
 		}
 		return configSet("model", os.Args[3])
+	case "validate":
+		fc, err := loadAgentConfig()
+		if err != nil {
+			return fmt.Errorf("config validation failed: %w", err)
+		}
+		fmt.Printf("Configuration is valid: %d agent(s), %d team(s).\n", len(fc.Agents), len(fc.Teams))
+		return nil
 	default:
-		return fmt.Errorf("unknown config subcommand: %s\nUsage: chronos config [show|set|model]", sub)
+		return fmt.Errorf("unknown config subcommand: %s\nUsage: chronos config [show|validate|set|model]", sub)
 	}
 }
 
@@ -1837,6 +1981,13 @@ func runPipe() error {
 	}
 	if err != nil {
 		return fmt.Errorf("pipe: %w", err)
+	}
+	// Pipe input and an interactive approval prompt cannot safely share stdin.
+	// Fail closed unless YAML/the CLI explicitly selected auto-approve.
+	if a.Tools != nil && a.Tools.PermissionMode() == tool.PermissionModePrompt {
+		if err := a.Tools.SetPermissionMode(tool.PermissionModeDeny); err != nil {
+			return fmt.Errorf("pipe permission mode: %w", err)
+		}
 	}
 
 	scanner := bufio.NewScanner(os.Stdin)

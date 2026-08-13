@@ -1,7 +1,10 @@
 // Package model defines pluggable LLM provider interfaces.
 package model
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // Role constants for chat messages.
 const (
@@ -99,6 +102,29 @@ type FunctionDef struct {
 	Parameters  map[string]any `json:"parameters"` // JSON Schema
 }
 
+// ReasoningConfig controls provider-native reasoning/thinking when supported.
+// Providers ignore fields they cannot represent rather than leaking a
+// provider-specific request shape into the agent SDK.
+type ReasoningConfig struct {
+	Enabled      bool   `json:"enabled" yaml:"enabled"`
+	Effort       string `json:"effort,omitempty" yaml:"effort,omitempty"` // low, medium, high
+	BudgetTokens int    `json:"budget_tokens,omitempty" yaml:"budget_tokens,omitempty"`
+	Summary      bool   `json:"summary,omitempty" yaml:"summary,omitempty"`
+}
+
+func nativeReasoningEnabled(cfg *ReasoningConfig) bool {
+	return cfg != nil && cfg.Enabled
+}
+
+// validateReasoningToolCompatibility fails closed for providers whose signed
+// thinking blocks cannot yet be preserved through Chronos's generic tool loop.
+func validateReasoningToolCompatibility(provider string, req *ChatRequest) error {
+	if req != nil && nativeReasoningEnabled(req.Reasoning) && len(req.Tools) > 0 {
+		return fmt.Errorf("%s native reasoning with tools is not supported: signed thinking blocks cannot be preserved across tool rounds", provider)
+	}
+	return nil
+}
+
 // ChatRequest is the input to a chat completion.
 type ChatRequest struct {
 	Model       string           `json:"model"`
@@ -112,8 +138,9 @@ type ChatRequest struct {
 	// ResponseFormat controls output format. Values:
 	//   "json_object"  — model returns valid JSON (no schema enforcement)
 	//   "json_schema"  — model returns JSON conforming to Metadata["json_schema"]
-	ResponseFormat string         `json:"response_format,omitempty"`
-	Metadata       map[string]any `json:"metadata,omitempty"`
+	ResponseFormat string           `json:"response_format,omitempty"`
+	Metadata       map[string]any   `json:"metadata,omitempty"`
+	Reasoning      *ReasoningConfig `json:"reasoning,omitempty"`
 }
 
 // ChatResponse is the output of a chat completion.
@@ -124,6 +151,10 @@ type ChatResponse struct {
 	Usage      Usage      `json:"usage"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	StopReason StopReason `json:"stop_reason,omitempty"`
+	// Reasoning carries provider-approved thinking/reasoning output separately
+	// from the final answer. Callers should not display it unless explicitly
+	// requested because providers may treat internal reasoning as sensitive.
+	Reasoning string `json:"reasoning,omitempty"`
 	// Delta is true when this is a partial streaming response.
 	Delta bool `json:"delta,omitempty"`
 	// Err carries a streaming transport/parse error surfaced mid-stream. It is

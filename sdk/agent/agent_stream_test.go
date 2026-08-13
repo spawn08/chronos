@@ -6,8 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spawn08/chronos/engine/hooks"
 	"github.com/spawn08/chronos/engine/model"
 	"github.com/spawn08/chronos/engine/tool"
+	chronostrace "github.com/spawn08/chronos/os/trace"
 )
 
 // streamProvider is a mock Provider that emits a scripted sequence of streaming
@@ -84,6 +86,46 @@ func TestChatStream_TextDeltas(t *testing.T) {
 	}
 	if usage.PromptTokens != 3 || usage.CompletionTokens != 5 {
 		t.Errorf("usage = %+v, want {3 5}", usage)
+	}
+}
+
+func TestChatStream_EmitsHooksAndTrace(t *testing.T) {
+	prov := &streamProvider{scripts: [][]*model.ChatResponse{{
+		{Role: model.RoleAssistant, Content: "ok", Delta: true},
+		{Role: model.RoleAssistant, StopReason: model.StopReasonEnd},
+	}}}
+	store := newTestStorage()
+	tracer := chronostrace.NewCollector(store)
+	logger := &hooks.LoggingHook{}
+	a, _ := New("observed", "Observed").WithModel(prov).WithTracer(tracer).AddHook(logger).Build()
+
+	ch, err := a.ChatStream(context.Background(), "hi")
+	if err != nil {
+		t.Fatalf("ChatStream: %v", err)
+	}
+	if _, _, streamErr := collectStream(t, ch); streamErr != nil {
+		t.Fatalf("stream error: %v", streamErr)
+	}
+
+	var before, after int
+	for _, event := range logger.Events {
+		switch event.Type {
+		case hooks.EventModelCallBefore:
+			before++
+		case hooks.EventModelCallAfter:
+			after++
+		}
+	}
+	if before != 1 || after != 1 {
+		t.Fatalf("model hook counts before=%d after=%d, want 1/1", before, after)
+	}
+	if len(store.traces) != 1 {
+		t.Fatalf("trace count = %d, want 1", len(store.traces))
+	}
+	for _, span := range store.traces {
+		if span.Kind != "model_call" || span.EndedAt.IsZero() {
+			t.Fatalf("incomplete model span: %#v", span)
+		}
 	}
 }
 

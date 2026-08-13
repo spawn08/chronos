@@ -71,11 +71,19 @@ agents:
     model:
       model: gpt-4o
     system_prompt: You are a senior software engineer.
+    stream: true
+    permission_mode: prompt             # prompt | auto_approve | deny
+    reasoning:
+      native: true
+      effort: medium
+      summary: false
 ```
 
 ```bash
-chronos repl                            # interactive chat
-chronos run "explain Go interfaces"     # headless one-shot
+chronos repl                                      # interactive streaming chat
+chronos run --stream "explain Go interfaces"      # headless token streaming
+chronos --permission-mode auto_approve repl       # trusted local session
+# At an approval prompt, enter "a" to approve all for this CLI session.
 ```
 
 **Go builder API:**

@@ -71,6 +71,18 @@ chronos help
 
 See [Installation](/getting-started/installation/) for all options.
 
+## Global runtime options
+
+Global options can appear before or after the subcommand:
+
+| Option | Description |
+|--------|-------------|
+| `-c`, `--config <file>` | Select an agents YAML file |
+| `--permission-mode <mode>` | `prompt`, `auto_approve`, or `deny` |
+| `--dangerously-skip-permissions` | Alias for `--permission-mode auto_approve`; explicit tool denies still win |
+| `--debug` | Enable agent execution logs on stderr |
+| `--trace` | Persist model, tool, and graph spans in configured storage |
+
 ## Commands
 
 ### repl
@@ -100,7 +112,8 @@ Execute a one-shot message in headless mode. Select an agent with `--agent`/`-a`
 
 ```bash
 chronos run "explain Go interfaces"
-chronos run --agent researcher "compare React vs Svelte"
+chronos run --agent researcher --stream "compare React vs Svelte"
+chronos run --agent reviewer --no-stream "validate the complete answer"
 ```
 
 ### pipe
@@ -112,7 +125,7 @@ printf 'What is 2+2?\nName the largest planet.\n' | chronos pipe assistant
 # {"agent":"assistant","content":"..."}
 ```
 
-A line that errors emits `{"error":"..."}` and processing continues.
+A line that errors emits `{"error":"..."}` and processing continues. Because batch messages and interactive approvals cannot safely share stdin, `pipe` converts the default `prompt` permission mode to `deny`. Use `--permission-mode auto_approve` explicitly for trusted tools.
 
 ### agent
 
@@ -206,6 +219,7 @@ Configuration management. `set` takes two positional arguments and persists to `
 
 ```bash
 chronos config show             # display resolved config + loaded agents
+chronos config validate         # strict YAML and runtime-policy validation
 chronos config set model gpt-5.5
 chronos config model            # show/set the default model
 ```
@@ -227,6 +241,7 @@ chronos version                 # version, commit, build date, Go version, os/ar
 | `/checkpoints <session_id>` | List checkpoints for a session |
 | `/memory [agent_id]` | List memories (defaults to the loaded agent) |
 | `/history` | Show conversation history for this REPL session |
+| `/stream [on\|off]` | Show or change token streaming for this REPL session |
 | `/clear` | Clear conversation history |
 | `/quit` | Exit the REPL |
 
@@ -248,6 +263,9 @@ dev> ! git status
 | `CHRONOS_ENDPOINT` | Default `monitor` endpoint (overridden by `--endpoint`) |
 | `CHRONOS_MODEL` | Default model id shown/used by `config` |
 | `CHRONOS_API_KEY` | Default model API key |
+| `CHRONOS_PERMISSION_MODE` | `prompt`, `auto_approve`, or `deny` for approval-gated tools |
+| `CHRONOS_DEBUG` | `true` to enable agent debug logs |
+| `CHRONOS_TRACE` | `true` to attach the storage-backed tracer |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` / `MISTRAL_API_KEY` | Provider API keys (expanded from `${VAR}` in configs) |
 
 ## Config File Discovery

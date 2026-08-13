@@ -5,6 +5,14 @@ sidebar_label: "Release Notes"
 
 Chronos is distributed as a Go module (`github.com/spawn08/chronos`), cross-platform CLI binaries, and a container image. Tagged releases include checksums, an SBOM, and signed artifacts. See [CLI Install](getting-started/cli-install.md) for installation options.
 
+## v0.11.0 — CLI runtime control
+
+- **Session approval bypass** — enter `a` at an interactive tool prompt to approve the rest of the CLI session, use `--permission-mode auto_approve`, or use the explicit `--dangerously-skip-permissions` shortcut. Explicitly denied tools remain blocked.
+- **Declarative tool policy** — YAML tools now accept `permission`, `requires_confirmation`, and `requires_user_input`; agents accept `permission_mode`.
+- **Streaming preference** — YAML `stream` is honored by REPL and headless runs, with `--stream` and `--no-stream` overrides.
+- **Native reasoning** — normalized reasoning configuration maps to OpenAI reasoning effort, Anthropic thinking budgets, and Gemini thinking configuration; reasoning output remains separate from final answer text.
+- **CLI observability** — YAML/CLI debug and trace controls wire model/tool spans for blocking and streaming execution.
+
 ## v0.10.2 — CLI approval reliability
 
 This patch release improves interactive CLI approval handling for tool calls that require human review.

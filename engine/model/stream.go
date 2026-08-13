@@ -34,6 +34,7 @@ func sendCtx(ctx context.Context, ch chan<- *ChatResponse, cr *ChatResponse) boo
 func AggregateStream(ctx context.Context, ch <-chan *ChatResponse) (*ChatResponse, error) {
 	final := &ChatResponse{Role: RoleAssistant}
 	var content strings.Builder
+	var reasoning strings.Builder
 	// Tool calls are keyed by their streamed identity so fragmented argument
 	// deltas reassemble in order.
 	toolOrder := make([]string, 0)
@@ -47,6 +48,7 @@ func AggregateStream(ctx context.Context, ch <-chan *ChatResponse) (*ChatRespons
 		case cr, ok := <-ch:
 			if !ok {
 				final.Content = content.String()
+				final.Reasoning = reasoning.String()
 				for _, k := range toolOrder {
 					final.ToolCalls = append(final.ToolCalls, *toolByKey[k])
 				}
@@ -68,6 +70,7 @@ func AggregateStream(ctx context.Context, ch <-chan *ChatResponse) (*ChatRespons
 				final.ID = cr.ID
 			}
 			content.WriteString(cr.Content)
+			reasoning.WriteString(cr.Reasoning)
 			if cr.Usage.PromptTokens > 0 {
 				final.Usage.PromptTokens = cr.Usage.PromptTokens
 			}

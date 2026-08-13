@@ -42,6 +42,9 @@ func (g *Gemini) Name() string  { return "gemini" }
 func (g *Gemini) Model() string { return g.config.Model }
 
 func (g *Gemini) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
+	if err := validateReasoningToolCompatibility(g.Name(), req); err != nil {
+		return nil, fmt.Errorf("gemini chat: %w", err)
+	}
 	modelID := req.Model
 	if modelID == "" {
 		modelID = g.config.Model
@@ -68,6 +71,9 @@ func (g *Gemini) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, err
 }
 
 func (g *Gemini) StreamChat(ctx context.Context, req *ChatRequest) (<-chan *ChatResponse, error) {
+	if err := validateReasoningToolCompatibility(g.Name(), req); err != nil {
+		return nil, fmt.Errorf("gemini stream: %w", err)
+	}
 	modelID := req.Model
 	if modelID == "" {
 		modelID = g.config.Model
@@ -168,6 +174,13 @@ func (g *Gemini) buildRequestBody(req *ChatRequest) map[string]any {
 	if req.ResponseFormat == "json_object" {
 		genConfig["responseMimeType"] = "application/json"
 	}
+	if req.Reasoning != nil && req.Reasoning.Enabled {
+		thinking := map[string]any{"includeThoughts": req.Reasoning.Summary}
+		if req.Reasoning.BudgetTokens > 0 {
+			thinking["thinkingBudget"] = req.Reasoning.BudgetTokens
+		}
+		genConfig["thinkingConfig"] = thinking
+	}
 	if len(genConfig) > 0 {
 		body["generationConfig"] = genConfig
 	}
@@ -205,9 +218,14 @@ func (g *Gemini) convertResponse(raw *geminiResponse) *ChatResponse {
 
 	candidate := raw.Candidates[0]
 	var textParts []string
+	var reasoningParts []string
 	for _, part := range candidate.Content.Parts {
 		if part.Text != "" {
-			textParts = append(textParts, part.Text)
+			if part.Thought {
+				reasoningParts = append(reasoningParts, part.Text)
+			} else {
+				textParts = append(textParts, part.Text)
+			}
 		}
 		if part.FunctionCall != nil {
 			argsJSON, _ := json.Marshal(part.FunctionCall.Args)
@@ -219,6 +237,7 @@ func (g *Gemini) convertResponse(raw *geminiResponse) *ChatResponse {
 		}
 	}
 	cr.Content = strings.Join(textParts, "")
+	cr.Reasoning = strings.Join(reasoningParts, "")
 
 	switch candidate.FinishReason {
 	case "MAX_TOKENS":
@@ -259,6 +278,7 @@ type geminiResponse struct {
 		Content struct {
 			Parts []struct {
 				Text         string `json:"text,omitempty"`
+				Thought      bool   `json:"thought,omitempty"`
 				FunctionCall *struct {
 					Name string `json:"name"`
 					Args any    `json:"args"`
