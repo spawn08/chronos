@@ -205,6 +205,19 @@ func TestTraceCRUD(t *testing.T) {
 		t.Fatalf("expected span 'test_span', got %q", got.Name)
 	}
 
+	tr.EndedAt = time.Now()
+	tr.Output = map[string]any{"status": "done"}
+	if upsertErr := store.InsertTrace(ctx, tr); upsertErr != nil {
+		t.Fatalf("upsert completed trace: %v", upsertErr)
+	}
+	got, err = store.GetTrace(ctx, "t1")
+	if err != nil {
+		t.Fatalf("GetTrace after upsert: %v", err)
+	}
+	if got.EndedAt.IsZero() || got.Output == nil {
+		t.Fatalf("completed trace was not persisted: %#v", got)
+	}
+
 	traces, err := store.ListTraces(ctx, "s1")
 	if err != nil {
 		t.Fatalf("ListTraces: %v", err)

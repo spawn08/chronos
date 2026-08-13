@@ -5,6 +5,14 @@ sidebar_label: "Release Notes"
 
 Chronos is distributed as a Go module (`github.com/spawn08/chronos`), cross-platform CLI binaries, and a container image. Tagged releases include checksums, an SBOM, and signed artifacts. See [CLI Install](getting-started/cli-install.md) for installation options.
 
+## v0.12.0 — Azure reasoning and observable team streaming
+
+- **Azure Responses API** — native Azure reasoning automatically uses `/openai/v1/responses`, supports function tools, and preserves encrypted reasoning state across stateless tool rounds.
+- **Observable team streaming** — team runs honor YAML streaming preferences, forward provider-approved reasoning summaries, expose effective runtime settings, and report stream failures instead of silently falling back to blocking execution.
+- **Reliable traces** — SQLite and PostgreSQL trace writes now upsert span completion data, including output, errors, and `ended_at`; CLI output resolves relative SQLite paths so trace databases are easy to locate.
+- **Runtime overrides** — `--no-debug` and `--no-trace` explicitly override enabled YAML settings, complementing the existing positive flags.
+- **Safer diagnostics** — PostgreSQL DSNs are redacted from configuration output while Azure model deployment names and reasoning-summary settings are displayed clearly.
+
 ## v0.11.0 — CLI runtime control
 
 - **Session approval bypass** — enter `a` at an interactive tool prompt to approve the rest of the CLI session, use `--permission-mode auto_approve`, or use the explicit `--dangerously-skip-permissions` shortcut. Explicitly denied tools remain blocked.

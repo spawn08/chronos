@@ -80,6 +80,33 @@ func TestStripGlobalPermissionFlags(t *testing.T) {
 	}
 }
 
+func TestStripGlobalNegativeRuntimeFlags(t *testing.T) {
+	oldArgs := os.Args
+	oldDebug, hadDebug := os.LookupEnv("CHRONOS_DEBUG")
+	oldTrace, hadTrace := os.LookupEnv("CHRONOS_TRACE")
+	t.Cleanup(func() {
+		os.Args = oldArgs
+		restoreEnv("CHRONOS_DEBUG", oldDebug, hadDebug)
+		restoreEnv("CHRONOS_TRACE", oldTrace, hadTrace)
+	})
+
+	os.Args = []string{"chronos", "--no-debug", "--no-trace", "run", "hello"}
+	if err := stripGlobalFlags(); err != nil {
+		t.Fatalf("stripGlobalFlags: %v", err)
+	}
+	if os.Getenv("CHRONOS_DEBUG") != "false" || os.Getenv("CHRONOS_TRACE") != "false" {
+		t.Fatalf("negative flags were not exported: debug=%q trace=%q", os.Getenv("CHRONOS_DEBUG"), os.Getenv("CHRONOS_TRACE"))
+	}
+}
+
+func TestApplyCLIRuntimeOverridesRejectsTracingWithoutStorage(t *testing.T) {
+	t.Setenv("CHRONOS_TRACE", "true")
+	a := &agent.Agent{ID: "no-store"}
+	if err := applyCLIRuntimeOverrides(a); err == nil || !strings.Contains(err.Error(), "requires persistent storage") {
+		t.Fatalf("applyCLIRuntimeOverrides error = %v, want persistent storage error", err)
+	}
+}
+
 func TestStripGlobalFlagsRejectsInvalidValues(t *testing.T) {
 	oldArgs := os.Args
 	t.Cleanup(func() { os.Args = oldArgs })

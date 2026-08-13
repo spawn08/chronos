@@ -240,6 +240,12 @@ func executeAgent(ctx context.Context, a *agent.Agent, state graph.State) (graph
 
 	resp, err := streamAgentContent(ctx, a, msg)
 	if err != nil {
+		// A streaming run must surface stream failures instead of silently
+		// retrying through the blocking path and appearing to hang until a final
+		// response arrives. Blocking team runs retain the graph fallback.
+		if _, streaming := sinkFrom(ctx); streaming {
+			return nil, err
+		}
 		result, runErr := a.Run(ctx, state)
 		if runErr != nil {
 			return nil, runErr

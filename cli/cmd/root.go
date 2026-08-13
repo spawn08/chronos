@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -140,12 +141,14 @@ func stripGlobalFlags() error {
 			if err := os.Setenv("CHRONOS_PERMISSION_MODE", string(tool.PermissionModeAutoApprove)); err != nil {
 				return fmt.Errorf("set CHRONOS_PERMISSION_MODE: %w", err)
 			}
-		case arg == "--debug":
-			if err := os.Setenv("CHRONOS_DEBUG", "true"); err != nil {
+		case arg == "--debug" || arg == "--no-debug":
+			value := strconv.FormatBool(arg == "--debug")
+			if err := os.Setenv("CHRONOS_DEBUG", value); err != nil {
 				return fmt.Errorf("set CHRONOS_DEBUG: %w", err)
 			}
-		case arg == "--trace":
-			if err := os.Setenv("CHRONOS_TRACE", "true"); err != nil {
+		case arg == "--trace" || arg == "--no-trace":
+			value := strconv.FormatBool(arg == "--trace")
+			if err := os.Setenv("CHRONOS_TRACE", value); err != nil {
 				return fmt.Errorf("set CHRONOS_TRACE: %w", err)
 			}
 		default:
@@ -170,8 +173,8 @@ Global options:
   --permission-mode <mode>  prompt (default), auto_approve, or deny
   --dangerously-skip-permissions
                             Auto-approve approval-gated tools for this CLI process
-  --debug                   Enable agent execution logs on stderr
-  --trace                   Persist model/graph spans in the configured storage
+  --debug, --no-debug       Enable or disable agent execution logs on stderr
+  --trace, --no-trace       Enable or disable persisted model/tool/graph spans
 
 Commands:
   repl                      Start interactive REPL (loads agent from YAML config)
@@ -182,7 +185,8 @@ Commands:
   agent show <id>           Show agent configuration details
   agent chat <id>           Start a chat session with a specific agent
   team list                 List teams defined in config
-  team run [--stream] <id> <message>   Run a multi-agent team on a task (--stream for live tokens)
+  team run [--stream|--no-stream] <id> <message>
+                            Run a multi-agent team on a task
   team show <id>            Show team configuration details
   deploy <config.yaml> <msg> Deploy agents/team from YAML and run in sandbox
   sessions                  Session management (list, resume, export)
@@ -435,11 +439,18 @@ func applyCLIRuntimeOverrides(a *agent.Agent) error {
 	if a == nil {
 		return nil
 	}
-	if strings.EqualFold(os.Getenv("CHRONOS_DEBUG"), "true") {
-		a.Debug = true
+	if debugValue, configured := os.LookupEnv("CHRONOS_DEBUG"); configured {
+		a.Debug = strings.EqualFold(debugValue, "true")
 	}
-	if strings.EqualFold(os.Getenv("CHRONOS_TRACE"), "true") && a.Storage != nil {
-		a.Tracer = chronostrace.NewCollector(a.Storage)
+	if traceValue, configured := os.LookupEnv("CHRONOS_TRACE"); configured {
+		if strings.EqualFold(traceValue, "true") {
+			if a.Storage == nil {
+				return fmt.Errorf("CLI tracing for agent %q requires persistent storage; configure storage.backend as sqlite or postgres", a.ID)
+			}
+			a.Tracer = chronostrace.NewCollector(a.Storage)
+		} else {
+			a.Tracer = nil
+		}
 	}
 	if modeValue := strings.TrimSpace(os.Getenv("CHRONOS_PERMISSION_MODE")); modeValue != "" && a.Tools != nil {
 		mode, err := tool.ParsePermissionMode(modeValue)
@@ -850,7 +861,11 @@ func agentShow(idOrName string) error {
 		fmt.Printf("  Description:   %s\n", cfg.Description)
 	}
 	fmt.Printf("  Provider:      %s\n", cfg.Model.Provider)
-	fmt.Printf("  Model:         %s\n", cfg.Model.Model)
+	modelID := cfg.Model.Model
+	if modelID == "" {
+		modelID = cfg.Model.Deployment
+	}
+	fmt.Printf("  Model:         %s\n", modelID)
 	if cfg.Model.BaseURL != "" {
 		fmt.Printf("  Base URL:      %s\n", cfg.Model.BaseURL)
 	}
@@ -874,29 +889,37 @@ func agentShow(idOrName string) error {
 	if cfg.StreamConfigured {
 		fmt.Printf("  Stream:        %t\n", cfg.Stream)
 	}
+	fmt.Printf("  Debug:         %t\n", cfg.Debug)
+	fmt.Printf("  Tracing:       %t\n", cfg.Tracing)
 	if cfg.PermissionMode != "" {
 		fmt.Printf("  Permissions:   %s\n", cfg.PermissionMode)
 	}
 	if cfg.Reasoning.Native || cfg.Reasoning.Strategy != "" {
-		fmt.Printf("  Reasoning:     strategy=%s native=%t effort=%s budget=%d\n",
-			cfg.Reasoning.Strategy, cfg.Reasoning.Native, cfg.Reasoning.Effort, cfg.Reasoning.BudgetTokens)
+		fmt.Printf("  Reasoning:     strategy=%s native=%t effort=%s budget=%d summary=%t\n",
+			cfg.Reasoning.Strategy, cfg.Reasoning.Native, cfg.Reasoning.Effort, cfg.Reasoning.BudgetTokens, cfg.Reasoning.Summary)
 	}
 	return nil
 }
 
 func storageLabel(cfg agent.StorageConfig) string {
-	if cfg.Backend == "" {
-		return "sqlite (default)"
+	backend := strings.ToLower(strings.TrimSpace(cfg.Backend))
+	if backend == "" {
+		backend = "sqlite"
 	}
-	label := cfg.Backend
-	if cfg.DSN != "" {
+	if backend == "sqlite" {
 		dsn := cfg.DSN
-		if len(dsn) > 40 {
-			dsn = dsn[:37] + "..."
+		if dsn == "" {
+			dsn = "chronos.db"
 		}
-		label += " (" + dsn + ")"
+		if dsn != ":memory:" && !filepath.IsAbs(dsn) {
+			if absolute, err := filepath.Abs(dsn); err == nil {
+				dsn = absolute
+			}
+		}
+		return "sqlite (" + dsn + ")"
 	}
-	return label
+	// Never print a PostgreSQL/Redis DSN because it may contain credentials.
+	return backend
 }
 
 func agentChat(idOrName string) error {
@@ -1173,19 +1196,24 @@ func buildHierarchyTeam(tc *agent.TeamConfig, agents map[string]*agent.Agent, me
 }
 
 func teamRun() error {
-	// Parse: chronos team run [--stream] <team_id> <message...>
+	// Parse: chronos team run [--stream|--no-stream] <team_id> <message...>
 	streaming := false
+	streamSet := false
 	var positional []string
 	for _, arg := range os.Args[3:] {
 		switch arg {
 		case "--stream", "-s":
 			streaming = true
+			streamSet = true
+		case "--no-stream":
+			streaming = false
+			streamSet = true
 		default:
 			positional = append(positional, arg)
 		}
 	}
 	if len(positional) < 2 {
-		return fmt.Errorf("usage: chronos team run [--stream] <team_id> <message>")
+		return fmt.Errorf("usage: chronos team run [--stream|--no-stream] <team_id> <message>")
 	}
 	teamID := positional[0]
 	message := strings.Join(positional[1:], " ")
@@ -1200,6 +1228,9 @@ func teamRun() error {
 	if err != nil {
 		return err
 	}
+	if !streamSet {
+		streaming = configuredTeamStreaming(fc, tc)
+	}
 
 	t, err := buildTeamByID(ctx, teamID)
 	if err != nil {
@@ -1210,6 +1241,29 @@ func teamRun() error {
 	fmt.Printf("Agents: %s\n", strings.Join(tc.Agents, ", "))
 	if tc.Coordinator != "" {
 		fmt.Printf("Coordinator: %s\n", tc.Coordinator)
+	}
+	fmt.Printf("Streaming: %t\n", streaming)
+	for _, agentID := range tc.Agents {
+		cfg, findErr := fc.FindAgent(agentID)
+		if findErr != nil {
+			continue
+		}
+		debug, tracing := cfg.Debug, cfg.Tracing
+		strategy := normalizedReasoningStrategy(cfg.Reasoning.Strategy)
+		native, effort, summary := cfg.Reasoning.Native, cfg.Reasoning.Effort, cfg.Reasoning.Summary
+		if built := t.Agents[agentID]; built != nil {
+			debug = built.Debug
+			tracing = built.Tracer != nil
+			strategy = reasoningStrategyLabel(built.Reasoning)
+			native = built.ReasoningConfig.Enabled
+			effort = built.ReasoningConfig.Effort
+			summary = built.ReasoningConfig.Summary
+		}
+		fmt.Printf("Runtime[%s]: debug=%t tracing=%t reasoning=%s native=%t effort=%s summary=%t\n",
+			agentID, debug, tracing, strategy, native, effort, summary)
+		if tracing {
+			fmt.Printf("Trace store[%s]: %s\n", agentID, storageLabel(cfg.Storage))
+		}
 	}
 	fmt.Printf("Message: %s\n\n", message)
 
@@ -1240,6 +1294,46 @@ func teamRun() error {
 	return nil
 }
 
+// configuredTeamStreaming applies agent-level YAML streaming preferences to a
+// team run. Team execution has a single streaming mode, so it is enabled by
+// default only when every participating member (and coordinator, if separate)
+// explicitly enables streaming. CLI --stream/--no-stream flags take precedence.
+func normalizedReasoningStrategy(strategy string) string {
+	if strings.TrimSpace(strategy) == "" {
+		return "none"
+	}
+	return strategy
+}
+
+func reasoningStrategyLabel(strategy agent.ReasoningStrategy) string {
+	switch strategy {
+	case agent.ReasoningCoT:
+		return "cot"
+	case agent.ReasoningReflection:
+		return "reflection"
+	default:
+		return "none"
+	}
+}
+
+func configuredTeamStreaming(fc *agent.FileConfig, tc *agent.TeamConfig) bool {
+	if fc == nil || tc == nil || len(tc.Agents) == 0 {
+		return false
+	}
+
+	participantIDs := append([]string(nil), tc.Agents...)
+	if tc.Coordinator != "" && !slices.Contains(participantIDs, tc.Coordinator) {
+		participantIDs = append(participantIDs, tc.Coordinator)
+	}
+	for _, id := range participantIDs {
+		cfg, err := fc.FindAgent(id)
+		if err != nil || !cfg.StreamConfigured || !cfg.Stream {
+			return false
+		}
+	}
+	return true
+}
+
 // teamRunStream runs a team with token-by-token streaming, printing each agent's
 // output under a labeled header. Tokens from different agents may interleave under
 // the parallel strategy; the per-agent header marks whose output follows.
@@ -1250,12 +1344,26 @@ func teamRunStream(ctx context.Context, t *team.Team, message string) error {
 	}
 
 	var current string
+	reasoningOpen := make(map[string]bool)
+	closeReasoning := func(agentID string) {
+		if reasoningOpen[agentID] {
+			fmt.Fprintln(os.Stderr, "\n[/reasoning summary]")
+			delete(reasoningOpen, agentID)
+		}
+	}
 	for evt := range ch {
 		switch evt.Type {
 		case team.TeamEventAgentStart:
 			fmt.Printf("\n─── %s ───\n", evt.AgentID)
 			current = evt.AgentID
+		case team.TeamEventReasoning:
+			if !reasoningOpen[evt.AgentID] {
+				fmt.Fprintf(os.Stderr, "[reasoning summary: %s]\n", evt.AgentID)
+				reasoningOpen[evt.AgentID] = true
+			}
+			fmt.Fprint(os.Stderr, evt.Content)
 		case team.TeamEventToken:
+			closeReasoning(evt.AgentID)
 			// Re-label if a different agent's tokens interleave (parallel strategy).
 			if evt.AgentID != current {
 				fmt.Printf("\n─── %s ───\n", evt.AgentID)
@@ -1263,6 +1371,7 @@ func teamRunStream(ctx context.Context, t *team.Team, message string) error {
 			}
 			fmt.Print(evt.Content)
 		case team.TeamEventAgentEnd:
+			closeReasoning(evt.AgentID)
 			fmt.Println()
 		case team.TeamEventError:
 			return fmt.Errorf("team run: %w", evt.Err)

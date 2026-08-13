@@ -2,6 +2,7 @@ package team
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -13,7 +14,8 @@ import (
 // streamingProvider emits its response one rune-chunk at a time so tests can
 // verify token-level streaming.
 type streamingProvider struct {
-	response string
+	response  string
+	reasoning string
 }
 
 func (p *streamingProvider) Chat(_ context.Context, _ *model.ChatRequest) (*model.ChatResponse, error) {
@@ -21,7 +23,10 @@ func (p *streamingProvider) Chat(_ context.Context, _ *model.ChatRequest) (*mode
 }
 
 func (p *streamingProvider) StreamChat(_ context.Context, _ *model.ChatRequest) (<-chan *model.ChatResponse, error) {
-	ch := make(chan *model.ChatResponse, len(p.response)+1)
+	ch := make(chan *model.ChatResponse, len(p.response)+2)
+	if p.reasoning != "" {
+		ch <- &model.ChatResponse{Role: model.RoleAssistant, Reasoning: p.reasoning, Delta: true}
+	}
 	// Split the response into a few fragments to exercise reassembly.
 	for _, frag := range chunkString(p.response, 3) {
 		ch <- &model.ChatResponse{Role: model.RoleAssistant, Content: frag, Delta: true}
@@ -120,6 +125,47 @@ func TestRunStream_Parallel(t *testing.T) {
 	resp, _ := final["response"].(string)
 	if !strings.Contains(resp, "aaa") || !strings.Contains(resp, "bbb") {
 		t.Errorf("merged response = %q, want both outputs", resp)
+	}
+}
+
+func TestRunStream_ForwardsReasoning(t *testing.T) {
+	a, _ := agent.New("reasoner", "reasoner").
+		WithModel(&streamingProvider{response: "answer", reasoning: "checked options"}).
+		WithReasoningConfig(model.ReasoningConfig{Enabled: true, Summary: true}).
+		Build()
+	tm := New("seq", "Sequential", StrategySequential).AddAgent(a)
+
+	ch, err := tm.RunStream(context.Background(), graph.State{"message": "hi"})
+	if err != nil {
+		t.Fatalf("RunStream: %v", err)
+	}
+	var got string
+	for evt := range ch {
+		if evt.Type == TeamEventReasoning {
+			got += evt.Content
+		}
+	}
+	if got != "checked options" {
+		t.Fatalf("reasoning = %q", got)
+	}
+}
+
+type streamFailureProvider struct{ streamingProvider }
+
+func (p *streamFailureProvider) StreamChat(context.Context, *model.ChatRequest) (<-chan *model.ChatResponse, error) {
+	return nil, errors.New("stream unavailable")
+}
+
+func TestRunStream_DoesNotSilentlyFallbackToBlocking(t *testing.T) {
+	a, _ := agent.New("a", "a").WithModel(&streamFailureProvider{streamingProvider{response: "blocking result"}}).Build()
+	tm := New("seq", "Sequential", StrategySequential).AddAgent(a)
+	ch, err := tm.RunStream(context.Background(), graph.State{"message": "hi"})
+	if err != nil {
+		t.Fatalf("RunStream: %v", err)
+	}
+	_, _, runErr := drainTeamStream(t, ch)
+	if runErr == nil || !strings.Contains(runErr.Error(), "stream unavailable") {
+		t.Fatalf("stream error = %v", runErr)
 	}
 }
 

@@ -69,6 +69,9 @@ func AggregateStream(ctx context.Context, ch <-chan *ChatResponse) (*ChatRespons
 			if cr.ID != "" {
 				final.ID = cr.ID
 			}
+			if cr.ProviderState != nil {
+				final.ProviderState = cr.ProviderState
+			}
 			content.WriteString(cr.Content)
 			reasoning.WriteString(cr.Reasoning)
 			if cr.Usage.PromptTokens > 0 {

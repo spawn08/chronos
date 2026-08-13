@@ -281,6 +281,10 @@ func validateFileConfig(fc *FileConfig) error {
 		if cfg.Reasoning.BudgetTokens < 0 {
 			return fmt.Errorf("agent %q reasoning.budget_tokens must be non-negative", cfg.ID)
 		}
+		storageBackend := strings.ToLower(strings.TrimSpace(cfg.Storage.Backend))
+		if cfg.Tracing && (storageBackend == "none" || storageBackend == "memory") {
+			return fmt.Errorf("agent %q tracing requires persistent storage; configure storage.backend as sqlite or postgres", cfg.ID)
+		}
 		providerName := strings.ToLower(strings.TrimSpace(cfg.Model.Provider))
 		if cfg.Reasoning.Native && len(cfg.Tools) > 0 && (providerName == "anthropic" || providerName == "gemini" || providerName == "google") {
 			return fmt.Errorf("agent %q: %s native reasoning with tools is not supported because signed thinking blocks cannot be preserved", cfg.ID, providerName)
@@ -440,6 +444,8 @@ func BuildAgent(ctx context.Context, cfg *AgentConfig, opts ...BuildOption) (*Ag
 		if cfg.Tracing {
 			b.WithTracer(chronostrace.NewCollector(store))
 		}
+	} else if cfg.Tracing {
+		return nil, fmt.Errorf("agent %q tracing requires persistent storage; configure storage backend as sqlite or postgres", cfg.ID)
 	}
 
 	return b.Build()

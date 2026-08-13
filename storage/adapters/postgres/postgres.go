@@ -338,7 +338,12 @@ func (s *Store) InsertTrace(ctx context.Context, t *storage.Trace) error {
 	inp, _ := json.Marshal(t.Input)
 	outp, _ := json.Marshal(t.Output)
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO traces (id, tenant_id, session_id, parent_id, name, kind, input, output, error, started_at, ended_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+		`INSERT INTO traces (id, tenant_id, session_id, parent_id, name, kind, input, output, error, started_at, ended_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		 ON CONFLICT (id) DO UPDATE SET
+		 tenant_id=EXCLUDED.tenant_id, session_id=EXCLUDED.session_id, parent_id=EXCLUDED.parent_id,
+		 name=EXCLUDED.name, kind=EXCLUDED.kind, input=EXCLUDED.input, output=EXCLUDED.output,
+		 error=EXCLUDED.error, started_at=EXCLUDED.started_at, ended_at=EXCLUDED.ended_at`,
 		t.ID, tenant, t.SessionID, t.ParentID, t.Name, t.Kind, inp, outp, t.Error, t.StartedAt, t.EndedAt,
 	)
 	return err

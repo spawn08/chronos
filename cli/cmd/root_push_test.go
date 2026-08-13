@@ -64,13 +64,13 @@ func TestParseErrorStrategy_AllBranches_Push(t *testing.T) {
 }
 
 func TestStorageLabel_Push(t *testing.T) {
-	if got := storageLabel(agent.StorageConfig{}); got != "sqlite (default)" {
+	if got := storageLabel(agent.StorageConfig{}); !strings.HasPrefix(got, "sqlite (") || !strings.HasSuffix(got, "/chronos.db)") {
 		t.Fatalf("empty config: got %q", got)
 	}
 	longDSN := strings.Repeat("z", 50)
 	got := storageLabel(agent.StorageConfig{Backend: "postgres", DSN: longDSN})
-	if !strings.Contains(got, "...") {
-		t.Fatalf("expected truncated DSN in %q", got)
+	if got != "postgres" {
+		t.Fatalf("postgres DSN must be redacted, got %q", got)
 	}
 	short := storageLabel(agent.StorageConfig{Backend: "mem"})
 	if short != "mem" {

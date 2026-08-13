@@ -15,8 +15,10 @@ type TeamEventType string
 const (
 	// TeamEventAgentStart is emitted just before an agent begins producing output.
 	TeamEventAgentStart TeamEventType = "agent_start"
-	// TeamEventToken carries a single text fragment from an agent as it streams.
+	// TeamEventToken carries a single answer-text fragment from an agent.
 	TeamEventToken TeamEventType = "token"
+	// TeamEventReasoning carries a provider-approved reasoning-summary fragment.
+	TeamEventReasoning TeamEventType = "reasoning"
 	// TeamEventAgentEnd is emitted after an agent finishes producing output.
 	TeamEventAgentEnd TeamEventType = "agent_end"
 	// TeamEventComplete is the final event carrying the team's merged output state.
@@ -75,20 +77,27 @@ func streamAgentContent(ctx context.Context, a *agent.Agent, msg string) (*model
 	}
 
 	resp := &model.ChatResponse{Role: model.RoleAssistant}
-	var b strings.Builder
+	var content, reasoning strings.Builder
 	for chunk := range ch {
 		if chunk.Err != nil {
 			return nil, chunk.Err
 		}
 		if chunk.Delta {
-			b.WriteString(chunk.Content)
-			sink(TeamStreamEvent{Type: TeamEventToken, AgentID: a.ID, Content: chunk.Content})
+			if chunk.Reasoning != "" {
+				reasoning.WriteString(chunk.Reasoning)
+				sink(TeamStreamEvent{Type: TeamEventReasoning, AgentID: a.ID, Content: chunk.Reasoning})
+			}
+			if chunk.Content != "" {
+				content.WriteString(chunk.Content)
+				sink(TeamStreamEvent{Type: TeamEventToken, AgentID: a.ID, Content: chunk.Content})
+			}
 			continue
 		}
 		resp.Usage = chunk.Usage
 		resp.StopReason = chunk.StopReason
 	}
-	resp.Content = b.String()
+	resp.Content = content.String()
+	resp.Reasoning = reasoning.String()
 	return resp, nil
 }
 

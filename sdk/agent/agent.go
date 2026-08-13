@@ -575,7 +575,7 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 		if iteration > maxIter {
 			return nil, fmt.Errorf("agent %q: exceeded max tool-calling iterations (%d) with unsatisfied tool calls", a.ID, maxIter)
 		}
-		resp, messages, err = a.handleToolCalls(ctx, messages, resp, req.Tools)
+		resp, messages, err = a.handleToolCalls(ctx, messages, resp, req)
 		if err != nil {
 			return nil, err
 		}
@@ -676,7 +676,7 @@ func (a *Agent) streamLoop(ctx context.Context, req *model.ChatRequest, messages
 			a.emitError(ctx, out, err)
 			return
 		}
-		followReq := &model.ChatRequest{Messages: messages, Tools: req.Tools}
+		followReq := &model.ChatRequest{Messages: messages, Tools: req.Tools, Reasoning: req.Reasoning}
 		resp, err = a.streamOnce(ctx, followReq, out)
 		if err != nil {
 			a.emitError(ctx, out, fmt.Errorf("agent %q stream: %w", a.ID, err))
@@ -846,10 +846,9 @@ func accumulateUsage(total *model.Usage, u model.Usage) {
 // message history so the caller can thread it into the next iteration — this
 // is what preserves context across multiple tool-calling rounds.
 //
-// tools is passed through to the follow-up model call so the model can request
-// further tools on subsequent rounds; dropping it would break multi-round tool
-// use.
-func (a *Agent) handleToolCalls(ctx context.Context, messages []model.Message, resp *model.ChatResponse, tools []model.ToolDefinition) (*model.ChatResponse, []model.Message, error) {
+// The original request's tools and native-reasoning settings are passed through
+// to every follow-up so multi-round tool use keeps the same provider mode.
+func (a *Agent) handleToolCalls(ctx context.Context, messages []model.Message, resp *model.ChatResponse, req *model.ChatRequest) (*model.ChatResponse, []model.Message, error) {
 	messages, err := a.executeToolCalls(ctx, messages, resp)
 	if err != nil {
 		return nil, messages, err
@@ -857,7 +856,7 @@ func (a *Agent) handleToolCalls(ctx context.Context, messages []model.Message, r
 
 	// Pass the tool definitions on the follow-up call so the model can request
 	// more tools on the next round.
-	followUp, err := a.Model.Chat(ctx, &model.ChatRequest{Messages: messages, Tools: tools})
+	followUp, err := a.Model.Chat(ctx, &model.ChatRequest{Messages: messages, Tools: req.Tools, Reasoning: req.Reasoning})
 	if err != nil {
 		return nil, messages, err
 	}
@@ -876,9 +875,10 @@ func (a *Agent) handleToolCalls(ctx context.Context, messages []model.Message, r
 // returned messages into the next (blocking or streaming) round themselves.
 func (a *Agent) executeToolCalls(ctx context.Context, messages []model.Message, resp *model.ChatResponse) ([]model.Message, error) {
 	messages = append(messages, model.Message{
-		Role:      model.RoleAssistant,
-		Content:   resp.Content,
-		ToolCalls: resp.ToolCalls,
+		Role:          model.RoleAssistant,
+		Content:       resp.Content,
+		ToolCalls:     resp.ToolCalls,
+		ProviderState: resp.ProviderState,
 	})
 
 	a.debugLog("handling %d tool calls", len(resp.ToolCalls))

@@ -7,8 +7,10 @@ import (
 	"net/http"
 )
 
-// AzureOpenAI implements Provider for Azure-hosted OpenAI models.
-// Uses the Azure-specific endpoint format: {base}/openai/deployments/{deployment}/chat/completions?api-version={version}
+// AzureOpenAI implements Provider for Azure-hosted OpenAI models. Standard
+// requests use the deployment-scoped Chat Completions endpoint; native
+// reasoning requests use /openai/v1/responses so reasoning and tools can be
+// combined without the Chat Completions API restriction.
 type AzureOpenAI struct {
 	config     ProviderConfig
 	deployment string
@@ -62,7 +64,17 @@ func (a *AzureOpenAI) chatPath() string {
 	return fmt.Sprintf("/openai/deployments/%s/chat/completions?api-version=%s", a.deployment, a.apiVersion)
 }
 
+func (a *AzureOpenAI) responsesPath() string { return "/openai/v1/responses" }
+
+func (a *AzureOpenAI) usesResponsesAPI(req *ChatRequest) bool {
+	return req != nil && nativeReasoningEnabled(req.Reasoning)
+}
+
 func (a *AzureOpenAI) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
+	if a.usesResponsesAPI(req) {
+		return a.responsesChat(ctx, req)
+	}
+
 	body := buildOpenAIRequestBody(req, a.deployment, false)
 	delete(body, "model") // Azure uses the deployment name in the URL
 
@@ -83,15 +95,40 @@ func (a *AzureOpenAI) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse
 	return convertOpenAIResponse(&oaiResp), nil
 }
 
+func (a *AzureOpenAI) responsesChat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
+	resp, err := a.http.post(ctx, a.responsesPath(), buildResponsesRequestBody(req, a.deployment, false))
+	if err != nil {
+		return nil, fmt.Errorf("azure openai responses: %w", err)
+	}
+	defer drainAndClose(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("azure openai responses: %s", readErrorBody(resp))
+	}
+
+	var raw responsesAPIResponse
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, fmt.Errorf("azure openai responses decode: %w", err)
+	}
+	if err := responsesError(&raw); err != nil {
+		return nil, fmt.Errorf("azure openai responses: %w", err)
+	}
+	return convertResponsesResponse(&raw), nil
+}
+
 func (a *AzureOpenAI) StreamChat(ctx context.Context, req *ChatRequest) (<-chan *ChatResponse, error) {
+	responsesMode := a.usesResponsesAPI(req)
+	path := a.chatPath()
 	body := buildOpenAIRequestBody(req, a.deployment, true)
 	delete(body, "model")
+	if responsesMode {
+		path = a.responsesPath()
+		body = buildResponsesRequestBody(req, a.deployment, true)
+	}
 
-	resp, err := a.http.post(ctx, a.chatPath(), body)
+	resp, err := a.http.postStream(ctx, path, body)
 	if err != nil {
 		return nil, fmt.Errorf("azure openai stream: %w", err)
 	}
-
 	if resp.StatusCode != http.StatusOK {
 		errMsg := readErrorBody(resp)
 		resp.Body.Close()
@@ -102,6 +139,10 @@ func (a *AzureOpenAI) StreamChat(ctx context.Context, req *ChatRequest) (<-chan 
 	go func() {
 		defer resp.Body.Close()
 		defer close(ch)
+		if responsesMode {
+			readResponsesSSEStream(ctx, resp, ch)
+			return
+		}
 		readOpenAISSEStream(ctx, resp, ch)
 	}()
 	return ch, nil

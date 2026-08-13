@@ -36,6 +36,8 @@ Override YAML for one CLI process:
 chronos --permission-mode prompt repl
 chronos --permission-mode auto_approve run "update the changelog"
 chronos --permission-mode deny run "inspect this repository"
+chronos --debug --trace run "diagnose this run"
+chronos --no-debug --no-trace run "run quietly"
 
 # Explicit shortcut for a trusted local environment:
 chronos --dangerously-skip-permissions repl
@@ -66,14 +68,18 @@ agents:
     stream: true
 ```
 
-Headless runs honor the same setting. CLI flags take precedence:
+Headless runs honor the same setting. A team run streams by default when every participating agent (including a separate coordinator) explicitly resolves to `stream: true`; mixed or unspecified team preferences default to a completed response. CLI flags take precedence:
 
 ```bash
 chronos run --stream "explain this code"     # force token streaming
 chronos run --no-stream "explain this code"  # force one completed response
+chronos team run --stream pipeline "run it"  # force team token streaming
+chronos team run --no-stream pipeline "run it"
 ```
 
 Inside the REPL, `/stream on` and `/stream off` change the current session. Switching agents applies that agent's explicit stream preference.
+
+Streaming emits model answer tokens as the provider produces them. Tool-only rounds may produce no answer text, so a tool-heavy agent can appear quiet while it reads or writes files. Enable `debug: true` or `--debug` to see live model-round and tool-call progress on stderr. A streaming transport failure is reported directly; it is never silently retried as a blocking call.
 
 ## Native reasoning and thinking
 
@@ -103,12 +109,13 @@ Provider mapping:
 | Provider | Native mapping |
 |----------|----------------|
 | OpenAI / compatible | `reasoning_effort` when `effort` is set |
+| Azure OpenAI | Native reasoning uses `/openai/v1/responses`; encrypted reasoning items are preserved across tool rounds |
 | Anthropic | extended `thinking` with `budget_tokens` |
 | Gemini | `thinkingConfig` with budget and `includeThoughts` |
 
-Reasoning is carried separately from final answer text in `ChatResponse.Reasoning`. The CLI displays streamed provider reasoning on stderr only when `summary: true`; normal answer text remains on stdout. Provider support varies by model and endpoint.
+Reasoning is carried separately from final answer text in `ChatResponse.Reasoning`. The CLI displays provider-approved reasoning summaries on stderr only when both `native: true` and `summary: true`; normal answer text remains on stdout. Providers can legitimately return no summary for simple or tool-only rounds. Setting `native: false` disables `effort`, `budget_tokens`, and native summary output. Prompt strategies (`cot` and `reflection`) modify answer content and are not native reasoning summaries.
 
-Anthropic and Gemini native reasoning is currently rejected when the request also contains tools because those providers require signed thought blocks to be preserved across tool rounds. Chronos fails closed instead of sending an invalid follow-up request. Prompt-based `cot`/`reflection` remains available with tools; OpenAI-compatible native reasoning with tools is unaffected.
+Anthropic and Gemini native reasoning is currently rejected when the request also contains tools because those providers require signed thought blocks to be preserved across tool rounds. Chronos fails closed instead of sending an invalid follow-up request. Azure OpenAI native reasoning with tools is sent through the Responses API and preserves encrypted reasoning state between rounds.
 
 ## Debug logs and traces
 
@@ -132,15 +139,17 @@ chronos --debug --trace run --stream "diagnose this failure"
 ```
 
 - `--debug` writes detailed agent execution logs to stderr.
-- `--trace` attaches the storage-backed tracer and persists model, tool, and graph spans in the configured storage.
-- Streaming and blocking model calls emit the same model-call hooks and tracing spans.
+- `--trace` attaches the storage-backed tracer and persists model, tool, and graph spans in the configured storage; it does **not** print spans to the terminal.
+- Tracing requires `storage.backend: sqlite` or `storage.backend: postgres`. Configuration fails clearly when tracing is combined with `none`/`memory` storage instead of silently dropping spans.
+- A relative SQLite DSN such as `chronos.db` is resolved from the process working directory, not from the YAML file's directory. `chronos agent show <id>` prints the resolved absolute path.
+- Streaming and blocking model calls emit the same model-call hooks and tracing spans. Span completion updates the original row with `ended_at`, output, and error data.
 
 Environment equivalents:
 
 ```bash
 CHRONOS_PERMISSION_MODE=auto_approve
-CHRONOS_DEBUG=true
-CHRONOS_TRACE=true
+CHRONOS_DEBUG=true             # false explicitly disables YAML debug
+CHRONOS_TRACE=true             # false explicitly disables YAML tracing
 ```
 
 ## Precedence

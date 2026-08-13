@@ -35,7 +35,7 @@ func (c *Collector) EndSpan(ctx context.Context, t *storage.Trace, output any, e
 	t.Output = output
 	t.Error = errMsg
 	t.EndedAt = time.Now()
-	// Re-insert (upsert) — in production, use UPDATE
+	// InsertTrace is an idempotent upsert: the start and end of a span share an ID.
 	return c.store.InsertTrace(ctx, t)
 }
 

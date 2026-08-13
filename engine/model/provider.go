@@ -43,6 +43,10 @@ type Message struct {
 	Name       string         `json:"name,omitempty"`
 	ToolCallID string         `json:"tool_call_id,omitempty"`
 	ToolCalls  []ToolCall     `json:"tool_calls,omitempty"`
+	// ProviderState carries opaque, provider-owned conversation items needed on
+	// a later tool round (for example encrypted Responses API reasoning items).
+	// The agent passes it back unchanged and never serializes or displays it.
+	ProviderState any `json:"-"`
 }
 
 // AddImageURL adds an image URL content part to the message.
@@ -155,6 +159,9 @@ type ChatResponse struct {
 	// from the final answer. Callers should not display it unless explicitly
 	// requested because providers may treat internal reasoning as sensitive.
 	Reasoning string `json:"reasoning,omitempty"`
+	// ProviderState carries opaque provider output required to continue a
+	// stateless tool-calling conversation. It is never exposed in JSON.
+	ProviderState any `json:"-"`
 	// Delta is true when this is a partial streaming response.
 	Delta bool `json:"delta,omitempty"`
 	// Err carries a streaming transport/parse error surfaced mid-stream. It is

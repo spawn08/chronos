@@ -314,7 +314,7 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 		if iteration > maxIter {
 			return nil, fmt.Errorf("agent %q: exceeded max tool-calling iterations (%d) with unsatisfied tool calls", a.ID, maxIter)
 		}
-		resp, messages, err = a.handleToolCalls(ctx, messages, resp, req.Tools)
+		resp, messages, err = a.handleToolCalls(ctx, messages, resp, req)
 		if err != nil {
 			return nil, err
 		}

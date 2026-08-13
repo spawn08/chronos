@@ -102,6 +102,10 @@ func TestLoadFileRejectsUnknownAndInvalidRuntimeFields(t *testing.T) {
 			name: "invalid reasoning effort",
 			yaml: "agents:\n  - id: dev\n    name: Dev\n    model:\n      provider: openai\n    reasoning:\n      effort: extreme\n",
 		},
+		{
+			name: "tracing without persistent storage",
+			yaml: "agents:\n  - id: dev\n    name: Dev\n    model:\n      provider: openai\n    storage:\n      backend: none\n    tracing: true\n",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

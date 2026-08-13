@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spawn08/chronos/sdk/agent"
 	"github.com/spawn08/chronos/sdk/team"
 	"github.com/spawn08/chronos/storage"
 )
@@ -380,6 +381,55 @@ teams:
     strategy: sequential
     agents: [agent-a]
 `
+
+func TestConfiguredTeamStreaming(t *testing.T) {
+	tests := []struct {
+		name       string
+		agents     []agent.AgentConfig
+		team       agent.TeamConfig
+		wantStream bool
+	}{
+		{
+			name: "all members enabled",
+			agents: []agent.AgentConfig{
+				{ID: "a", Stream: true, StreamConfigured: true},
+				{ID: "b", Stream: true, StreamConfigured: true},
+			},
+			team:       agent.TeamConfig{Agents: []string{"a", "b"}},
+			wantStream: true,
+		},
+		{
+			name: "explicit member disable wins",
+			agents: []agent.AgentConfig{
+				{ID: "a", Stream: true, StreamConfigured: true},
+				{ID: "b", StreamConfigured: true},
+			},
+			team: agent.TeamConfig{Agents: []string{"a", "b"}},
+		},
+		{
+			name:   "unset defaults to blocking",
+			agents: []agent.AgentConfig{{ID: "a"}},
+			team:   agent.TeamConfig{Agents: []string{"a"}},
+		},
+		{
+			name: "separate coordinator participates",
+			agents: []agent.AgentConfig{
+				{ID: "worker", Stream: true, StreamConfigured: true},
+				{ID: "coordinator", StreamConfigured: true},
+			},
+			team: agent.TeamConfig{Agents: []string{"worker"}, Coordinator: "coordinator"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fc := &agent.FileConfig{Agents: tt.agents}
+			if got := configuredTeamStreaming(fc, &tt.team); got != tt.wantStream {
+				t.Fatalf("configuredTeamStreaming() = %t, want %t", got, tt.wantStream)
+			}
+		})
+	}
+}
 
 func TestTeamRun_TeamNotFound(t *testing.T) {
 	tmpDir := t.TempDir()

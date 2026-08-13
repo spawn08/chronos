@@ -175,18 +175,22 @@ func TestMaskEnv(t *testing.T) {
 }
 
 func TestStorageLabel(t *testing.T) {
+	defaultPath, err := filepath.Abs("chronos.db")
+	if err != nil {
+		t.Fatalf("filepath.Abs: %v", err)
+	}
 	tests := []struct {
 		name string
 		cfg  agent.StorageConfig
 		want string
 	}{
-		{"empty backend", agent.StorageConfig{}, "sqlite (default)"},
+		{"empty backend", agent.StorageConfig{}, "sqlite (" + defaultPath + ")"},
 		{"backend only", agent.StorageConfig{Backend: "postgres"}, "postgres"},
-		{"backend with dsn", agent.StorageConfig{Backend: "postgres", DSN: "host=localhost"}, "postgres (host=localhost)"},
+		{"backend with dsn redacted", agent.StorageConfig{Backend: "postgres", DSN: "host=localhost"}, "postgres"},
 		{
-			"long dsn truncated",
+			"long dsn redacted",
 			agent.StorageConfig{Backend: "postgres", DSN: "host=localhost port=5432 dbname=chronos_prod user=admin password=secret sslmode=require"},
-			"postgres (host=localhost port=5432 dbname=chron...)",
+			"postgres",
 		},
 	}
 	for _, tt := range tests {
