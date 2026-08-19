@@ -79,7 +79,7 @@ func buildHierarchyGraph(g *graph.StateGraph, node *SupervisorNode) {
 
 	// Add supervisor node
 	g.AddNode(sup.ID, func(ctx context.Context, state graph.State) (graph.State, error) {
-		input, _ := state["input"].(string)
+		input := promptFromState(state)
 		resp, err := streamAgentContent(ctx, sup, input)
 		if err != nil {
 			return state, fmt.Errorf("supervisor %q: %w", sup.ID, err)
@@ -93,7 +93,7 @@ func buildHierarchyGraph(g *graph.StateGraph, node *SupervisorNode) {
 	for _, worker := range node.Workers {
 		workerCopy := worker
 		g.AddNode(worker.ID, func(ctx context.Context, state graph.State) (graph.State, error) {
-			input, _ := state["input"].(string)
+			input := promptFromState(state)
 			resp, err := streamAgentContent(ctx, workerCopy, input)
 			if err != nil {
 				return state, fmt.Errorf("worker %q: %w", workerCopy.ID, err)

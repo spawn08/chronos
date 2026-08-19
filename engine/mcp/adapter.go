@@ -11,10 +11,26 @@ import (
 // RegisterTools fetches tools from the MCP server and registers them
 // in the given tool registry. Each MCP tool becomes a tool.Definition
 // whose handler routes calls through the MCP client.
+//
+// The per-tool permission comes from the server's ServerConfig.Permission
+// when set (e.g. "allow" for a trusted read-only server), otherwise it
+// falls back to PermRequireApproval since MCP tools are externally provided.
 func RegisterTools(ctx context.Context, client *Client, registry *tool.Registry) (int, error) {
 	tools, err := client.ListTools(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("mcp adapter: list tools: %w", err)
+	}
+
+	perm := tool.PermRequireApproval
+	if raw := client.Config().Permission; raw != "" {
+		p := tool.Permission(raw)
+		switch p {
+		case tool.PermAllow, tool.PermRequireApproval:
+			perm = p
+		default:
+			return 0, fmt.Errorf("mcp adapter: server %q: invalid permission %q (want %q or %q)",
+				client.Config().Name, raw, tool.PermAllow, tool.PermRequireApproval)
+		}
 	}
 
 	for _, t := range tools {
@@ -25,10 +41,7 @@ func RegisterTools(ctx context.Context, client *Client, registry *tool.Registry)
 			Name:        mcpTool.Name,
 			Description: mcpTool.Description,
 			Parameters:  mcpTool.InputSchema,
-			// MCP tools come from an external server and are not vetted by
-			// Chronos, so they default to requiring human approval before
-			// execution. Callers can override the Permission after registration.
-			Permission: tool.PermRequireApproval,
+			Permission:  perm,
 			Handler: func(ctx context.Context, args map[string]any) (any, error) {
 				return mcpClient.CallTool(ctx, mcpTool.Name, args)
 			},

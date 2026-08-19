@@ -16,6 +16,7 @@ import (
 	"github.com/spawn08/chronos/engine/tool"
 	"github.com/spawn08/chronos/engine/tool/builtins"
 	chronostrace "github.com/spawn08/chronos/os/trace"
+	"github.com/spawn08/chronos/sdk/skill"
 	"github.com/spawn08/chronos/storage"
 	"github.com/spawn08/chronos/storage/adapters/postgres"
 	"github.com/spawn08/chronos/storage/adapters/sqlite"
@@ -39,6 +40,17 @@ type AgentConfig struct {
 	// MCPServers lists Model Context Protocol servers whose tools are
 	// registered with the agent when ConnectMCP is called after Build.
 	MCPServers []mcp.ServerConfig `yaml:"mcp_servers,omitempty"`
+
+	// Skills lists reusable capability bundles this agent advertises. Each
+	// skill is registered in the agent's skill.Registry, and its Description
+	// (plus any Markdown body loaded from ManifestPath) is appended to the
+	// system prompt at Build time so the model knows the skill is available.
+	Skills []SkillConfig `yaml:"skills,omitempty"`
+
+	// UseSkills references skills by name from the file-level catalog loaded
+	// from FileConfig.SkillsDir (SKILL.md files). Referencing an unknown name
+	// aborts the build with a clear error.
+	UseSkills []string `yaml:"use_skills,omitempty"`
 
 	OutputSchema     map[string]any      `yaml:"output_schema,omitempty"`
 	NumHistoryRuns   int                 `yaml:"num_history_runs,omitempty"`
@@ -79,6 +91,22 @@ type StorageConfig struct {
 	MaxOpenConns       int `yaml:"max_open_conns,omitempty"`
 	MaxIdleConns       int `yaml:"max_idle_conns,omitempty"`
 	ConnMaxLifetimeSec int `yaml:"conn_max_lifetime_sec,omitempty"`
+}
+
+// SkillConfig declares a named capability bundle for an agent. Skills are
+// descriptive: they advertise what the agent can do (and which tools it uses
+// to do it), and their Description + optional Markdown body are injected into
+// the system prompt at Build time. Skills do NOT register tools by themselves
+// — list those under `tools:` or `mcp_servers:` as usual.
+type SkillConfig struct {
+	Name         string         `yaml:"name"`
+	Version      string         `yaml:"version,omitempty"`
+	Description  string         `yaml:"description,omitempty"`
+	Author       string         `yaml:"author,omitempty"`
+	Tags         []string       `yaml:"tags,omitempty"`
+	Tools        []string       `yaml:"tools,omitempty"`
+	Manifest     map[string]any `yaml:"manifest,omitempty"`
+	ManifestPath string         `yaml:"manifest_path,omitempty"` // Markdown file appended to system prompt
 }
 
 // ToolConfig describes a tool to register on the agent.
@@ -137,12 +165,50 @@ type TeamConfig struct {
 
 // FileConfig is the top-level structure of a Chronos YAML config file.
 // Supports both a single agent and a list of agents, plus optional teams.
+//
+// The optional Deployment block carries deployment-topology metadata (name,
+// sandbox backend, work directory, image, resource caps). It is only consumed
+// by `chronos deploy`; the `run`, `team run`, `repl`, and `serve` entry points
+// ignore it, so the same YAML can back every command.
 type FileConfig struct {
 	Agents []AgentConfig `yaml:"agents"`
 	Teams  []TeamConfig  `yaml:"teams,omitempty"`
 
 	// Defaults applied to all agents unless overridden
 	Defaults *AgentConfig `yaml:"defaults,omitempty"`
+
+	// SkillsDir is a filesystem path (absolute, or relative to the YAML file's
+	// directory) that BuildAll walks at load time for SKILL.md files. Every
+	// discovered skill forms a catalog keyed by name; agents opt into catalog
+	// skills by listing their names under `use_skills:`.
+	SkillsDir string `yaml:"skills_dir,omitempty"`
+
+	// Deployment holds `chronos deploy`-only fields. Ignored by other commands.
+	Deployment *DeploymentConfig `yaml:"deployment,omitempty"`
+
+	// Deprecated: top-level `name:` — use `deployment.name` instead. Accepted
+	// for one release; NormalizeFileConfig promotes it into Deployment and
+	// prints a deprecation warning.
+	LegacyName string `yaml:"name,omitempty"`
+	// Deprecated: top-level `sandbox:` — use `deployment.sandbox` instead.
+	LegacySandbox *SandboxConfig `yaml:"sandbox,omitempty"`
+}
+
+// DeploymentConfig is the `chronos deploy` metadata block on FileConfig.
+type DeploymentConfig struct {
+	Name    string        `yaml:"name,omitempty"`
+	Sandbox SandboxConfig `yaml:"sandbox,omitempty"`
+}
+
+// SandboxConfig configures the isolation boundary a deployment runs inside.
+// It maps 1:1 to sandbox.Config; the CLI parses these values into the
+// sandbox package's own types.
+type SandboxConfig struct {
+	Backend string `yaml:"backend,omitempty"` // process, container, k8s
+	WorkDir string `yaml:"work_dir,omitempty"`
+	Image   string `yaml:"image,omitempty"`
+	Network string `yaml:"network,omitempty"`
+	Timeout string `yaml:"timeout,omitempty"` // e.g. "5m", "30s"
 }
 
 // FindTeam looks up a team by ID (case-insensitive) within a FileConfig.
@@ -175,30 +241,12 @@ func LoadFile(path string) (*FileConfig, error) {
 	}
 	markExplicitStreamFields(data, &fc)
 
-	// Normalize backward-compatible aliases before applying defaults.
-	if fc.Defaults != nil && fc.Defaults.System == "" {
-		fc.Defaults.System = fc.Defaults.SystemLegacy
-	}
-	for i := range fc.Agents {
-		if fc.Agents[i].System == "" {
-			fc.Agents[i].System = fc.Agents[i].SystemLegacy
-		}
-	}
-
-	// Apply defaults to each agent
-	if fc.Defaults != nil {
-		for i := range fc.Agents {
-			applyDefaults(&fc.Agents[i], fc.Defaults)
-		}
-	}
-
-	// Expand environment variables in all string fields
-	for i := range fc.Agents {
-		expandEnvInConfig(&fc.Agents[i])
-	}
-	// Expand env in team-level router model overrides too.
-	for i := range fc.Teams {
-		expandModelEnv(&fc.Teams[i].RouterModel)
+	NormalizeFileConfig(&fc)
+	// Resolve a relative skills_dir against the YAML file's directory so
+	// `skills_dir: .chronos/skills` works regardless of the caller's cwd.
+	// Absolute paths are left alone.
+	if fc.SkillsDir != "" && !filepath.IsAbs(fc.SkillsDir) {
+		fc.SkillsDir = filepath.Join(filepath.Dir(resolvedPath), fc.SkillsDir)
 	}
 	if err := validateFileConfig(&fc); err != nil {
 		return nil, fmt.Errorf("validate %s: %w", resolvedPath, err)
@@ -299,6 +347,26 @@ func validateFileConfig(fc *FileConfig) error {
 				return fmt.Errorf("agent %q tool %q permission %q is invalid", cfg.ID, cfg.Tools[j].Name, cfg.Tools[j].Permission)
 			}
 		}
+		for j := range cfg.MCPServers {
+			switch tool.Permission(cfg.MCPServers[j].Permission) {
+			case "", tool.PermAllow, tool.PermRequireApproval:
+			default:
+				return fmt.Errorf("agent %q mcp_servers[%d] (%q) permission %q is invalid (want %q or %q)",
+					cfg.ID, j, cfg.MCPServers[j].Name, cfg.MCPServers[j].Permission,
+					tool.PermAllow, tool.PermRequireApproval)
+			}
+		}
+		seenSkill := make(map[string]struct{}, len(cfg.Skills))
+		for j := range cfg.Skills {
+			name := strings.TrimSpace(cfg.Skills[j].Name)
+			if name == "" {
+				return fmt.Errorf("agent %q skills[%d].name is required", cfg.ID, j)
+			}
+			if _, dup := seenSkill[name]; dup {
+				return fmt.Errorf("agent %q skills: duplicate name %q", cfg.ID, name)
+			}
+			seenSkill[name] = struct{}{}
+		}
 	}
 
 	teamIDs := make(map[string]struct{}, len(fc.Teams))
@@ -357,8 +425,25 @@ func BuildAgent(ctx context.Context, cfg *AgentConfig, opts ...BuildOption) (*Ag
 	if cfg.UserID != "" {
 		b.WithUserID(cfg.UserID)
 	}
-	if cfg.System != "" {
-		b.WithSystemPrompt(cfg.System)
+	// Compose the system prompt from cfg.System plus any skill blocks so the
+	// model sees skill descriptions/manifests inline with its base instructions.
+	skillBlock, skillObjs, err := buildSkillsBlock(cfg.Skills, cfg.UseSkills, bo.skillCatalog, bo.basePath)
+	if err != nil {
+		return nil, fmt.Errorf("agent %q skills: %w", cfg.ID, err)
+	}
+	for _, s := range skillObjs {
+		b.AddSkill(s)
+	}
+	systemPrompt := cfg.System
+	if skillBlock != "" {
+		if systemPrompt == "" {
+			systemPrompt = skillBlock
+		} else {
+			systemPrompt = systemPrompt + "\n\n" + skillBlock
+		}
+	}
+	if systemPrompt != "" {
+		b.WithSystemPrompt(systemPrompt)
 	}
 	for _, inst := range cfg.Instructions {
 		b.AddInstruction(inst)
@@ -391,8 +476,8 @@ func BuildAgent(ctx context.Context, cfg *AgentConfig, opts ...BuildOption) (*Ag
 	if permissionErr != nil {
 		return nil, fmt.Errorf("agent %q permission mode: %w", cfg.ID, permissionErr)
 	}
-	if err := b.agent.Tools.SetPermissionMode(permissionMode); err != nil {
-		return nil, fmt.Errorf("agent %q permission mode: %w", cfg.ID, err)
+	if setErr := b.agent.Tools.SetPermissionMode(permissionMode); setErr != nil {
+		return nil, fmt.Errorf("agent %q permission mode: %w", cfg.ID, setErr)
 	}
 	if cfg.Context.MaxTokens > 0 || cfg.Context.SummarizeThreshold > 0 || cfg.Context.PreserveRecentTurns > 0 {
 		b.WithContextConfig(ContextConfig{
@@ -407,9 +492,9 @@ func BuildAgent(ctx context.Context, cfg *AgentConfig, opts ...BuildOption) (*Ag
 	// handler factory supplied via WithToolHandler; unregistered custom tools
 	// fall back to an explicit error placeholder (never a silent no-op).
 	for _, tc := range cfg.Tools {
-		toolDef, err := buildToolFromConfig(tc, bo.toolHandlers)
-		if err != nil {
-			return nil, fmt.Errorf("agent %q tool %q: %w", cfg.ID, tc.Name, err)
+		toolDef, toolErr := buildToolFromConfig(tc, bo.toolHandlers, bo.basePath)
+		if toolErr != nil {
+			return nil, fmt.Errorf("agent %q tool %q: %w", cfg.ID, tc.Name, toolErr)
 		}
 		if toolDef != nil {
 			b.AddTool(toolDef)
@@ -454,6 +539,17 @@ func BuildAgent(ctx context.Context, cfg *AgentConfig, opts ...BuildOption) (*Ag
 // BuildAll constructs all agents from a FileConfig. BuildOptions (e.g.
 // WithToolHandler) apply to every agent built.
 func BuildAll(ctx context.Context, fc *FileConfig, opts ...BuildOption) (map[string]*Agent, error) {
+	// Load the file-level skill catalog (SKILL.md files under skills_dir)
+	// once and share it across every agent build. When a caller already
+	// supplied WithSkillCatalog, that explicit catalog wins and this pass is
+	// a no-op — the option list is walked left-to-right by newBuildOptions.
+	if fc.SkillsDir != "" {
+		catalog, err := loadSkillCatalog(fc.SkillsDir)
+		if err != nil {
+			return nil, fmt.Errorf("skills_dir %q: %w", fc.SkillsDir, err)
+		}
+		opts = append([]BuildOption{WithSkillCatalog(catalog)}, opts...)
+	}
 	agents := make(map[string]*Agent, len(fc.Agents))
 	for i := range fc.Agents {
 		a, err := BuildAgent(ctx, &fc.Agents[i], opts...)
@@ -676,8 +772,10 @@ func postgresPoolOptions(cfg StorageConfig) []postgres.Option {
 //     a silent no-op — so callers learn the tool needs a registered handler.
 //   - A custom tool with neither a registered handler nor a description is
 //     skipped (returns nil, nil).
-func buildToolFromConfig(tc ToolConfig, handlers *toolHandlerRegistry) (*tool.Definition, error) {
-	basePath := "."
+func buildToolFromConfig(tc ToolConfig, handlers *toolHandlerRegistry, basePath string) (*tool.Definition, error) {
+	if basePath == "" {
+		basePath = "."
+	}
 	var def *tool.Definition
 
 	switch tc.Name {
@@ -745,6 +843,112 @@ func buildToolFromConfig(tc ToolConfig, handlers *toolHandlerRegistry) (*tool.De
 	return def, nil
 }
 
+// buildSkillsBlock turns inline SkillConfig entries plus catalog references
+// (useRefs) into (a) a prompt fragment injected below cfg.System and (b) the
+// *skill.Skill objects to register on the agent.
+//
+// A manifest_path (if set) is read as UTF-8 text and appended verbatim to the
+// skill's block; relative paths resolve against basePath, or CWD when
+// basePath is empty. Each useRefs entry is resolved against catalog by name;
+// unknown names abort the build so typos fail fast.
+func buildSkillsBlock(configs []SkillConfig, useRefs []string, catalog map[string]*skill.Skill, basePath string) (string, []*skill.Skill, error) {
+	if len(configs) == 0 && len(useRefs) == 0 {
+		return "", nil, nil
+	}
+	var buf bytes.Buffer
+	buf.WriteString("## Available skills\n")
+	skills := make([]*skill.Skill, 0, len(configs)+len(useRefs))
+
+	for i := range configs {
+		sc := &configs[i]
+		name := strings.TrimSpace(sc.Name)
+		if name == "" {
+			return "", nil, fmt.Errorf("skills[%d].name is required", i)
+		}
+		s := &skill.Skill{
+			Name:        name,
+			Version:     sc.Version,
+			Description: sc.Description,
+			Author:      sc.Author,
+			Tags:        append([]string(nil), sc.Tags...),
+			Tools:       append([]string(nil), sc.Tools...),
+			Manifest:    sc.Manifest,
+		}
+		if sc.ManifestPath != "" {
+			path := sc.ManifestPath
+			if !filepath.IsAbs(path) && basePath != "" {
+				path = filepath.Join(basePath, path)
+			}
+			body, err := os.ReadFile(path)
+			if err != nil {
+				return "", nil, fmt.Errorf("skill %q manifest_path %q: %w", name, sc.ManifestPath, err)
+			}
+			if s.Manifest == nil {
+				s.Manifest = map[string]any{}
+			}
+			s.Manifest["body"] = string(bytes.TrimSpace(body))
+		}
+		writeSkillBlock(&buf, s)
+		skills = append(skills, s)
+	}
+
+	for _, ref := range useRefs {
+		name := strings.TrimSpace(ref)
+		if name == "" {
+			continue
+		}
+		s, ok := catalog[name]
+		if !ok {
+			return "", nil, fmt.Errorf("use_skills: %q not found in catalog (loaded from skills_dir)", name)
+		}
+		writeSkillBlock(&buf, s)
+		skills = append(skills, s)
+	}
+	return strings.TrimRight(buf.String(), "\n"), skills, nil
+}
+
+// writeSkillBlock renders one skill into the shared "## Available skills"
+// markdown block used to prime the model. Kept in sync between inline and
+// catalog-referenced skills so both look identical in the system prompt.
+func writeSkillBlock(buf *bytes.Buffer, s *skill.Skill) {
+	fmt.Fprintf(buf, "\n### %s", s.Name)
+	if s.Version != "" {
+		fmt.Fprintf(buf, " (v%s)", s.Version)
+	}
+	buf.WriteString("\n")
+	if s.Description != "" {
+		buf.WriteString(s.Description)
+		buf.WriteString("\n")
+	}
+	if len(s.Tools) > 0 {
+		fmt.Fprintf(buf, "Tools: %s\n", strings.Join(s.Tools, ", "))
+	}
+	if s.Manifest != nil {
+		if body, ok := s.Manifest["body"].(string); ok && strings.TrimSpace(body) != "" {
+			buf.WriteString("\n")
+			buf.WriteString(strings.TrimSpace(body))
+			buf.WriteString("\n")
+		}
+	}
+}
+
+// loadSkillCatalog walks skillsDir for SKILL.md files and returns a
+// name→*Skill map used to resolve AgentConfig.UseSkills references.
+func loadSkillCatalog(skillsDir string) (map[string]*skill.Skill, error) {
+	skills, err := skill.LoadFromDir(skillsDir)
+	if err != nil {
+		return nil, err
+	}
+	catalog := make(map[string]*skill.Skill, len(skills))
+	for _, s := range skills {
+		if _, dup := catalog[s.Name]; dup {
+			return nil, fmt.Errorf("duplicate skill name %q in catalog", s.Name)
+		}
+		catalog[s.Name] = s
+	}
+	return catalog, nil
+}
+
 func parseReasoningStrategy(value string) (ReasoningStrategy, error) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", "none", "off":
@@ -809,6 +1013,13 @@ func expandEnvInConfig(cfg *AgentConfig) {
 			cfg.MCPServers[i].Args[j] = expandEnv(cfg.MCPServers[i].Args[j])
 		}
 	}
+	for i := range cfg.Skills {
+		cfg.Skills[i].Description = expandEnv(cfg.Skills[i].Description)
+		cfg.Skills[i].ManifestPath = expandEnv(cfg.Skills[i].ManifestPath)
+	}
+	for i := range cfg.UseSkills {
+		cfg.UseSkills[i] = expandEnv(cfg.UseSkills[i])
+	}
 }
 
 // expandModelEnv replaces ${VAR} references in a ModelConfig's string fields.
@@ -847,7 +1058,68 @@ func buildOpenAICompatibleProvider(name, defaultBaseURL string, cfg ModelConfig,
 	})
 }
 
-func applyDefaults(cfg, defaults *AgentConfig) {
+// NormalizeFileConfig applies the standard post-parse pipeline to a FileConfig:
+// backward-compatible alias resolution (`system` <- `system_prompt` legacy),
+// per-agent default merging via ApplyDefaults, and ${ENV} expansion across
+// every string field on every agent and every team's router model. LoadFile
+// runs it internally; callers that unmarshal their own YAML wrapper (like the
+// deploy CLI, which adds a `sandbox:` block on top of FileConfig) should call
+// it before building agents so the two entry points cannot drift apart.
+func NormalizeFileConfig(fc *FileConfig) {
+	if fc == nil {
+		return
+	}
+	promoteLegacyDeploymentFields(fc)
+	if fc.Defaults != nil && fc.Defaults.System == "" {
+		fc.Defaults.System = fc.Defaults.SystemLegacy
+	}
+	for i := range fc.Agents {
+		if fc.Agents[i].System == "" {
+			fc.Agents[i].System = fc.Agents[i].SystemLegacy
+		}
+	}
+	if fc.Defaults != nil {
+		for i := range fc.Agents {
+			ApplyDefaults(&fc.Agents[i], fc.Defaults)
+		}
+	}
+	for i := range fc.Agents {
+		expandEnvInConfig(&fc.Agents[i])
+	}
+	for i := range fc.Teams {
+		expandModelEnv(&fc.Teams[i].RouterModel)
+	}
+}
+
+// promoteLegacyDeploymentFields folds pre-existing top-level `name:` and
+// `sandbox:` config into the new nested `deployment:` block. Emits a one-time
+// deprecation warning to stderr the first time either legacy field is seen in
+// a given process, so scripted deploys do not spam. Removal target: one
+// release after this change lands.
+func promoteLegacyDeploymentFields(fc *FileConfig) {
+	if fc.LegacyName == "" && fc.LegacySandbox == nil {
+		return
+	}
+	if fc.Deployment == nil {
+		fc.Deployment = &DeploymentConfig{}
+	}
+	if fc.Deployment.Name == "" && fc.LegacyName != "" {
+		fc.Deployment.Name = fc.LegacyName
+	}
+	if fc.LegacySandbox != nil && (fc.Deployment.Sandbox == SandboxConfig{}) {
+		fc.Deployment.Sandbox = *fc.LegacySandbox
+	}
+	fmt.Fprintln(os.Stderr, "chronos: top-level `name:` and `sandbox:` in config files are deprecated — move them under a nested `deployment:` block. They will be removed in a future release.")
+	fc.LegacyName = ""
+	fc.LegacySandbox = nil
+}
+
+// ApplyDefaults fills in every zero-valued field on cfg from defaults. It is
+// used internally by LoadFile and re-exported for callers (like the deploy CLI)
+// that unmarshal their own wrapper config and still need the same per-field
+// override behavior — provider, endpoint, deployment, api_version, storage,
+// system prompt, streaming, reasoning, and so on.
+func ApplyDefaults(cfg, defaults *AgentConfig) {
 	if cfg.Model.Provider == "" {
 		cfg.Model.Provider = defaults.Model.Provider
 	}

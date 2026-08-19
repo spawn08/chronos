@@ -62,7 +62,7 @@ func NewSwarm(cfg SwarmConfig) (*Team, error) {
 	for _, a := range cfg.Agents {
 		agentCopy := a
 		g.AddNode(a.ID, func(ctx context.Context, state graph.State) (graph.State, error) {
-			input, _ := state["input"].(string)
+			input := promptFromState(state)
 			resp, err := agentCopy.Chat(ctx, input)
 			if err != nil {
 				return state, fmt.Errorf("swarm agent %q: %w", agentCopy.ID, err)

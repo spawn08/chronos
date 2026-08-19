@@ -15,7 +15,7 @@ func TestBuildToolFromConfigPermissionOverrides(t *testing.T) {
 		Name:                 "file_write",
 		Permission:           tool.PermAllow,
 		RequiresConfirmation: &confirmation,
-	}, newToolHandlerRegistry())
+	}, newToolHandlerRegistry(), "")
 	if err != nil {
 		t.Fatalf("buildToolFromConfig: %v", err)
 	}
@@ -26,7 +26,7 @@ func TestBuildToolFromConfigPermissionOverrides(t *testing.T) {
 		t.Fatal("requires_confirmation override was not applied")
 	}
 
-	if _, err := buildToolFromConfig(ToolConfig{Name: "file_read", Permission: "maybe"}, newToolHandlerRegistry()); err == nil {
+	if _, err := buildToolFromConfig(ToolConfig{Name: "file_read", Permission: "maybe"}, newToolHandlerRegistry(), ""); err == nil {
 		t.Fatal("expected invalid permission error")
 	}
 }

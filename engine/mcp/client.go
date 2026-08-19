@@ -59,6 +59,11 @@ type ServerConfig struct {
 	Command   string    `json:"command,omitempty" yaml:"command,omitempty"`
 	Args      []string  `json:"args,omitempty" yaml:"args,omitempty"`
 	URL       string    `json:"url,omitempty" yaml:"url,omitempty"`
+	// Permission overrides the default per-tool permission applied when this
+	// server's tools are registered. Empty keeps the safe default
+	// ("require_approval"); "allow" auto-approves read-only trusted servers so
+	// they don't block on stdin during non-interactive team runs.
+	Permission string `json:"permission,omitempty" yaml:"permission,omitempty"`
 }
 
 // ToolInfo describes a tool provided by an MCP server.
@@ -357,6 +362,13 @@ func (c *Client) ReadResource(ctx context.Context, uri string) ([]ResourceConten
 // Info returns the server information from the initialize handshake.
 func (c *Client) Info() ServerInfo {
 	return c.info
+}
+
+// Config returns the ServerConfig this client was constructed with, so
+// callers can read connection metadata (Name, Transport, Permission, ...)
+// without holding a separate reference to the config.
+func (c *Client) Config() ServerConfig {
+	return c.config
 }
 
 // Close shuts down the MCP server connection. It force-kills the subprocess

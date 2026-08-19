@@ -7,12 +7,12 @@
 #   export OPENAI_API_KEY=sk-...
 #   chronos deploy examples/yaml-configs/sandbox-deploy.yaml "Build a REST API for todo items"
 
-name: sandbox-coding-team
-
-sandbox:
-  backend: process
-  work_dir: /tmp/chronos-sandbox
-  timeout: 5m
+deployment:
+  name: sandbox-coding-team
+  sandbox:
+    backend: process
+    work_dir: /tmp/chronos-sandbox
+    timeout: 5m
 
 defaults:
   model:

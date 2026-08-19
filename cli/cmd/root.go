@@ -1042,14 +1042,29 @@ func buildTeamByID(ctx context.Context, teamID string) (*team.Team, error) {
 		}
 		builtAgents = append(builtAgents, a)
 	}
+	// Connect MCP servers declared in YAML so `team run` picks up their tools.
+	// CloseMCP is intentionally not deferred here — the returned Team outlives
+	// this function; teamRun handles shutdown when the process exits.
+	for _, a := range builtAgents {
+		if err := a.ConnectMCP(ctx); err != nil {
+			return nil, fmt.Errorf("connect mcp for agent %q: %w", a.ID, err)
+		}
+	}
 	installInteractiveApprovalHandlers(builtAgents...)
 
+	return assembleTeamFromConfig(tc, agents)
+}
+
+// assembleTeamFromConfig turns a TeamConfig plus a set of pre-built agents into
+// a runnable Team. It handles the strategy-specific wiring (graph compilation
+// for swarm/hierarchy, coordinator/router/error-strategy knobs for the plain
+// strategies) so callers do not have to duplicate it.
+func assembleTeamFromConfig(tc *agent.TeamConfig, agents map[string]*agent.Agent) (*team.Team, error) {
 	strategy, err := parseStrategy(tc.Strategy)
 	if err != nil {
 		return nil, err
 	}
 
-	// Resolve member agents in declared order.
 	members := make([]*agent.Agent, 0, len(tc.Agents))
 	for _, agentID := range tc.Agents {
 		a, ok := agents[agentID]
@@ -1059,8 +1074,6 @@ func buildTeamByID(ctx context.Context, teamID string) (*team.Team, error) {
 		members = append(members, a)
 	}
 
-	// Graph-backed strategies build their own compiled graph; they cannot be
-	// assembled with team.New + AddAgent alone.
 	switch strategy {
 	case team.StrategySwarm:
 		return buildSwarmTeam(tc, members)

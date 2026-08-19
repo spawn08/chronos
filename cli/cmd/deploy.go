@@ -7,33 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/spawn08/chronos/engine/graph"
 	"github.com/spawn08/chronos/engine/tool/builtins"
 	"github.com/spawn08/chronos/sandbox"
 	"github.com/spawn08/chronos/sdk/agent"
-	"github.com/spawn08/chronos/sdk/team"
 )
-
-// DeployConfig is the YAML config for deploying agents/teams in a sandbox.
-type DeployConfig struct {
-	Name    string              `yaml:"name"`
-	Sandbox DeploySandboxConfig `yaml:"sandbox"`
-	Agents  []agent.AgentConfig `yaml:"agents"`
-	Teams   []agent.TeamConfig  `yaml:"teams,omitempty"`
-
-	Defaults *agent.AgentConfig `yaml:"defaults,omitempty"`
-}
-
-// DeploySandboxConfig defines the sandbox environment for deployment.
-type DeploySandboxConfig struct {
-	Backend string `yaml:"backend"` // process, container, k8s
-	WorkDir string `yaml:"work_dir,omitempty"`
-	Image   string `yaml:"image,omitempty"`
-	Network string `yaml:"network,omitempty"`
-	Timeout string `yaml:"timeout,omitempty"` // e.g. "5m", "30s"
-}
 
 func runDeploy() error {
 	args := os.Args[2:]
@@ -43,112 +21,87 @@ func runDeploy() error {
 	configPath := args[0]
 	message := strings.Join(args[1:], " ")
 
-	data, err := os.ReadFile(configPath)
+	// LoadFile parses the YAML, applies defaults, expands ${ENV}, promotes
+	// legacy top-level name/sandbox into deployment, and validates — the same
+	// pipeline every other command uses.
+	fc, err := agent.LoadFile(configPath)
 	if err != nil {
-		return fmt.Errorf("read deploy config: %w", err)
+		return fmt.Errorf("load deploy config: %w", err)
 	}
-
-	var dc DeployConfig
-	if err = yaml.Unmarshal(data, &dc); err != nil {
-		return fmt.Errorf("parse deploy config: %w", err)
+	if fc.Deployment == nil {
+		return fmt.Errorf("deploy: config %q is missing the required `deployment:` block (with `name:` and `sandbox:`)", configPath)
 	}
+	dep := fc.Deployment
 
 	fmt.Println("╔═══════════════════════════════════════════════════╗")
 	fmt.Println("║           Chronos Deploy                         ║")
 	fmt.Println("╚═══════════════════════════════════════════════════╝")
-	fmt.Printf("  Deployment: %s\n", dc.Name)
-	fmt.Printf("  Sandbox:    %s\n", dc.Sandbox.Backend)
-	fmt.Printf("  Agents:     %d\n", len(dc.Agents))
-	fmt.Printf("  Teams:      %d\n", len(dc.Teams))
+	fmt.Printf("  Deployment: %s\n", dep.Name)
+	fmt.Printf("  Sandbox:    %s\n", dep.Sandbox.Backend)
+	fmt.Printf("  Agents:     %d\n", len(fc.Agents))
+	fmt.Printf("  Teams:      %d\n", len(fc.Teams))
 	fmt.Printf("  Message:    %s\n\n", message)
 
 	ctx := context.Background()
 
-	// Set up sandbox
 	timeout := 5 * time.Minute
-	if dc.Sandbox.Timeout != "" {
-		var td time.Duration
-		td, err = time.ParseDuration(dc.Sandbox.Timeout)
-		if err == nil {
+	if dep.Sandbox.Timeout != "" {
+		if td, tdErr := time.ParseDuration(dep.Sandbox.Timeout); tdErr == nil {
 			timeout = td
 		}
 	}
 
 	sb, err := sandbox.NewFromConfig(sandbox.Config{
-		Backend: sandbox.ParseBackend(dc.Sandbox.Backend),
-		WorkDir: dc.Sandbox.WorkDir,
-		Image:   dc.Sandbox.Image,
-		Network: dc.Sandbox.Network,
+		Backend: sandbox.ParseBackend(dep.Sandbox.Backend),
+		WorkDir: dep.Sandbox.WorkDir,
+		Image:   dep.Sandbox.Image,
+		Network: dep.Sandbox.Network,
 	})
 	if err != nil {
 		return fmt.Errorf("create sandbox: %w", err)
 	}
 	defer sb.Close()
 
-	fmt.Printf("━━━ Sandbox initialized (%s, timeout=%s) ━━━\n\n", dc.Sandbox.Backend, timeout)
+	fmt.Printf("━━━ Sandbox initialized (%s, timeout=%s) ━━━\n\n", dep.Sandbox.Backend, timeout)
 
-	// Build the FileConfig from the deploy config
-	fc := &agent.FileConfig{
-		Agents:   dc.Agents,
-		Teams:    dc.Teams,
-		Defaults: dc.Defaults,
-	}
-
-	// Apply defaults
-	if fc.Defaults != nil {
-		for i := range fc.Agents {
-			applyDeployDefaults(&fc.Agents[i], fc.Defaults)
-		}
-	}
-
-	// Build all agents with sandbox-aware tools
-	agents, err := agent.BuildAll(ctx, fc)
+	// Root the built-in file tools at the sandbox work directory so YAML tool
+	// configs operate on the deployment's repo instead of the CLI's own cwd.
+	agents, err := agent.BuildAll(ctx, fc, agent.WithBasePath(dep.Sandbox.WorkDir))
 	if err != nil {
 		return fmt.Errorf("build agents: %w", err)
 	}
 
-	// Register sandbox-backed tools on agents that have tool capabilities
+	builtAgents := make([]*agent.Agent, 0, len(agents))
 	for _, a := range agents {
 		registerSandboxTools(a, sb, timeout)
+		builtAgents = append(builtAgents, a)
 	}
+
+	// Connect any MCP servers declared in YAML and register their tools.
+	// Build() records the configs; the connection handshake happens here so
+	// deploy/team-run pick up tools like azure-devops without extra wiring.
+	for _, a := range builtAgents {
+		if err := a.ConnectMCP(ctx); err != nil {
+			return fmt.Errorf("connect mcp for agent %q: %w", a.ID, err)
+		}
+	}
+	defer func() {
+		for _, a := range builtAgents {
+			a.CloseMCP()
+		}
+	}()
+
+	// Route tool-approval requests to an interactive prompt. Without this,
+	// tools declared with permission: require_approval would block silently.
+	installInteractiveApprovalHandlers(builtAgents...)
 
 	fmt.Printf("  Built %d agents\n", len(agents))
 
-	// If there are teams, run the first (or specified) team
-	if len(dc.Teams) > 0 {
-		tc := dc.Teams[0]
-		strategy, err := parseStrategy(tc.Strategy)
+	if len(fc.Teams) > 0 {
+		tc := &fc.Teams[0]
+		t, err := assembleTeamFromConfig(tc, agents)
 		if err != nil {
 			return err
-		}
-
-		t := team.New(tc.ID, tc.Name, strategy)
-		for _, agentID := range tc.Agents {
-			a, ok := agents[agentID]
-			if !ok {
-				return fmt.Errorf("team %q references unknown agent %q", tc.ID, agentID)
-			}
-			t.AddAgent(a)
-		}
-		if tc.Coordinator != "" {
-			coord, ok := agents[tc.Coordinator]
-			if !ok {
-				return fmt.Errorf("team %q references unknown coordinator %q", tc.ID, tc.Coordinator)
-			}
-			t.SetCoordinator(coord)
-		}
-		if tc.MaxConcurrency > 0 {
-			t.SetMaxConcurrency(tc.MaxConcurrency)
-		}
-		if tc.MaxIterations > 0 {
-			t.SetMaxIterations(tc.MaxIterations)
-		}
-		if tc.ErrorStrategy != "" {
-			es, esErr := parseErrorStrategy(tc.ErrorStrategy)
-			if esErr != nil {
-				return esErr
-			}
-			t.SetErrorStrategy(es)
 		}
 
 		fmt.Printf("\n━━━ Running team: %s (%s strategy) ━━━\n", tc.Name, tc.Strategy)
@@ -168,11 +121,9 @@ func runDeploy() error {
 			}
 		}
 		fmt.Printf("\n  [%d inter-agent messages exchanged]\n", len(t.MessageHistory()))
-	} else if len(dc.Agents) > 0 {
-		// No team — run the first agent in config order. agents is a map keyed
-		// by ID, so select deterministically by the config's declared order
-		// rather than ranging the map (whose iteration order is randomized).
-		firstID := dc.Agents[0].ID
+	} else if len(fc.Agents) > 0 {
+		// No team — run the first agent in declared order.
+		firstID := fc.Agents[0].ID
 		firstAgent, ok := agents[firstID]
 		if !ok {
 			return fmt.Errorf("agent %q was not built from config", firstID)
@@ -194,26 +145,5 @@ func registerSandboxTools(a *agent.Agent, sb sandbox.Sandbox, timeout time.Durat
 	sandboxShell := builtins.NewSandboxShellTool(sb, timeout)
 	if _, exists := a.Tools.Get("shell"); !exists {
 		a.Tools.Register(sandboxShell)
-	}
-}
-
-func applyDeployDefaults(cfg, defaults *agent.AgentConfig) {
-	if cfg.Model.Provider == "" {
-		cfg.Model.Provider = defaults.Model.Provider
-	}
-	if cfg.Model.Model == "" {
-		cfg.Model.Model = defaults.Model.Model
-	}
-	if cfg.Model.APIKey == "" {
-		cfg.Model.APIKey = defaults.Model.APIKey
-	}
-	if cfg.Model.BaseURL == "" {
-		cfg.Model.BaseURL = defaults.Model.BaseURL
-	}
-	if cfg.Storage.Backend == "" {
-		cfg.Storage.Backend = defaults.Storage.Backend
-	}
-	if cfg.System == "" {
-		cfg.System = defaults.System
 	}
 }

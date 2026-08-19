@@ -26,7 +26,7 @@ func TestApplyDefaults_PartialModel(t *testing.T) {
 	defaults := &AgentConfig{
 		Model: ModelConfig{Provider: "ollama", Model: "m", APIKey: "k"},
 	}
-	applyDefaults(cfg, defaults)
+	ApplyDefaults(cfg, defaults)
 	if cfg.Model.Provider != "ollama" {
 		t.Errorf("Provider = %q", cfg.Model.Provider)
 	}

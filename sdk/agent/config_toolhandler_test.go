@@ -161,7 +161,7 @@ func TestBuildToolFromConfig_Cases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			def, err := buildToolFromConfig(tt.tc, reg)
+			def, err := buildToolFromConfig(tt.tc, reg, "")
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("expected error, got def=%#v", def)
@@ -295,7 +295,7 @@ func TestBuildStorage_PostgresConstructs(t *testing.T) {
 
 // Ensure the placeholder error message is stable enough to guide users.
 func TestPlaceholderErrorMessage(t *testing.T) {
-	def, err := buildToolFromConfig(ToolConfig{Name: "some_custom_tool", Description: "d"}, newToolHandlerRegistry())
+	def, err := buildToolFromConfig(ToolConfig{Name: "some_custom_tool", Description: "d"}, newToolHandlerRegistry(), "")
 	if err != nil || def == nil {
 		t.Fatalf("build: def=%v err=%v", def, err)
 	}

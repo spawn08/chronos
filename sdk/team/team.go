@@ -286,6 +286,16 @@ func (t *Team) handleAgentMessage(ctx context.Context, a *agent.Agent, env *prot
 		if input == nil {
 			input = make(map[string]any)
 		}
+		// The coordinator's per-task Description is the actual prompt the
+		// specialist should chat with — not the raw user query it decomposed.
+		// Keep the original around under a distinct key so specialists (or
+		// downstream tasks) can still reference the top-level goal if needed.
+		if orig, ok := input["message"].(string); ok && orig != "" {
+			input["_root_task"] = orig
+		}
+		if task.Description != "" {
+			input["message"] = task.Description
+		}
 		input["_task_description"] = task.Description
 		input["_delegated_by"] = env.From
 
@@ -347,4 +357,20 @@ func (t *Team) handleAgentMessage(ctx context.Context, a *agent.Agent, env *prot
 	default:
 		return nil, nil
 	}
+}
+
+// promptFromState extracts the user prompt from a graph.State, tolerating the
+// two conventions the codebase uses interchangeably: state["input"] is what
+// hierarchy/swarm nodes historically read, while state["message"] is what
+// every caller (deploy CLI, team run CLI, tests) actually seeds. Prefer
+// "input" when both are set so nodes that intentionally pass context between
+// each other via state["input"] still work.
+func promptFromState(state graph.State) string {
+	if s, ok := state["input"].(string); ok && s != "" {
+		return s
+	}
+	if s, ok := state["message"].(string); ok {
+		return s
+	}
+	return ""
 }

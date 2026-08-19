@@ -5,6 +5,13 @@ sidebar_label: "Release Notes"
 
 Chronos is distributed as a Go module (`github.com/spawn08/chronos`), cross-platform CLI binaries, and a container image. Tagged releases include checksums, an SBOM, and signed artifacts. See [CLI Install](getting-started/cli-install.md) for installation options.
 
+## v0.12.1
+
+- **YAML-defined skills** — agents can declare skills in YAML config, loaded via a new `sdk/skill` loader with metadata and versioning support.
+- **MCP client/adapter improvements** — refinements to the MCP tool adapter and client.
+- **`deploy` CLI cleanup** — simplified `cli/cmd/deploy.go` and expanded `sandbox-deploy.yaml` example.
+- **Team hierarchy/swarm fixes** — small correctness fixes in `sdk/team`.
+
 ## v0.12.0 — Azure reasoning and observable team streaming
 
 - **Azure Responses API** — native Azure reasoning automatically uses `/openai/v1/responses`, supports function tools, and preserves encrypted reasoning state across stateless tool rounds.
