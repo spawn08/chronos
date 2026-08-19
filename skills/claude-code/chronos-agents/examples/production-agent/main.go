@@ -33,10 +33,7 @@ func main() {
 	}
 
 	// ── 2. Vector store (Qdrant) — for RAG + memory recall ──
-	vectorStore, err := qdrant.New(os.Getenv("QDRANT_URL"))
-	if err != nil {
-		log.Fatal(err)
-	}
+	vectorStore := qdrant.New(os.Getenv("QDRANT_URL"))
 	defer vectorStore.Close()
 
 	// ── 3. LLM providers ──
@@ -54,29 +51,22 @@ func main() {
 		knowledge.WithQueryCache(1000, 5*60e9), // 5 min TTL
 	)
 
-	// ── 5. Memory (long-term with vector recall) ──
-	memStore := memory.NewStore(store)
-	memMgr := memory.NewManager("production-agent", "user-1", memStore, llm).
-		WithVectorIndex(embedder, vectorStore, "text-embedding-3-small", 1536)
-
-	// ── 6. Tracing ──
-	tracer := trace.NewCollector(store)
-
-	// ── 7. Load YAML config (gets model, tools, skills, system prompt) ──
+	// ── 5. Load YAML config (gets model, tools, skills, system prompt) ──
 	cfg, err := agent.LoadFile("agents.yaml")
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// ── 8. Build agent with all production concerns ──
-	a, err := agent.BuildAgent(ctx, &cfg.Agents[0],
-		agent.WithStorageOverride(store),
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
+	// ── 6. Memory (long-term with vector recall) ──
+	memStore := memory.NewStore(cfg.Agents[0].ID, store)
+	memMgr := memory.NewManager(cfg.Agents[0].ID, cfg.Agents[0].UserID, memStore, llm).
+		WithVectorIndex(embedder, vectorStore, "text-embedding-3-small", 1536)
 
-	// Wire up programmatic concerns not expressible in YAML
+	// ── 7. Tracing ──
+	tracer := trace.NewCollector(store)
+
+	// ── 8. Build agent with all production concerns ──
+	// Programmatic concerns not expressible in YAML are wired through the builder.
 	builder := agent.New(cfg.Agents[0].ID, cfg.Agents[0].Name).
 		WithModel(llm).
 		WithStorage(store).
@@ -87,8 +77,8 @@ func main() {
 		WithHistoryRuns(15).
 		WithMaxIterations(15).
 		WithContextConfig(agent.ContextConfig{
-			MaxTokens:          16384,
-			SummarizeThreshold: 12000,
+			MaxContextTokens:    16384,
+			SummarizeThreshold:  0.8,
 			PreserveRecentTurns: 6,
 		}).
 		// Guardrails
@@ -152,7 +142,6 @@ func main() {
 	defer prodAgent.CloseMCP()
 
 	// ── 10. Run ──
-	_ = a // YAML-built agent (alternative approach)
 	ch, err := prodAgent.ChatStream(ctx, "What do you know about our refund policy?")
 	if err != nil {
 		log.Fatal(err)

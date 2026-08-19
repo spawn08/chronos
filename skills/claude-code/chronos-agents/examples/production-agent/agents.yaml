@@ -111,7 +111,7 @@ agents:
     # ── Context management ──
     context:
       max_tokens: 16384
-      summarize_threshold: 12000
+      summarize_threshold: 0.8
       preserve_recent_turns: 6
 
     # ── Security ──
