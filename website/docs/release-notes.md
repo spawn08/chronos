@@ -5,6 +5,10 @@ sidebar_label: "Release Notes"
 
 Chronos is distributed as a Go module (`github.com/spawn08/chronos`), cross-platform CLI binaries, and a container image. Tagged releases include checksums, an SBOM, and signed artifacts. See [CLI Install](getting-started/cli-install.md) for installation options.
 
+## v0.12.2
+
+- **Release maintenance** — publishes the current Chronos `main` branch as a patch release with refreshed release metadata and artifacts.
+
 ## v0.12.1
 
 - **YAML-defined skills** — agents can declare skills in YAML config, loaded via a new `sdk/skill` loader with metadata and versioning support.
