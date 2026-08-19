@@ -1,0 +1,50 @@
+defaults:
+  storage:
+    backend: sqlite
+    dsn: "pipeline.db"
+
+agents:
+  - id: "extractor"
+    name: "Data Extractor"
+    description: "Extracts structured data from unstructured input"
+
+    model:
+      provider: anthropic
+      model: claude-sonnet-4-20250514
+      api_key: ${ANTHROPIC_API_KEY}
+
+    system_prompt: |
+      Extract structured data from the input.
+      Follow the output schema exactly. Never add fields not in the schema.
+      If a field cannot be determined, use null.
+
+    output_schema:
+      type: object
+      properties:
+        entities:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              type:
+                type: string
+                enum: ["person", "organization", "location", "date", "amount"]
+              confidence:
+                type: number
+            required: ["name", "type"]
+        summary:
+          type: string
+        sentiment:
+          type: string
+          enum: ["positive", "negative", "neutral", "mixed"]
+        key_facts:
+          type: array
+          items:
+            type: string
+      required: ["entities", "summary", "sentiment"]
+
+    reasoning:
+      strategy: "cot"
+      effort: "medium"

@@ -135,7 +135,10 @@ ln -sf ../../scripts/pre-push-check.sh .git/hooks/pre-push
 
 The seven-tier build-out roadmap (101 items) is complete. Forward-looking work — production-hardening and high-scale readiness — is tracked in **[PLAN.md](PLAN.md)**. Consult PLAN.md before starting new work.
 
-- **Slash commands** (in `.claude/commands/`): `add-tests` (table-driven tests for a package), `add-embedding-provider` / `add-cli-command` (scaffolding), `new-adapter` / `new-tool` / `new-node` / `new-hook` / `new-guardrail` / `new-skill`.
+- **Slash commands** (in `.claude/commands/`):
+  - **Scaffolding**: `new-adapter`, `new-tool`, `new-node`, `new-hook`, `new-guardrail`, `new-skill`, `add-tests`, `add-embedding-provider`, `add-cli-command`, `add-example`
+  - **Integration**: `create-agent-yaml` (YAML agent config), `create-team-yaml` (multi-agent teams), `setup-rag` (RAG pipeline), `setup-memory` (agent memory), `setup-mcp` (MCP servers), `setup-auth` (JWT/API-key/RBAC), `setup-observability` (tracing/monitoring), `create-eval-suite` (agent evals), `deploy-production` (Docker/K8s), `integrate-service` (embed in Go services)
+- **Portable skills** (in `skills/claude-code/`): 7 self-contained Claude Code skills with scenario subfolders that developers install in their own projects — no repo context needed. Skills: `chronos-quickstart`, `chronos-agents` (7 scenarios), `chronos-teams` (4 topologies), `chronos-graph` (4 patterns), `chronos-production` (5 concerns), `chronos-deploy` (3 targets), `chronos-sdk` (full API ref). See `skills/claude-code/README.md`.
 
 ## Do NOT
 - Add `init()` functions

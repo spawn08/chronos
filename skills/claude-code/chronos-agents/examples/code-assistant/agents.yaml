@@ -1,0 +1,59 @@
+defaults:
+  storage:
+    backend: sqlite
+    dsn: "code-agent.db"
+
+agents:
+  - id: "coder"
+    name: "Code Assistant"
+    description: "Reads, writes, and executes code with safety controls"
+
+    model:
+      provider: anthropic
+      model: claude-sonnet-4-20250514
+      api_key: ${ANTHROPIC_API_KEY}
+      timeout_sec: 120
+
+    system_prompt: |
+      You are an expert software engineer.
+
+      ## Workflow
+      1. Understand the request fully before writing code
+      2. Read existing code to understand context and conventions
+      3. Make minimal, focused changes
+      4. Run tests after changes to verify correctness
+
+      ## Rules
+      - Never modify files outside the project directory
+      - Always run tests after making changes
+      - Explain what you're doing before executing destructive commands
+      - Prefer editing existing files over creating new ones
+
+    tools:
+      - { name: "file_read", permission: "allow" }
+      - { name: "file_list", permission: "allow" }
+      - { name: "file_glob", permission: "allow" }
+      - { name: "file_grep", permission: "allow" }
+      - { name: "file_write", permission: "require_approval" }
+      - { name: "shell", permission: "require_approval" }
+
+    permission_mode: "prompt"
+    stream: true
+    tracing: true
+    num_history_runs: 5
+
+    reasoning:
+      strategy: "cot"
+      effort: "high"
+
+    context:
+      max_tokens: 16384
+      summarize_threshold: 12000
+      preserve_recent_turns: 6
+
+deployment:
+  name: "code-assistant"
+  sandbox:
+    backend: "process"
+    work_dir: "."
+    timeout: "30m"

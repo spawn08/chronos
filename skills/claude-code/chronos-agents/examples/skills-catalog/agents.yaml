@@ -1,0 +1,99 @@
+# Skills-enabled agent — demonstrates both skills_dir catalog and inline skills.
+#
+# Skills inject knowledge into the agent's system prompt and declare which
+# tools the skill relies on. They are descriptive, not executable — tools
+# must still be registered separately.
+
+# Point to the directory containing <name>/SKILL.md files
+skills_dir: skills
+
+defaults:
+  model:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+    api_key: ${ANTHROPIC_API_KEY}
+  storage:
+    backend: sqlite
+    dsn: "skills-demo.db"
+
+agents:
+  # ─── Agent using catalog skills (skills_dir + use_skills) ───────────
+  - id: "research-agent"
+    name: "Research Agent"
+    description: "Agent with skills loaded from the skills/ directory"
+    system_prompt: "You are a research assistant with specialized skills."
+
+    # Reference skills by name — the SKILL.md body is injected into prompt
+    use_skills:
+      - summarize
+      - data-analyst
+
+    tools:
+      - name: "file_read"
+        permission: "allow"
+      - name: "file_grep"
+        permission: "allow"
+    stream: true
+
+  # ─── Agent using inline skills ──────────────────────────────────────
+  - id: "review-agent"
+    name: "Code Review Agent"
+    description: "Agent with skills defined inline in YAML"
+    system_prompt: "You are a code reviewer."
+
+    # Define skills directly — no SKILL.md file needed
+    skills:
+      - name: "security-review"
+        version: "1.0"
+        description: "Review code for security vulnerabilities"
+        author: "security-team"
+        tags: ["security", "code-review"]
+        tools: ["file_read", "file_grep"]
+
+      - name: "performance-review"
+        version: "1.0"
+        description: "Review code for performance issues"
+        author: "platform-team"
+        tags: ["performance", "code-review"]
+        tools: ["file_read", "shell"]
+
+    # Or reference a markdown file with detailed instructions
+    # skills:
+    #   - name: "detailed-review"
+    #     manifest_path: "skills/code-review/review-guide.md"
+
+    tools:
+      - name: "file_read"
+        permission: "allow"
+      - name: "file_grep"
+        permission: "allow"
+      - name: "shell"
+        permission: "require_approval"
+    stream: true
+
+  # ─── Agent combining both approaches ───────────────────────────────
+  - id: "full-agent"
+    name: "Full-Featured Agent"
+    description: "Combines catalog skills and inline skills"
+    system_prompt: "You are a versatile assistant with multiple skills."
+
+    # From catalog (skills_dir)
+    use_skills:
+      - summarize
+      - code-review
+
+    # Plus inline skills
+    skills:
+      - name: "project-conventions"
+        version: "1.0"
+        description: "Project-specific coding conventions"
+        manifest_path: "skills/project-conventions.md"
+
+    tools:
+      - name: "file_read"
+        permission: "allow"
+      - name: "file_write"
+        permission: "require_approval"
+      - name: "shell"
+        permission: "require_approval"
+    stream: true

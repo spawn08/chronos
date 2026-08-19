@@ -1,0 +1,43 @@
+defaults:
+  storage:
+    backend: sqlite
+    dsn: "chatbot.db"
+
+agents:
+  - id: "chatbot"
+    name: "Chatbot"
+    description: "Conversational assistant with streaming and memory"
+
+    model:
+      provider: anthropic
+      model: claude-sonnet-4-20250514
+      api_key: ${ANTHROPIC_API_KEY}
+      timeout_sec: 60
+
+    system_prompt: |
+      You are a friendly, helpful assistant for [COMPANY].
+
+      ## Personality
+      - Warm but professional tone
+      - Concise answers (2-3 sentences unless detail is requested)
+      - Ask clarifying questions when the request is ambiguous
+
+      ## Boundaries
+      - Only answer questions about [DOMAIN]
+      - Politely redirect off-topic questions
+      - Never share internal processes or confidential information
+      - If unsure, say so honestly rather than guessing
+
+    instructions:
+      - "Greet returning users by acknowledging previous context"
+      - "Use bullet points for lists of 3+ items"
+      - "End complex answers with a follow-up question"
+
+    num_history_runs: 10
+    stream: true
+    tracing: true
+
+    context:
+      max_tokens: 8192
+      summarize_threshold: 6000
+      preserve_recent_turns: 4

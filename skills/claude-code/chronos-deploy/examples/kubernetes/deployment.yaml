@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chronos
+  labels:
+    app: chronos
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: chronos
+  template:
+    metadata:
+      labels:
+        app: chronos
+    spec:
+      containers:
+        - name: chronos
+          image: your-registry/chronos:latest
+          ports:
+            - containerPort: 8420
+          env:
+            - name: CHRONOS_AUTH
+              value: "true"
+            - name: CHRONOS_SWAGGER
+              value: "false"
+            - name: CHRONOS_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: chronos-secrets
+                  key: jwt-secret
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: chronos-secrets
+                  key: database-url
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: chronos-secrets
+                  key: anthropic-api-key
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8420
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8420
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chronos
+spec:
+  selector:
+    app: chronos
+  ports:
+    - port: 80
+      targetPort: 8420
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: chronos
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  tls:
+    - hosts: ["chronos.example.com"]
+      secretName: chronos-tls
+  rules:
+    - host: chronos.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: chronos
+                port:
+                  number: 80

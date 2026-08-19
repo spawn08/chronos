@@ -1,0 +1,57 @@
+defaults:
+  storage:
+    backend: sqlite
+    dsn: "api-agent.db"
+
+agents:
+  - id: "api-agent"
+    name: "API Agent"
+    description: "Integrates with external APIs via MCP servers"
+
+    model:
+      provider: anthropic
+      model: claude-sonnet-4-20250514
+      api_key: ${ANTHROPIC_API_KEY}
+
+    system_prompt: |
+      You help users by calling external APIs and tools.
+      Always explain what API call you're about to make before executing.
+      Report results clearly with relevant data highlighted.
+
+    mcp_servers:
+      # GitHub — repos, issues, PRs, code search
+      - name: "github"
+        transport: "stdio"
+        command: "npx"
+        args: ["-y", "@modelcontextprotocol/server-github"]
+        permission: "require_approval"
+
+      # PostgreSQL — SQL queries, schema inspection
+      - name: "postgres"
+        transport: "stdio"
+        command: "npx"
+        args: ["-y", "@modelcontextprotocol/server-postgres", "${DATABASE_URL}"]
+        permission: "require_approval"
+
+      # Web search
+      - name: "brave-search"
+        transport: "stdio"
+        command: "npx"
+        args: ["-y", "@modelcontextprotocol/server-brave-search"]
+        permission: "allow"
+
+      # Filesystem access
+      - name: "filesystem"
+        transport: "stdio"
+        command: "npx"
+        args: ["-y", "@modelcontextprotocol/server-filesystem", "/data"]
+        permission: "allow"
+
+      # Remote custom API (SSE transport)
+      # - name: "custom-api"
+      #   transport: "sse"
+      #   url: "https://mcp.example.com/sse"
+      #   permission: "allow"
+
+    stream: true
+    tracing: true

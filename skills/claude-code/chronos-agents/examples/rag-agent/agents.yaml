@@ -1,0 +1,48 @@
+defaults:
+  model:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+    api_key: ${ANTHROPIC_API_KEY}
+  storage:
+    backend: sqlite
+    dsn: "rag-agent.db"
+
+agents:
+  - id: "knowledge-agent"
+    name: "Knowledge Agent"
+    description: "Answers questions using a document knowledge base"
+
+    system_prompt: |
+      You answer questions using the provided knowledge context.
+
+      ## Rules
+      - Base your answers ONLY on the retrieved documents
+      - Always cite which document your answer comes from
+      - If the context doesn't contain the answer, say:
+        "I don't have information about that in my knowledge base."
+      - Never fabricate information not present in the context
+      - Quote relevant passages when they directly answer the question
+
+    instructions:
+      - "Search the knowledge base before answering any factual question"
+      - "If multiple documents are relevant, synthesize across them"
+      - "Mention confidence level when the match is partial"
+
+    tools:
+      - name: "search_knowledge"
+        description: "Search the knowledge base for relevant documents"
+        parameters:
+          type: object
+          properties:
+            query:
+              type: string
+              description: "Natural language search query"
+            top_k:
+              type: integer
+              description: "Number of results (default: 5)"
+          required: ["query"]
+        permission: "allow"
+
+    stream: true
+    num_history_runs: 5
+    tracing: true

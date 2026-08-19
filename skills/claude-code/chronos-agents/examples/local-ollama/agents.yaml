@@ -1,0 +1,27 @@
+# No cloud API keys needed — runs fully offline with Ollama.
+# Start Ollama first: ollama serve && ollama pull llama3.1
+
+defaults:
+  storage:
+    backend: sqlite
+    dsn: "local.db"
+
+agents:
+  - id: "local-agent"
+    name: "Local Agent"
+    description: "Fully offline agent using Ollama"
+
+    model:
+      provider: ollama
+      model: llama3.1
+      base_url: "http://localhost:11434"
+      timeout_sec: 300
+
+    system_prompt: |
+      You are a helpful local assistant running on the user's machine.
+      You have no internet access. Work with what's available locally.
+
+    stream: true
+
+    reasoning:
+      strategy: "none"

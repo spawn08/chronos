@@ -1,0 +1,41 @@
+defaults:
+  model:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+    api_key: ${ANTHROPIC_API_KEY}
+  storage:
+    backend: sqlite
+    dsn: "pipeline.db"
+
+agents:
+  - id: "researcher"
+    name: "Researcher"
+    description: "Gathers information on the topic"
+    system_prompt: |
+      Research the given topic thoroughly.
+      Output structured findings with sources.
+      Include data points, quotes, and references.
+
+  - id: "analyst"
+    name: "Analyst"
+    description: "Analyzes research findings"
+    system_prompt: |
+      Analyze the research findings provided.
+      Identify key themes, patterns, and insights.
+      Highlight contradictions or gaps in the research.
+
+  - id: "writer"
+    name: "Writer"
+    description: "Writes polished final output"
+    system_prompt: |
+      Write a clear, well-structured report from the analysis.
+      Include: executive summary, key findings, recommendations.
+      Use professional tone, cite sources.
+
+teams:
+  - id: "research-pipeline"
+    name: "Research Pipeline"
+    strategy: "sequential"
+    agents: ["researcher", "analyst", "writer"]
+    max_iterations: 10
+    error_strategy: "fail_fast"

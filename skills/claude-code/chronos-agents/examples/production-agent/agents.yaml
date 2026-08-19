@@ -1,0 +1,135 @@
+# Production-grade Chronos agent with ALL concerns wired up:
+# - Memory (short-term + long-term with vector recall)
+# - Durable persistence (PostgreSQL)
+# - Vector database (Qdrant for RAG + memory)
+# - Guardrails (input + output validation)
+# - Security (auth, permissions, approval)
+# - Sandboxed execution
+# - Observability (tracing, audit logs)
+# - Skills catalog for operational knowledge
+#
+# This is the reference configuration for a production agentic AI system.
+
+# ─── Skill catalog ───────────────────────────────────────────────────
+# Skills inject operational knowledge into the agent's system prompt.
+# Each skill/<name>/SKILL.md body is appended to the prompt.
+skills_dir: skills
+
+# ─── Defaults ─────────────────────────────────────────────────────────
+defaults:
+  model:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+    api_key: ${ANTHROPIC_API_KEY}
+    timeout_sec: 120
+
+  storage:
+    backend: postgres
+    dsn: ${DATABASE_URL}
+    max_open_conns: 20
+    max_idle_conns: 5
+    conn_max_lifetime_sec: 300
+
+# ─── Agents ───────────────────────────────────────────────────────────
+agents:
+  - id: "production-agent"
+    name: "Production Agent"
+    description: "Full-stack production agent with memory, RAG, guardrails, and security"
+    user_id: ${USER_ID:-default}
+
+    # ── System prompt ──
+    system_prompt: |
+      You are an enterprise AI assistant with access to a knowledge base,
+      long-term memory, and operational tools.
+
+      ## Core principles
+      - Ground answers in retrieved knowledge — never fabricate
+      - Remember user preferences and context across sessions
+      - Respect permission boundaries — request approval for risky actions
+      - Log all significant decisions for auditability
+
+    instructions:
+      - "Recall relevant memories before answering"
+      - "Search the knowledge base for factual questions"
+      - "Use the remember tool to store important user preferences"
+      - "Never execute shell commands without explicit approval"
+      - "Cite sources from the knowledge base when applicable"
+
+    # ── Skills (from skills_dir catalog) ──
+    use_skills:
+      - memory-architecture
+      - security-ops
+      - data-persistence
+      - observability-ops
+      - guardrails-ops
+      - sandbox-ops
+
+    # ── Tools ──
+    tools:
+      # Knowledge search
+      - name: "search_knowledge"
+        description: "Search the vector knowledge base"
+        parameters:
+          type: object
+          properties:
+            query: { type: string, description: "Natural language search query" }
+            top_k: { type: integer, description: "Max results (default 5)" }
+          required: ["query"]
+        permission: "allow"
+
+      # File operations (read-only by default)
+      - { name: "file_read", permission: "allow" }
+      - { name: "file_list", permission: "allow" }
+      - { name: "file_grep", permission: "allow" }
+
+      # Write operations (require approval)
+      - { name: "file_write", permission: "require_approval" }
+
+      # Shell (require approval — sandboxed)
+      - { name: "shell", permission: "require_approval" }
+
+    # ── MCP servers (external integrations) ──
+    mcp_servers:
+      - name: "database"
+        transport: "stdio"
+        command: "npx"
+        args: ["-y", "@modelcontextprotocol/server-postgres", "${DATABASE_URL}"]
+        permission: "require_approval"
+
+    # ── Memory ──
+    # Memory is configured programmatically via memory.Manager in main.go.
+    # YAML enables session history:
+    num_history_runs: 15
+
+    # ── Reasoning ──
+    reasoning:
+      strategy: "cot"
+      effort: "high"
+      budget_tokens: 4096
+      summary: true
+
+    # ── Context management ──
+    context:
+      max_tokens: 16384
+      summarize_threshold: 12000
+      preserve_recent_turns: 6
+
+    # ── Security ──
+    permission_mode: "prompt"         # prompt | auto | strict
+    # "prompt" = ask before risky tools
+    # "strict" = only explicitly allowed tools (most secure)
+
+    # ── Observability ──
+    stream: true
+    tracing: true
+    debug: false
+
+# ─── Deployment ───────────────────────────────────────────────────────
+deployment:
+  name: "production-agent"
+  sandbox:
+    backend: "container"
+    image: "chronos-agent:latest"
+    work_dir: "/workspace"
+    network: "bridge"
+    timeout: "30m"

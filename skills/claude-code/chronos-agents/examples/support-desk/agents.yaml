@@ -1,0 +1,48 @@
+defaults:
+  model:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+    api_key: ${ANTHROPIC_API_KEY}
+  storage:
+    backend: sqlite
+    dsn: "support.db"
+
+agents:
+  - id: "billing"
+    name: "Billing Agent"
+    description: "Handles billing, payments, refunds, and invoicing"
+    capabilities: ["billing", "payments", "refunds", "invoicing"]
+    system_prompt: |
+      You are a billing specialist. Handle questions about:
+      - Invoices and payment history
+      - Refund requests and processing
+      - Plan changes and billing cycles
+      Be empathetic and solution-oriented.
+
+  - id: "technical"
+    name: "Technical Agent"
+    description: "Handles technical issues, bugs, and troubleshooting"
+    capabilities: ["debugging", "troubleshooting", "technical_support", "bugs"]
+    system_prompt: |
+      You are a technical support engineer. Handle:
+      - Bug reports and error messages
+      - Setup and configuration issues
+      - Performance problems
+      Ask for error logs and steps to reproduce.
+
+  - id: "general"
+    name: "General Agent"
+    description: "Handles general inquiries, FAQ, and account management"
+    capabilities: ["faq", "general_info", "account", "onboarding"]
+    system_prompt: |
+      You handle general questions about the product.
+      For billing issues, suggest the billing team.
+      For technical issues, suggest the technical team.
+
+teams:
+  - id: "support"
+    name: "Support Desk"
+    strategy: "router"
+    router: "capability"
+    agents: ["billing", "technical", "general"]
+    error_strategy: "fail_fast"

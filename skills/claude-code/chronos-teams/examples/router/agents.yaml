@@ -1,0 +1,39 @@
+defaults:
+  model:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+    api_key: ${ANTHROPIC_API_KEY}
+  storage:
+    backend: sqlite
+    dsn: "router.db"
+
+agents:
+  - id: "billing"
+    name: "Billing Agent"
+    description: "Handles billing, payments, refunds, and invoicing"
+    capabilities: ["billing", "payments", "refunds"]
+    system_prompt: "You are a billing specialist. Handle payment and invoice questions."
+
+  - id: "technical"
+    name: "Technical Agent"
+    description: "Handles technical issues, bugs, and troubleshooting"
+    capabilities: ["debugging", "troubleshooting", "technical"]
+    system_prompt: "You are a technical support engineer. Help with bugs and setup."
+
+  - id: "sales"
+    name: "Sales Agent"
+    description: "Handles pricing, plans, and upgrade inquiries"
+    capabilities: ["pricing", "plans", "upgrades"]
+    system_prompt: "You are a sales specialist. Help with pricing and plan selection."
+
+teams:
+  - id: "support-router"
+    name: "Support Router"
+    strategy: "router"
+    router: "model"
+    router_model:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      api_key: ${ANTHROPIC_API_KEY}
+    agents: ["billing", "technical", "sales"]
+    error_strategy: "fail_fast"

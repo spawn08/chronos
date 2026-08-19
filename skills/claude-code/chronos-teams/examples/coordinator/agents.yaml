@@ -1,0 +1,47 @@
+defaults:
+  model:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+    api_key: ${ANTHROPIC_API_KEY}
+  storage:
+    backend: sqlite
+    dsn: "coordinator.db"
+
+agents:
+  - id: "manager"
+    name: "Project Manager"
+    description: "Breaks tasks into subtasks and delegates to workers"
+    system_prompt: |
+      You are a project manager. Given a task:
+      1. Break it into subtasks
+      2. Delegate each to the best worker
+      3. Synthesize worker outputs into a cohesive final result
+
+      Available workers:
+      - developer: implements code and technical solutions
+      - designer: creates UI/UX designs and specifications
+      - reviewer: reviews work for quality and correctness
+
+  - id: "developer"
+    name: "Developer"
+    description: "Implements code and technical solutions"
+    system_prompt: "You implement code. Output working, well-documented code."
+
+  - id: "designer"
+    name: "Designer"
+    description: "Creates UI/UX designs and mockups"
+    system_prompt: "You design user interfaces. Output detailed design specifications."
+
+  - id: "reviewer"
+    name: "Reviewer"
+    description: "Reviews work for quality and correctness"
+    system_prompt: "You review code and designs. Give specific, actionable feedback."
+
+teams:
+  - id: "dev-team"
+    name: "Development Team"
+    strategy: "coordinator"
+    coordinator: "manager"
+    agents: ["manager", "developer", "designer", "reviewer"]
+    max_iterations: 15
+    error_strategy: "collect"

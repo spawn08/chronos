@@ -1,0 +1,48 @@
+defaults:
+  model:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+    api_key: ${ANTHROPIC_API_KEY}
+  storage:
+    backend: sqlite
+    dsn: "swarm.db"
+
+agents:
+  - id: "greeter"
+    name: "Greeter"
+    description: "Greets customers, identifies intent, hands off to specialist"
+    system_prompt: |
+      Greet the customer warmly. Determine their need:
+      - Billing question → hand off to billing
+      - Technical issue → hand off to technical
+      - Just chatting → handle yourself
+
+  - id: "billing"
+    name: "Billing"
+    description: "Handles billing and payment queries"
+    system_prompt: |
+      Handle billing questions thoroughly.
+      If it turns out to be a technical issue, hand off to technical.
+
+  - id: "technical"
+    name: "Technical"
+    description: "Handles technical support and troubleshooting"
+    system_prompt: |
+      Handle technical issues step by step.
+      If the issue cannot be resolved, hand off to escalation.
+
+  - id: "escalation"
+    name: "Escalation"
+    description: "Handles complex escalated issues"
+    system_prompt: |
+      Handle escalated issues with extra care and detail.
+      You are the final tier — resolve the issue or provide a workaround.
+
+teams:
+  - id: "support-swarm"
+    name: "Support Swarm"
+    strategy: "swarm"
+    initial_agent: "greeter"
+    max_handoffs: 10
+    agents: ["greeter", "billing", "technical", "escalation"]
+    error_strategy: "fail_fast"
