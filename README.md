@@ -9,7 +9,7 @@
     <a href="#quickstart">Quickstart</a> &middot;
     <a href="https://spawn08.github.io/chronos/">Docs</a> &middot;
     <a href="#examples">Examples</a> &middot;
-    <a href="ROADMAP.md">Roadmap</a>
+    <a href="#roadmap">Roadmap</a>
   </p>
 </p>
 
@@ -19,11 +19,12 @@
 
 | Layer | What it does |
 |-------|-------------|
-| **SDK** | Agent builder, teams (sequential/parallel/router/coordinator), memory, knowledge (RAG), inter-agent protocol bus |
-| **Engine** | StateGraph runtime with checkpointing and interrupt nodes, 14+ LLM providers, tool registry, guardrails, hooks, SSE streaming |
-| **ChronosOS** | HTTP control plane — auth, RBAC, tracing, audit logs, approval API |
-| **Storage** | SQLite, PostgreSQL, Redis, MongoDB, DynamoDB, Qdrant, Pinecone, Weaviate, Milvus |
-| **CLI** | Interactive REPL, headless batch mode, session/memory management, YAML-first config |
+| **SDK** | Agent builder, teams (sequential/parallel/router/coordinator/swarm/hierarchy), memory (short-term + semantic long-term recall), knowledge (RAG), inter-agent protocol bus, planning tool, virtual filesystem, context-isolated subagents, automatic context compaction |
+| **Engine** | StateGraph runtime with checkpointing, interrupt nodes, subgraphs, and time-travel replay/fork; 15+ LLM providers; tool registry; guardrails; hooks (retry, cache, cost, rate-limit); SSE streaming; durable work queue |
+| **ChronosOS** | HTTP control plane — auth (JWT/API key/OIDC), RBAC, tracing/OTLP export, audit logs, approval API, Prometheus metrics |
+| **Protocol interop** | MCP client + server (stdio/SSE), A2A (Agent-to-Agent) client + server, AG-UI standard event stream |
+| **Storage** | SQLite, PostgreSQL (+ pgvector), Redis (+ RedisVector), MongoDB, DynamoDB, Qdrant, Pinecone, Weaviate, Milvus, Chroma, LanceDB, in-memory |
+| **CLI** | Interactive REPL, headless batch mode, session/memory management, eval capture/gate, YAML-first config |
 
 ---
 
@@ -117,42 +118,89 @@ result, _ := a.Run(ctx, map[string]any{"user": "World"})
 
 ## Examples
 
-All examples with **No** API keys run with mock providers — no external calls.
+All examples with **No** API keys run with mock providers or a scripted/offline path — no external calls.
+
+### Core
 
 | Example | Description | Needs Keys? |
 |---------|-------------|:-----------:|
 | [quickstart](examples/quickstart/) | Minimal agent with SQLite and 3-node graph | No |
 | [tools_and_guardrails](examples/tools_and_guardrails/) | Tool permissions + input/output guardrails | No |
-| [hooks_observability](examples/hooks_observability/) | Metrics, cost tracking, caching, retry, rate limiting | No |
-| [graph_patterns](examples/graph_patterns/) | Conditional edges, interrupt nodes, checkpoints | No |
-| [memory_and_sessions](examples/memory_and_sessions/) | Short/long-term memory, multi-turn sessions | No |
-| [streaming_sse](examples/streaming_sse/) | Pub/sub broker, graph events, SSE HTTP server | No |
 | [chat_with_tools](examples/chat_with_tools/) | Agent chat with calculator and lookup tools | No |
+| [multi_round_tools](examples/multi_round_tools/) | Multi-round sequential tool calls retaining full context | No |
+| [structured_output](examples/structured_output/) | Strict JSON output (`json_object`/`json_schema`) decoded into a typed struct | Yes |
+| [hooks_observability](examples/hooks_observability/) | Metrics, cost tracking, caching, retry, rate limiting | No |
 | [fallback_provider](examples/fallback_provider/) | Provider chain with automatic failover | No |
+
+### Graph & durability
+
+| Example | Description | Needs Keys? |
+|---------|-------------|:-----------:|
+| [graph_patterns](examples/graph_patterns/) | Conditional edges, interrupt nodes, checkpoints | No |
+| [graph_with_llm](examples/graph_with_llm/) | StateGraph with real LLM calls inside nodes, LLM-driven conditional routing | Yes |
+| [durable_llm_graph](examples/durable_llm_graph/) | Where LLM calls happen in a graph and how the runtime makes them durable | No |
+| [durable_queue](examples/durable_queue/) | Durable work queue: leased workers, durable sleep, park/signal HITL, orphan recovery | No |
+| [durable_hitl](examples/durable_hitl/) | Human-in-the-loop approval with checkpoint + resume | No |
+
+### Memory, knowledge & agent harness
+
+| Example | Description | Needs Keys? |
+|---------|-------------|:-----------:|
+| [memory_and_sessions](examples/memory_and_sessions/) | Short/long-term memory, multi-turn sessions | No |
+| [semantic_recall](examples/semantic_recall/) | Automatic semantic long-term recall via a vector-indexed `memory.Manager` | No |
+| [multitenant_memory](examples/multitenant_memory/) | Per-user long-term memory isolation on one agent | No |
+| [rag_knowledge](examples/rag_knowledge/) | RAG with `knowledge.VectorKnowledge` — chunking, batching, top-k retrieval | No |
+| [planning_agent](examples/planning_agent/) | Built-in planning ("todo") tool with a durably persisted plan | No |
+| [vfs_agent](examples/vfs_agent/) | Virtual filesystem for context offloading (`fs_write`/`fs_read`) | No |
+| [subagents](examples/subagents/) | Context-isolated delegation to a subagent via `spawn_subagent` | No |
+| [context_compaction](examples/context_compaction/) | Automatic context compaction as a session nears the model's context window | No |
+| [deep_agent](examples/deep_agent/) | Batteries-included harness preset: planning + VFS + subagents + compaction + recall | No |
+| [skills](examples/skills/) | Registering, listing, resolving, and versioning skills with `skill.Registry` | No |
+| [coding_agent](examples/coding_agent/) | Cursor/Aider-style coding agent: file tools, shell exec, semantic code search | Yes |
+
+### Multi-agent & protocol interop
+
+| Example | Description | Needs Keys? |
+|---------|-------------|:-----------:|
+| [multi_agent](examples/multi_agent/) | All team strategies (sequential/parallel/router/coordinator/swarm/hierarchy), bus delegation | Optional |
+| [team_deploy](examples/team_deploy/) | Deploy multi-agent teams from YAML with sandbox isolation | Yes |
+| [mcp_agent](examples/mcp_agent/) | Agent using MCP tools over stdio transport | Yes |
+| [mcp_sse](examples/mcp_sse/) | MCP client over the HTTP+SSE transport (self-contained demo server) | No |
+| [mcp_server](examples/mcp_server/) | Expose Chronos tools to any MCP host (Claude Desktop, an IDE, another agent framework) | No |
+| [a2a_interop](examples/a2a_interop/) | Durable Agent-to-Agent (A2A) client + server, remote agent wrapped as a subagent tool | No |
+| [agui_stream](examples/agui_stream/) | Chronos runs surfaced as a standard AG-UI SSE event stream | No |
+| [eval_loop](examples/eval_loop/) | Eval-driven loop: capture a dataset from a run, score it, gate on regressions | No |
+
+### Sandboxing
+
+| Example | Description | Needs Keys? |
+|---------|-------------|:-----------:|
 | [sandbox_execution](examples/sandbox_execution/) | Process sandbox with timeouts and I/O capture | No |
 | [wasm_sandbox](examples/wasm_sandbox/) | Run an untrusted WASI module in the wazero-backed sandbox | No |
 | [k8s_sandbox](examples/k8s_sandbox/) | Run a command as a hardened one-shot Kubernetes Job | No\* |
-| [durable_queue](examples/durable_queue/) | Durable work queue: leased workers, durable sleep, park/signal HITL, orphan recovery | No |
-| [durable_hitl](examples/durable_hitl/) | Human-in-the-loop approval with checkpoint + resume | No |
-| [multi_round_tools](examples/multi_round_tools/) | Multi-round sequential tool calls retaining full context | No |
-| [multitenancy](examples/multitenancy/) | Storage-level tenant isolation via `storage.WithTenant` | No |
-| [multitenant_memory](examples/multitenant_memory/) | Per-user long-term memory isolation on one agent | No |
-| [cli_agent](examples/cli_agent/) | Build, inspect, and run an agent from YAML via the CLI | No |
-| [cli_ops](examples/cli_ops/) | Operate Chronos from the CLI: serve, monitor, db, sessions, pipe, deploy | No |
-| [multi_agent](examples/multi_agent/) | All 4 team strategies, bus delegation | Optional |
+
+### Providers & production
+
+| Example | Description | Needs Keys? |
+|---------|-------------|:-----------:|
 | [multi_provider](examples/multi_provider/) | OpenAI, Anthropic, Gemini, Mistral, Ollama, Azure OpenAI, Vertex AI, Bedrock | Yes |
 | [azure](examples/azure/) | Azure OpenAI (chat + streaming) with deployment/API-version config | Yes |
+| [azure_tools](examples/azure_tools/) | Multi-round tool calling against an Azure OpenAI deployment | Yes |
+| [azure_rag](examples/azure_rag/) | End-to-end RAG on Azure OpenAI (embeddings + grounded chat) | Yes |
 | [vertex](examples/vertex/) | Google Cloud Vertex AI via OpenAI-compatible endpoint + gcloud token | Yes |
 | [enterprise_sso](examples/enterprise_sso/) | ChronosOS behind OIDC/JWKS SSO (Okta, Azure AD, Google, Auth0) | Yes |
 | [data_residency](examples/data_residency/) | Per-tenant storage routing (EU vs US) with a single logical agent | No |
-| [mcp_agent](examples/mcp_agent/) | Agent using MCP tools over stdio transport | Yes |
-| [mcp_sse](examples/mcp_sse/) | MCP client over the HTTP+SSE transport (self-contained demo server) | No |
+| [multitenancy](examples/multitenancy/) | Storage-level tenant isolation via `storage.WithTenant` | No |
+| [server_embedded](examples/server_embedded/) | Run the ChronosOS control plane as a library inside your own Go binary | No |
+| [cli_agent](examples/cli_agent/) | Build, inspect, and run an agent from YAML via the CLI | No |
+| [cli_ops](examples/cli_ops/) | Operate Chronos from the CLI: serve, monitor, db, sessions, pipe, deploy | No |
+| [yaml-configs](examples/yaml-configs/) | Reference YAML: teams, providers, sandbox deploys, skills — not a runnable binary | — |
 
 Run any example: `go run ./examples/<name>/`
 
 \* `k8s_sandbox` needs a reachable Kubernetes cluster; with none configured it prints setup guidance and exits cleanly.
 
-Every example that needs a real LLM (`coding_agent`, `graph_with_llm`, `mcp_agent`, `multi_agent`, `team_deploy`, `multi_provider`) resolves its provider through `examples/internal/providers.Pick()`, so any of these env combos works interchangeably:
+Every example that needs a real LLM (`coding_agent`, `graph_with_llm`, `structured_output`, `mcp_agent`, `multi_agent`, `team_deploy`, `multi_provider`) resolves its provider through `examples/internal/providers.Pick()`, so any of these env combos works interchangeably:
 
 | Provider | Environment |
 |----------|-------------|
@@ -170,7 +218,7 @@ Every example that needs a real LLM (`coding_agent`, `graph_with_llm`, `mcp_agen
 
 ## Supported Providers
 
-OpenAI, Anthropic, Google Gemini, Mistral, Ollama, Azure OpenAI, and any OpenAI-compatible endpoint (Together, Groq, DeepSeek, OpenRouter, Fireworks, Perplexity, Anyscale, vLLM, LiteLLM).
+OpenAI, Anthropic, Google Gemini, Azure OpenAI, AWS Bedrock, Mistral, Cohere, Ollama, Google Cloud Vertex AI (via an OpenAI-compatible endpoint), and any other OpenAI-compatible endpoint (Together, Groq, DeepSeek, OpenRouter, Fireworks, Perplexity, Anyscale, vLLM, LiteLLM).
 
 ---
 
@@ -193,7 +241,7 @@ Full docs at **[spawn08.github.io/chronos](https://spawn08.github.io/chronos/)**
 - [StateGraph](https://spawn08.github.io/chronos/guides/stategraph/) — Durable execution with checkpointing
 - [Tools](https://spawn08.github.io/chronos/guides/tools/) — Function calling and permissions
 - [Hooks](https://spawn08.github.io/chronos/guides/hooks/) — Middleware: retry, cache, cost, rate limit
-- [Storage](https://spawn08.github.io/chronos/guides/storage/) — All 10 storage and vector adapters
+- [Storage](https://spawn08.github.io/chronos/guides/storage/) — All 14 storage and vector adapters
 
 ---
 
@@ -225,23 +273,21 @@ be disabled on hardened deployments with `CHRONOS_SWAGGER=false`.
 
 ## Roadmap
 
-Active development tracked in [ROADMAP.md](ROADMAP.md). Key upcoming work:
+The original seven-tier build-out (101 tracked items: correctness/safety, scale
+foundations, hardening/platform) is **complete** — see [PLAN.md](PLAN.md) for the
+full history and acceptance criteria. Forward-looking capability work, aimed at
+parity with Google ADK, LangGraph, and DeepAgents while keeping Chronos
+self-hostable and Go-native, is tracked live in [plan/STATUS.md](plan/STATUS.md).
 
-| Priority | Area | Status |
-|----------|------|--------|
-| **P0** | Bug fixes, CLI wiring, test foundation | 5/16 done |
-| **P1** | MCP support, subgraphs, time travel, advanced HITL | Planned |
-| **P2** | A2A protocol, cron triggers, multi-modal, graph visualization | Planned |
-| **P3** | Workflow DSL, plugin marketplace, distributed execution | Planned |
+| Wave | Focus | Status |
+|------|-------|--------|
+| **Wave 1** — Parity foundations | Planning tool, virtual filesystem, context-isolated subagents, automatic compaction, deep-agent preset, A2A, MCP server, AG-UI stream | Complete |
+| **Wave 2** — Make it lovable | Eval-driven dev loop, semantic long-term recall, RAG scaling | Complete |
+| **Wave 2** (remaining) | Visual studio / graph debugger, one-command deploy | Planned |
+| **Wave 3** — Breadth & enterprise lead | Live bidirectional (audio/video) streaming, curated connectors + plugin SDK, per-tenant budget/quota policy, model allow-lists & data-residency/PII policy, compliance-grade audit & export | Planned |
 
-### What's Next (P1 highlights)
-
-- **MCP (Model Context Protocol)** — Connect to MCP servers, use MCP tools natively
-- **Subgraphs** — Compose graphs as nodes, parallel fan-out/fan-in with state reducers
-- **Time Travel** — Replay from any checkpoint, fork execution with modified state
-- **Advanced Streaming** — Multiple stream modes (values, updates, debug), custom event emission
-- **Structured Output** — Response models with automatic validation and retry
-- **Agentic Loops** — ReAct, iterative refinement, self-correcting tool call patterns
+See [`plan/README.md`](plan/README.md) for the strategic thesis and workstream
+breakdown, and [`plan/STATUS.md`](plan/STATUS.md) for the live, item-by-item tracker.
 
 ---
 
@@ -249,8 +295,9 @@ Active development tracked in [ROADMAP.md](ROADMAP.md). Key upcoming work:
 
 | Workflow | Trigger | What it does |
 |----------|---------|-------------|
-| **CI** | Push/PR to `main` | Lint, build, test (Ubuntu + macOS), example smoke tests, Docker build |
-| **Release** | Tag `v*.*.*` | Test gate, build 6 platform binaries, create GitHub Release with checksums, publish Go module, push Docker image to GHCR |
+| **CI** | Push/PR to `main` | Lint, build, test (Ubuntu + macOS), coverage gate, example smoke tests, eval gate, Docker build |
+| **Security** | Push/PR to `main`, nightly schedule | `govulncheck`, gosec (SAST), CodeQL (Go), Trivy filesystem scan — SARIF uploaded to the Security tab |
+| **Release** | Tag `v*.*.*` | Test gate, build 6 platform binaries, source + image SBOM (SPDX), Trivy image scan, keyless cosign signing, GitHub Release with checksums, publish Go module, push signed image to GHCR |
 
 Cut a release: `git tag v0.2.0 && git push origin v0.2.0`
 
