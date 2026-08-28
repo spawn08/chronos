@@ -33,38 +33,83 @@ type Provider interface {
 | Mistral | `model.NewMistral(apiKey)` | Mistral Large / Medium / Small |
 | Ollama | `model.NewOllama(host, model)` | Local models (e.g., `http://localhost:11434`, `llama3.2`) |
 | Azure | `model.NewAzureOpenAI(endpoint, key, deployment)` | Azure OpenAI |
-| Bedrock | `model.NewBedrock(region, accessKey, secretKey, modelID)` | AWS Bedrock (Claude, Llama, Titan, …) |
+| Cohere | `model.NewCohere(apiKey, modelID)` | Command R+, Command R, Command. **Go-SDK-only** — not in the YAML `provider:` enum |
+| Bedrock | `model.NewBedrock(region, accessKey, secretKey, modelID)` | AWS Bedrock (Claude, Llama, Titan, …). **Go-SDK-only** — not in the YAML `provider:` enum |
 | Vertex AI | `model.NewOpenAICompatibleWithConfig("vertex", cfg)` | Google Cloud Vertex AI via OpenAI-compatible endpoint |
 | Compatible | `model.NewOpenAICompatible(name, url, key, model)` | Any OpenAI-compatible API |
+
+:::note
+The YAML `provider:` field in `.chronos/agents.yaml` accepts: `openai`, `anthropic`,
+`gemini`/`google`, `mistral`, `ollama`, `azure`, `groq`, `together`, `deepseek`,
+`openrouter`, `fireworks`, `perplexity`, `anyscale`, `compatible`/`custom`. Cohere
+and Bedrock (and all embeddings providers) must be constructed directly in Go —
+see [Model Providers reference](/reference/providers).
+:::
 
 ### Google Cloud Vertex AI
 
 Vertex AI exposes an OpenAI-compatible endpoint, so Chronos drives it through `NewOpenAICompatibleWithConfig`. Auth uses a short-lived GCP access token as the Bearer credential:
 
 ```go
-project := os.Getenv("GOOGLE_CLOUD_PROJECT")
-location := "us-central1"
-baseURL := fmt.Sprintf(
-    "https://%s-aiplatform.googleapis.com/v1beta1/projects/%s/locations/%s/endpoints/openapi",
-    location, project, location,
+import (
+    "fmt"
+    "os"
+
+    "github.com/spawn08/chronos/engine/model"
 )
 
-provider := model.NewOpenAICompatibleWithConfig("vertex", model.ProviderConfig{
-    APIKey:  os.Getenv("GOOGLE_ACCESS_TOKEN"), // gcloud auth print-access-token
-    BaseURL: baseURL,
-    Model:   "google/gemini-2.5-pro",
-})
+func newVertexProvider() model.Provider {
+    project := os.Getenv("GOOGLE_CLOUD_PROJECT")
+    location := "us-central1"
+    baseURL := fmt.Sprintf(
+        "https://%s-aiplatform.googleapis.com/v1beta1/projects/%s/locations/%s/endpoints/openapi",
+        location, project, location,
+    )
+
+    return model.NewOpenAICompatibleWithConfig("vertex", model.ProviderConfig{
+        APIKey:  os.Getenv("GOOGLE_ACCESS_TOKEN"), // gcloud auth print-access-token
+        BaseURL: baseURL,
+        Model:   "google/gemini-2.5-pro",
+    })
+}
 ```
 
 ### AWS Bedrock
 
+`Bedrock` is Go-SDK-only; there is no `bedrock` value in the YAML `provider:` enum.
+
 ```go
-provider := model.NewBedrock(
-    os.Getenv("AWS_REGION"),
-    os.Getenv("AWS_ACCESS_KEY_ID"),
-    os.Getenv("AWS_SECRET_ACCESS_KEY"),
-    "anthropic.claude-3-5-sonnet-20241022-v2:0",
+import (
+    "os"
+
+    "github.com/spawn08/chronos/engine/model"
 )
+
+func newBedrockProvider() model.Provider {
+    return model.NewBedrock(
+        os.Getenv("AWS_REGION"),
+        os.Getenv("AWS_ACCESS_KEY_ID"),
+        os.Getenv("AWS_SECRET_ACCESS_KEY"),
+        "anthropic.claude-3-5-sonnet-20241022-v2:0",
+    )
+}
+```
+
+### Cohere
+
+`Cohere` is also Go-SDK-only; there is no `cohere` value in the YAML `provider:` enum.
+
+```go
+import (
+    "os"
+
+    "github.com/spawn08/chronos/engine/model"
+)
+
+func newCohereProvider() model.Provider {
+    // modelID e.g. "command-r-plus" (default), "command-r", "command"
+    return model.NewCohere(os.Getenv("COHERE_API_KEY"), "command-r-plus")
+}
 ```
 
 ## Convenience Constructors
@@ -84,7 +129,13 @@ For providers that expose an OpenAI-compatible API, Chronos provides convenience
 Example:
 
 ```go
-provider := model.NewGroq(os.Getenv("GROQ_API_KEY"), "llama-3.1-70b-versatile")
+import (
+    "os"
+
+    "github.com/spawn08/chronos/engine/model"
+)
+
+var provider = model.NewGroq(os.Getenv("GROQ_API_KEY"), "llama-3.1-70b-versatile")
 ```
 
 ## ProviderConfig
@@ -92,17 +143,25 @@ provider := model.NewGroq(os.Getenv("GROQ_API_KEY"), "llama-3.1-70b-versatile")
 For full configuration, use `ProviderConfig` with the `WithConfig` constructor:
 
 ```go
-cfg := model.ProviderConfig{
-    APIKey:        os.Getenv("OPENAI_API_KEY"),
-    BaseURL:       "https://api.openai.com/v1",
-    Model:         "gpt-5.5",
-    MaxRetries:    3,
-    TimeoutSec:    60,
-    OrgID:         "org-xxx",
-    ContextWindow: 128000,
-}
+import (
+    "os"
 
-provider := model.NewOpenAIWithConfig(cfg)
+    "github.com/spawn08/chronos/engine/model"
+)
+
+func newConfiguredOpenAI() model.Provider {
+    cfg := model.ProviderConfig{
+        APIKey:        os.Getenv("OPENAI_API_KEY"),
+        BaseURL:       "https://api.openai.com/v1",
+        Model:         "gpt-5.5",
+        MaxRetries:    3,
+        TimeoutSec:    60,
+        OrgID:         "org-xxx",
+        ContextWindow: 128000,
+    }
+
+    return model.NewOpenAIWithConfig(cfg)
+}
 ```
 
 | Field | Type | Description |
@@ -152,14 +211,18 @@ Output of a chat completion:
 Use `ReasoningConfig` to request native reasoning without embedding provider-specific request fields in application code:
 
 ```go
-req := &model.ChatRequest{
-    Messages: messages,
-    Reasoning: &model.ReasoningConfig{
-        Enabled:      true,
-        Effort:       "high",
-        BudgetTokens: 4096,
-        Summary:      true,
-    },
+import "github.com/spawn08/chronos/engine/model"
+
+func newReasoningRequest(messages []model.Message) *model.ChatRequest {
+    return &model.ChatRequest{
+        Messages: messages,
+        Reasoning: &model.ReasoningConfig{
+            Enabled:      true,
+            Effort:       "high",
+            BudgetTokens: 4096,
+            Summary:      true,
+        },
+    }
 }
 ```
 
@@ -210,20 +273,30 @@ type Usage struct {
 Use `StreamChat` for token-by-token streaming. The returned channel receives partial `ChatResponse` values with `Delta: true`; the final response may include usage and `StopReason`.
 
 ```go
-ch, err := provider.StreamChat(ctx, &model.ChatRequest{
-    Messages: messages,
-    Stream:   true,
-})
-if err != nil {
-    log.Fatal(err)
-}
+import (
+    "context"
+    "fmt"
+    "log"
 
-for resp := range ch {
-    if resp.Content != "" {
-        fmt.Print(resp.Content)
+    "github.com/spawn08/chronos/engine/model"
+)
+
+func streamChat(ctx context.Context, provider model.Provider, messages []model.Message) {
+    ch, err := provider.StreamChat(ctx, &model.ChatRequest{
+        Messages: messages,
+        Stream:   true,
+    })
+    if err != nil {
+        log.Fatal(err)
     }
+
+    for resp := range ch {
+        if resp.Content != "" {
+            fmt.Print(resp.Content)
+        }
+    }
+    fmt.Println()
 }
-fmt.Println()
 ```
 
 ## Embeddings Providers
@@ -238,16 +311,28 @@ type EmbeddingsProvider interface {
 
 | Constructor | Description |
 |-------------|--------------|
-| `model.NewOpenAIEmbeddings(apiKey)` | OpenAI text-embedding-3-small |
-| `model.NewOpenAIEmbeddingsWithConfig(cfg)` | With full config |
-| `model.NewOllamaEmbeddings(baseURL, modelID)` | Local embeddings via Ollama |
-| `model.NewCachedEmbeddings(inner)` | In-memory cache wrapper |
+| `model.NewOpenAIEmbeddings(apiKey)` | OpenAI, default model `text-embedding-3-small` |
+| `model.NewOpenAIEmbeddingsWithConfig(cfg)` | OpenAI, with full config |
+| `model.NewOllamaEmbeddings(baseURL, modelID)` | Local embeddings via Ollama, default model `nomic-embed-text` |
+| `model.NewAzureOpenAIEmbeddings(endpoint, apiKey, deployment)` | Azure OpenAI embeddings (deployment required, no default) |
+| `model.NewAzureOpenAIEmbeddingsWithConfig(cfg, deployment, apiVersion)` | Azure OpenAI embeddings, with full config |
+| `model.NewGoogleEmbeddings(apiKey, modelID)` | Google AI (Gemini) embeddings, default model `text-embedding-004` |
+| `model.NewCohereEmbeddings(apiKey, modelID)` | Cohere embeddings, default model `embed-english-v3.0` |
+| `model.NewCachedEmbeddings(inner)` | In-memory cache wrapper around any `EmbeddingsProvider` |
+
+These are all Go-SDK-only — there is no YAML config surface for embeddings providers.
 
 Example:
 
 ```go
-embedder := model.NewOpenAIEmbeddings(os.Getenv("OPENAI_API_KEY"))
-cached := model.NewCachedEmbeddings(embedder)
+import (
+    "os"
+
+    "github.com/spawn08/chronos/engine/model"
+)
+
+var embedder = model.NewOpenAIEmbeddings(os.Getenv("OPENAI_API_KEY"))
+var cached = model.NewCachedEmbeddings(embedder)
 ```
 
 ## FallbackProvider
@@ -255,20 +340,29 @@ cached := model.NewCachedEmbeddings(embedder)
 `FallbackProvider` tries multiple providers in order. If the primary fails, it automatically falls back to the next. Useful for primary-cloud to cheaper-model or cloud to local-Ollama failover.
 
 ```go
-primary := model.NewOpenAI(openAIKey)
-fallback := model.NewOllama("http://localhost:11434", "llama3.2")
+import (
+    "context"
+    "log"
 
-provider, err := model.NewFallbackProvider(primary, fallback)
-if err != nil {
-    log.Fatal(err)
+    "github.com/spawn08/chronos/engine/model"
+)
+
+func chatWithFallback(ctx context.Context, openAIKey string, req *model.ChatRequest) (*model.ChatResponse, error) {
+    primary := model.NewOpenAI(openAIKey)
+    fallback := model.NewOllama("http://localhost:11434", "llama3.2")
+
+    provider, err := model.NewFallbackProvider(primary, fallback)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Optional: log when fallback occurs
+    provider.OnFallback = func(index int, name string, err error) {
+        log.Printf("Provider %s failed, trying next: %v", name, err)
+    }
+
+    return provider.Chat(ctx, req)
 }
-
-// Optional: log when fallback occurs
-provider.OnFallback = func(index int, name string, err error) {
-    log.Printf("Provider %s failed, trying next: %v", name, err)
-}
-
-resp, err := provider.Chat(ctx, req)
 ```
 
 ## Complete Example

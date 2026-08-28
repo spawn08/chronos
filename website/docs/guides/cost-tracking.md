@@ -8,21 +8,37 @@ The `CostTracker` hook monitors LLM API costs in real time. It accumulates token
 ## Quick Setup
 
 ```go
-import "github.com/spawn08/chronos/engine/hooks"
+package main
 
-tracker := hooks.NewCostTracker(nil) // uses default price table
+import (
+    "context"
+    "fmt"
+    "os"
 
-a, _ := agent.New("assistant", "Assistant").
-    WithModel(model.NewOpenAI(key)).
-    AddHook(tracker).
-    Build()
+    "github.com/spawn08/chronos/engine/hooks"
+    "github.com/spawn08/chronos/engine/model"
+    "github.com/spawn08/chronos/sdk/agent"
+)
 
-resp, _ := a.Chat(ctx, "Summarize this document...")
+func main() {
+    ctx := context.Background()
+    key := os.Getenv("OPENAI_API_KEY")
 
-report := tracker.GetGlobalCost()
-fmt.Printf("Tokens: %d prompt + %d completion\n",
-    report.PromptTokens, report.CompletionTokens)
-fmt.Printf("Cost: $%.6f\n", report.TotalCost)
+    tracker := hooks.NewCostTracker(nil) // uses default price table
+
+    a, _ := agent.New("assistant", "Assistant").
+        WithModel(model.NewOpenAI(key)).
+        AddHook(tracker).
+        Build()
+
+    resp, _ := a.Chat(ctx, "Summarize this document...")
+    fmt.Println(resp.Content)
+
+    report := tracker.GetGlobalCost()
+    fmt.Printf("Tokens: %d prompt + %d completion\n",
+        report.PromptTokens, report.CompletionTokens)
+    fmt.Printf("Cost: $%.6f\n", report.TotalCost)
+}
 ```
 
 ## CostReport
@@ -66,13 +82,24 @@ The built-in table covers these models (prices as of mid-2026 — override with 
 | gpt-5 | $0.00000125 | $0.00001 |
 | gpt-4o | $0.0000025 | $0.00001 |
 | gpt-4o-mini | $0.00000015 | $0.0000006 |
+| gpt-4-turbo | $0.00001 | $0.00003 |
 | o3 | $0.00001 | $0.00004 |
+| o3-mini | $0.0000011 | $0.0000044 |
 | claude-fable-5 | $0.00001 | $0.00005 |
 | claude-opus-4-8 | $0.000005 | $0.000025 |
+| claude-opus-4-7 | $0.000005 | $0.000025 |
 | claude-sonnet-5 | $0.000003 | $0.000015 |
+| claude-sonnet-4-6 | $0.000003 | $0.000015 |
 | claude-haiku-4-5 | $0.000001 | $0.000005 |
+| claude-3-5-sonnet | $0.000003 | $0.000015 |
+| claude-3-opus | $0.000015 | $0.000075 |
+| claude-3-haiku | $0.00000025 | $0.00000125 |
+| claude-3-5-haiku | $0.0000008 | $0.000004 |
 | gemini-2.0-flash | $0.00000015 | $0.0000006 |
+| gemini-1.5-pro | $0.00000125 | $0.000005 |
 | mistral-large-latest | $0.000002 | $0.000006 |
+
+See [`engine/hooks/cost.go`](https://github.com/spawn08/chronos/blob/main/engine/hooks/cost.go) for the authoritative, up-to-date table.
 
 ## Budget Enforcement
 

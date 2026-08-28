@@ -30,16 +30,32 @@ the card straight from a skill registry so peers discover exactly what the agent
 can do:
 
 ```go
-skills := skill.NewRegistry()
-skills.Register(&skill.Skill{Name: "summarize", Version: "1.0"})
+import (
+    "context"
+    "net/http"
+    "strings"
 
-card := a2a.CardFromSkills("chronos-agent", "A Chronos A2A agent", "1.0", skills)
+    "github.com/spawn08/chronos/sdk/protocol/a2a"
+    "github.com/spawn08/chronos/sdk/skill"
+)
 
-srv := a2a.NewServer(card, func(ctx context.Context, task *a2a.Task) error {
-    task.Output = doWork(task.Input) // your agent run
-    return nil
-})
-http.Handle("/a2a/", srv) // or mount on the control plane — see below
+func doWork(input string) string {
+    return strings.ToUpper(input) // your agent run
+}
+
+func newA2AServer() *a2a.Server {
+    skills := skill.NewRegistry()
+    skills.Register(&skill.Skill{Name: "summarize", Version: "1.0"})
+
+    card := a2a.CardFromSkills("chronos-agent", "A Chronos A2A agent", "1.0", skills)
+
+    srv := a2a.NewServer(card, func(ctx context.Context, task *a2a.Task) error {
+        task.Output = doWork(task.Input) // your agent run
+        return nil
+    })
+    http.Handle("/a2a/", srv) // or mount on the control plane — see below
+    return srv
+}
 ```
 
 `NewServer` uses an in-memory store: simple, but tasks are lost on restart.
@@ -51,14 +67,26 @@ survive restarts and are re-leased if a worker dies (orphan recovery). The task
 record is persisted as a per-tenant checkpoint via `storage.Storage`.
 
 ```go
-ds := a2a.NewDurableStore(queue, store, handler)
+import (
+    "context"
+    "time"
 
-// A worker drives execution; a reaper recovers orphaned tasks after a crash.
-w, _ := queue.NewWorker(queue, ds.Executor, queue.WorkerConfig{ID: "a2a-worker-1"})
-go w.Run(ctx)
-go queue.NewReaper(queue, time.Second).Run(ctx)
+    "github.com/spawn08/chronos/engine/queue"
+    "github.com/spawn08/chronos/sdk/protocol/a2a"
+    "github.com/spawn08/chronos/storage"
+)
 
-srv := a2a.NewServerWithStore(card, ds)
+// q is the *queue.Queue instance (named to avoid shadowing the queue package).
+func newDurableA2AServer(ctx context.Context, q *queue.Queue, store storage.Storage, card a2a.AgentCard, handler a2a.Handler) *a2a.Server {
+    ds := a2a.NewDurableStore(q, store, handler)
+
+    // A worker drives execution; a reaper recovers orphaned tasks after a crash.
+    w, _ := queue.NewWorker(q, ds.Executor, queue.WorkerConfig{ID: "a2a-worker-1"})
+    go func() { _ = w.Run(ctx) }()
+    go func() { _ = queue.NewReaper(q, time.Second).Run(ctx) }()
+
+    return a2a.NewServerWithStore(card, ds)
+}
 ```
 
 The two backends implement the same `a2a.TaskStore` interface, so the HTTP surface
@@ -70,10 +98,19 @@ Mount the server on ChronosOS with `WithA2A` to put it behind the auth middlewar
 chain and scope every task to the caller's tenant:
 
 ```go
-srv := chronosos.NewWithOptions(":8420", store,
-    chronosos.WithAPIKeyAuth(apiKeyCfg),
-    chronosos.WithA2A(a2aServer), // a2aServer is an *a2a.Server (an http.Handler)
+import (
+    chronosos "github.com/spawn08/chronos/os"
+    "github.com/spawn08/chronos/os/auth"
+    "github.com/spawn08/chronos/sdk/protocol/a2a"
+    "github.com/spawn08/chronos/storage"
 )
+
+func newControlPlane(store storage.Storage, apiKeyCfg auth.APIKeyConfig, a2aServer *a2a.Server) *chronosos.Server {
+    return chronosos.NewWithOptions(":8420", store,
+        chronosos.WithAPIKeyAuth(apiKeyCfg),
+        chronosos.WithA2A(a2aServer), // a2aServer is an *a2a.Server (an http.Handler)
+    )
+}
 ```
 
 - Requests to `/a2a/*` require authentication (the route is **not** exempt).
@@ -84,17 +121,27 @@ srv := chronosos.NewWithOptions(":8420", store,
 ## Client: delegate to a remote agent
 
 ```go
-client := a2a.NewClient("https://peer.example.com")
+import (
+    "context"
+    "fmt"
 
-card, _ := client.GetAgentCard(ctx)          // discover
-task, _ := client.CreateTask(ctx, "do X", nil) // delegate
+    "github.com/spawn08/chronos/sdk/protocol/a2a"
+)
 
-// Stream updates until the task reaches a terminal state.
-tasks, errs := client.StreamTask(ctx, task.ID)
-for snap := range tasks {
-    fmt.Println(snap.Status, snap.Output)
+func delegateToRemote(ctx context.Context) {
+    client := a2a.NewClient("https://peer.example.com")
+
+    card, _ := client.GetAgentCard(ctx)            // discover
+    task, _ := client.CreateTask(ctx, "do X", nil) // delegate
+    fmt.Println(card.Name)
+
+    // Stream updates until the task reaches a terminal state.
+    tasks, errs := client.StreamTask(ctx, task.ID)
+    for snap := range tasks {
+        fmt.Println(snap.Status, snap.Output)
+    }
+    if err := <-errs; err != nil { /* ... */ }
 }
-if err := <-errs; err != nil { /* ... */ }
 ```
 
 `WaitForCompletion` is a polling alternative when you don't need incremental updates.
@@ -108,13 +155,21 @@ peers without a stream endpoint), and returns only the remote agent's final outp
 so its intermediate work never enters the caller's context.
 
 ```go
-delegate := a2a.NewRemoteAgentTool(
-    "research_agent",
-    "Delegate a research task to the remote research agent.",
-    client,
-    a2a.WithPermission(tool.PermRequireApproval), // gate outbound delegation
+import (
+    "github.com/spawn08/chronos/engine/tool"
+    "github.com/spawn08/chronos/sdk/agent"
+    "github.com/spawn08/chronos/sdk/protocol/a2a"
 )
-agent.New("assistant", "Assistant").AddTool(delegate).Build()
+
+func withDelegateTool(client *a2a.Client) (*agent.Agent, error) {
+    delegate := a2a.NewRemoteAgentTool(
+        "research_agent",
+        "Delegate a research task to the remote research agent.",
+        client,
+        a2a.WithPermission(tool.PermRequireApproval), // gate outbound delegation
+    )
+    return agent.New("assistant", "Assistant").AddTool(delegate).Build()
+}
 ```
 
 ## Example

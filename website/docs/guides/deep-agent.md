@@ -20,24 +20,47 @@ set and no manual wiring:
 ## Quick start
 
 ```go
+package main
+
 import (
+    "context"
+    "log"
+    "os"
+
+    "github.com/spawn08/chronos/engine/model"
     "github.com/spawn08/chronos/sdk/harness"
     "github.com/spawn08/chronos/storage/adapters/sqlite"
 )
 
-store, _ := sqlite.New("agent.db")
-_ = store.Migrate(ctx)
+func main() {
+    ctx := context.Background()
 
-a, err := harness.NewDeepAgent(harness.DeepAgentConfig{
-    Model:   provider,   // required
-    Storage: store,      // durable plan + files + session compaction
-})
-if err != nil {
-    log.Fatal(err)
+    store, err := sqlite.New("agent.db")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer store.Close()
+    if err := store.Migrate(ctx); err != nil {
+        log.Fatal(err)
+    }
+
+    provider := model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))
+
+    a, err := harness.NewDeepAgent(harness.DeepAgentConfig{
+        Model:   provider, // required
+        Storage: store,    // durable plan + files + session compaction
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Use ChatWithSession for the full durable, self-compacting experience.
+    resp, err := a.ChatWithSession(ctx, "task-1", "Research X and write a report.")
+    if err != nil {
+        log.Fatal(err)
+    }
+    log.Println(resp.Content)
 }
-
-// Use ChatWithSession for the full durable, self-compacting experience.
-resp, _ := a.ChatWithSession(ctx, "task-1", "Research X and write a report.")
 ```
 
 That is all the wiring required. The returned value is a normal `*agent.Agent`, so
@@ -75,6 +98,9 @@ must carry a session-scoped context. `ChatWithSession` sets this for you; for
 storageless `Chat`, wrap the context yourself:
 
 ```go
+import "github.com/spawn08/chronos/storage"
+
+// a and ctx are the *agent.Agent and context.Context from wherever it's driven.
 ctx = storage.WithSession(ctx, "some-session-id")
 resp, _ := a.Chat(ctx, "…")
 ```
@@ -90,6 +116,9 @@ Register named specialists the agent can select by name (it can also invent
 subagents dynamically at runtime):
 
 ```go
+import "github.com/spawn08/chronos/sdk/harness"
+
+// provider and store are the same instances built in Quick start above.
 a, _ := harness.NewDeepAgent(harness.DeepAgentConfig{
     Model:   provider,
     Storage: store,

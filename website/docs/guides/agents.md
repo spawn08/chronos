@@ -41,25 +41,68 @@ Use `agent.New(id, name)` to create a builder. All methods return `*Builder` for
 ### Core Configuration
 
 ```go
-a, err := agent.New("my-agent", "My Agent").
-    Description("A helpful assistant for technical questions").
-    WithUserID("user-123").
-    WithModel(model.NewOpenAI(apiKey)).
-    WithStorage(store).
-    WithMemory(memoryStore).
-    WithKnowledge(kb).
-    WithMemoryManager(mgr).
-    WithOutputSchema(schema).
-    WithHistoryRuns(3).
-    WithContextConfig(agent.ContextConfig{
-        MaxContextTokens:    128000,
-        SummarizeThreshold:  0.8,
-        PreserveRecentTurns: 5,
-    }).
-    WithSystemPrompt("You are a senior engineer.").
-    AddInstruction("Always cite sources when possible.").
-    AddCapability("chat").
-    Build()
+package main
+
+import (
+    "context"
+    "log"
+    "os"
+
+    "github.com/spawn08/chronos/engine/model"
+    "github.com/spawn08/chronos/sdk/agent"
+    "github.com/spawn08/chronos/sdk/knowledge"
+    "github.com/spawn08/chronos/sdk/memory"
+    "github.com/spawn08/chronos/storage/adapters/sqlite"
+)
+
+func main() {
+    ctx := context.Background()
+
+    store, err := sqlite.New("agent.db")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer store.Close()
+    if err := store.Migrate(ctx); err != nil {
+        log.Fatal(err)
+    }
+
+    provider := model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))
+    memStore := memory.NewStore("my-agent", store)
+    mgr := memory.NewManager("my-agent", "user-123", memStore, provider)
+    var kb knowledge.Knowledge // wire up a knowledge.VectorKnowledge in real use
+
+    schema := map[string]any{
+        "type": "object",
+        "properties": map[string]any{
+            "answer": map[string]any{"type": "string"},
+        },
+    }
+
+    a, err := agent.New("my-agent", "My Agent").
+        Description("A helpful assistant for technical questions").
+        WithUserID("user-123").
+        WithModel(provider).
+        WithStorage(store).
+        WithMemory(memStore).
+        WithKnowledge(kb).
+        WithMemoryManager(mgr).
+        WithOutputSchema(schema).
+        WithHistoryRuns(3).
+        WithContextConfig(agent.ContextConfig{
+            MaxContextTokens:    128000,
+            SummarizeThreshold:  0.8,
+            PreserveRecentTurns: 5,
+        }).
+        WithSystemPrompt("You are a senior engineer.").
+        AddInstruction("Always cite sources when possible.").
+        AddCapability("chat").
+        Build()
+    if err != nil {
+        log.Fatal(err)
+    }
+    _ = a
+}
 ```
 
 ### Builder Methods
@@ -305,11 +348,65 @@ func main() {
 `Resume` continues a paused session from its last checkpoint. Use this when a graph contains an interrupt node that requires human approval, or when execution was stopped for any reason.
 
 ```go
-result, err := a.Resume(ctx, sessionID)
-if err != nil {
-    log.Fatal(err)
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    "github.com/spawn08/chronos/engine/graph"
+    "github.com/spawn08/chronos/sdk/agent"
+    "github.com/spawn08/chronos/storage/adapters/sqlite"
+)
+
+func main() {
+    ctx := context.Background()
+
+    store, err := sqlite.New("resume.db")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer store.Close()
+    if err := store.Migrate(ctx); err != nil {
+        log.Fatal(err)
+    }
+
+    g := graph.New("approval-workflow").
+        AddNode("draft", func(_ context.Context, s graph.State) (graph.State, error) {
+            s["draft"] = fmt.Sprintf("Draft for %s", s["topic"])
+            return s, nil
+        }).
+        AddInterruptNode("approve", func(_ context.Context, s graph.State) (graph.State, error) {
+            s["approved"] = true
+            return s, nil
+        }).
+        SetEntryPoint("draft").
+        AddEdge("draft", "approve").
+        SetFinishPoint("approve")
+
+    a, err := agent.New("resume-agent", "Resume Agent").
+        WithStorage(store).
+        WithGraph(g).
+        Build()
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Run pauses at the "approve" interrupt node and checkpoints to storage.
+    runResult, err := a.Run(ctx, map[string]any{"topic": "Q3 roadmap"})
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Later — e.g. after a human approves via the dashboard — resume from the
+    // checkpoint using the session ID captured on the paused RunState.
+    result, err := a.Resume(ctx, runResult.SessionID)
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Printf("Resumed result: %v\n", result.State)
 }
-fmt.Printf("Resumed result: %v\n", result.State)
 ```
 
 ## ContextConfig

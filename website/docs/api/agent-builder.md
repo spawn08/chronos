@@ -98,20 +98,35 @@ Runs the agent on a text task and returns the text response. This is the simples
 **Requires:** `Model` must be set.
 
 ```go
+package main
+
 import (
+    "context"
     "fmt"
+    "log"
+    "os"
 
     "github.com/spawn08/chronos/engine/model"
     "github.com/spawn08/chronos/sdk/agent"
 )
 
-a, _ := agent.New("helper", "Helper").
-    WithModel(model.NewOpenAI(apiKey)).
-    WithSystemPrompt("You are a helpful assistant.").
-    Build()
+func main() {
+    ctx := context.Background()
 
-response, err := a.Execute(ctx, "Explain quantum computing in 3 sentences")
-fmt.Println(response) // prints the text response directly
+    a, err := agent.New("helper", "Helper").
+        WithModel(model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))).
+        WithSystemPrompt("You are a helpful assistant.").
+        Build()
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    response, err := a.Execute(ctx, "Explain quantum computing in 3 sentences")
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println(response) // prints the text response directly
+}
 ```
 
 `Execute` is used internally by teams when running lightweight agents. It calls `Chat` under the hood and returns only the content string, making it convenient for orchestration where you just need the text output.
@@ -181,11 +196,32 @@ Continues a paused session from the latest checkpoint.
 Agents can also be built from YAML config:
 
 ```go
-import "github.com/spawn08/chronos/sdk/agent"
+package main
 
-fc, _ := agent.LoadFile("")
-cfg, _ := fc.FindAgent("dev")
-a, _ := agent.BuildAgent(ctx, cfg)
+import (
+    "context"
+    "log"
+
+    "github.com/spawn08/chronos/sdk/agent"
+)
+
+func main() {
+    ctx := context.Background()
+
+    fc, err := agent.LoadFile("")
+    if err != nil {
+        log.Fatal(err)
+    }
+    cfg, err := fc.FindAgent("dev")
+    if err != nil {
+        log.Fatal(err)
+    }
+    a, err := agent.BuildAgent(ctx, cfg)
+    if err != nil {
+        log.Fatal(err)
+    }
+    _ = a
+}
 ```
 
 See the [Configuration guide](/getting-started/configuration/) for full YAML reference.
@@ -193,8 +229,12 @@ See the [Configuration guide](/getting-started/configuration/) for full YAML ref
 ## Complete Example
 
 ```go
+package main
+
 import (
+    "context"
     "fmt"
+    "log"
     "os"
 
     "github.com/spawn08/chronos/engine/guardrails"
@@ -205,38 +245,59 @@ import (
     "github.com/spawn08/chronos/storage/adapters/sqlite"
 )
 
-store, _ := sqlite.New("app.db")
-store.Migrate(ctx)
+func searchHandler(_ context.Context, args map[string]any) (any, error) {
+    // Your documentation search logic here
+    return "no results", nil
+}
 
-tracker := hooks.NewCostTracker(nil)
+func main() {
+    ctx := context.Background()
 
-a, _ := agent.New("assistant", "AI Assistant").
-    WithModel(model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))).
-    WithStorage(store).
-    WithSystemPrompt("You are a helpful coding assistant.").
-    AddInstruction("Always include code examples.").
-    WithContextConfig(agent.ContextConfig{
-        SummarizeThreshold:  0.8,
-        PreserveRecentTurns: 5,
-    }).
-    AddTool(&tool.Definition{
-        Name:        "search_docs",
-        Description: "Search project documentation",
-        Parameters:  map[string]any{"type": "object", "properties": map[string]any{
-            "query": map[string]string{"type": "string"},
-        }},
-        Permission: tool.PermAllow,
-        Handler:    searchHandler,
-    }).
-    AddHook(hooks.NewRetryHook(3)).
-    AddHook(tracker).
-    AddInputGuardrail("blocklist", &guardrails.BlocklistGuardrail{
-        Blocklist: []string{"password", "secret"},
-    }).
-    Build()
+    store, err := sqlite.New("app.db")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer store.Close()
+    if err := store.Migrate(ctx); err != nil {
+        log.Fatal(err)
+    }
 
-// Multi-turn session with automatic summarization
-resp, _ := a.ChatWithSession(ctx, "session-001", "How do I implement auth?")
-fmt.Println(resp.Content)
-fmt.Printf("Cost: $%.6f\n", tracker.GetGlobalCost().TotalCost)
+    tracker := hooks.NewCostTracker(nil)
+
+    a, err := agent.New("assistant", "AI Assistant").
+        WithModel(model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))).
+        WithStorage(store).
+        WithSystemPrompt("You are a helpful coding assistant.").
+        AddInstruction("Always include code examples.").
+        WithContextConfig(agent.ContextConfig{
+            SummarizeThreshold:  0.8,
+            PreserveRecentTurns: 5,
+        }).
+        AddTool(&tool.Definition{
+            Name:        "search_docs",
+            Description: "Search project documentation",
+            Parameters: map[string]any{"type": "object", "properties": map[string]any{
+                "query": map[string]string{"type": "string"},
+            }},
+            Permission: tool.PermAllow,
+            Handler:    searchHandler,
+        }).
+        AddHook(hooks.NewRetryHook(3)).
+        AddHook(tracker).
+        AddInputGuardrail("blocklist", &guardrails.BlocklistGuardrail{
+            Blocklist: []string{"password", "secret"},
+        }).
+        Build()
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Multi-turn session with automatic summarization
+    resp, err := a.ChatWithSession(ctx, "session-001", "How do I implement auth?")
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println(resp.Content)
+    fmt.Printf("Cost: $%.6f\n", tracker.GetGlobalCost().TotalCost)
+}
 ```

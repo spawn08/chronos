@@ -76,6 +76,23 @@ See the [Model Context Protocol guide](/guides/mcp) for the full workflow.
 
 ---
 
+## mcp_sse
+
+**MCP over the HTTP+SSE transport.** Unlike `mcp_agent` (which launches a stdio subprocess), this connects to a remote-style MCP server over HTTP: the client opens a long-lived SSE stream for responses and POSTs JSON-RPC requests. To stay self-contained and CI-safe, the example starts a minimal in-process SSE MCP server, connects to it, lists its tools, and calls one — no API key required.
+
+```bash
+go run ./examples/mcp_sse/
+```
+
+**Demonstrates:**
+- MCP 2024-11-05 HTTP+SSE transport (client and a minimal server)
+- Listing and calling tools advertised over SSE
+- The same tool-import pattern as `mcp_agent`, over a different transport
+
+See the [Model Context Protocol guide](/guides/mcp) for stdio vs. HTTP+SSE transport details.
+
+---
+
 ## coding_agent
 
 **Autonomous, Cursor/Aider-style coding agent.** Reads, writes, and searches files, runs shell commands (git, build, tests), and uses a vector store for semantic code search (RAG). Runs an autonomous multi-step loop.

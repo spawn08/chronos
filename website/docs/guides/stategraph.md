@@ -14,6 +14,7 @@ The StateGraph runtime (`engine/graph`) is intentionally **LLM-agnostic** — it
 ```go
 import (
     "context"
+    "fmt"
 
     "github.com/spawn08/chronos/engine/graph"
     "github.com/spawn08/chronos/engine/model"
@@ -64,13 +65,22 @@ On `Resume`, `draft` is skipped (its output is in the checkpoint) and execution 
 ```go
 // Attempt 1 — draft succeeds and is checkpointed; review crashes.
 _, err := graph.NewRunner(compiled, store).Run(ctx, sessionID, graph.State{"topic": "durability"})
-// err != nil, but draft's result is durably checkpointed.
+if err != nil {
+    // draft's result is already durably checkpointed despite this failure.
+    log.Printf("run failed (will resume later): %v", err)
+}
 
 // Later (even in a brand-new process/replica pointed at the same store):
 // a Runner is single-use, so construct a fresh one — the state lives in the store.
 result, err := graph.NewRunner(compiled, store).Resume(ctx, sessionID)
+if err != nil {
+    log.Fatal(err)
+}
 // draft does NOT run again; execution resumes at review → finalize.
+fmt.Printf("final state: %v\n", result.State)
 ```
+
+This fragment continues across two separate runs (`compiled`, `store`, `ctx`, and `sessionID` are constructed as shown later in [Creating a Graph](#creating-a-graph), [Compiling](#compiling), and [Runner](#runner); it also uses `fmt` and `log` from the standard library).
 
 Durability requires a persistent store (`storage/adapters/sqlite` for dev, `storage/adapters/postgres` for production). With Postgres, resume works across replicas, which is what makes the control plane horizontally scalable.
 
@@ -272,9 +282,17 @@ fmt.Printf("Result: %v\n", result.State)
 Resume from any historical checkpoint to replay or debug:
 
 ```go
-checkpoints, _ := store.ListCheckpoints(ctx, sessionID)
-// User selects checkpointID from UI or CLI
+checkpoints, err := store.ListCheckpoints(ctx, sessionID)
+if err != nil {
+    log.Fatal(err)
+}
+// User selects checkpointID from UI or CLI; here we pick the most recent one.
+checkpointID := checkpoints[len(checkpoints)-1].ID
 result, err := runner.ResumeFromCheckpoint(ctx, checkpointID)
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Printf("resumed at checkpoint %s: %v\n", checkpointID, result.State)
 ```
 
 ## Complete Example

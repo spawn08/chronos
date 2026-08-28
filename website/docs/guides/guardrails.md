@@ -28,12 +28,23 @@ type Result struct {
 The guardrails engine runs rules by position (input or output):
 
 ```go
+import (
+    "context"
+
+    "github.com/spawn08/chronos/engine/guardrails"
+)
+
+ctx := context.Background()
+
 engine := guardrails.NewEngine()
 engine.AddRule(guardrails.Rule{
     Name:      "blocklist",
     Position:  guardrails.Input,
     Guardrail: &guardrails.BlocklistGuardrail{Blocklist: []string{"spam"}},
 })
+if failure := engine.CheckInput(ctx, "buy spam now"); failure != nil {
+    // failure.Reason explains which rule blocked the content
+}
 ```
 
 - **CheckInput(ctx, content)**: Runs all input guardrails. Returns the first failure, or nil.
@@ -48,6 +59,9 @@ engine.AddRule(guardrails.Rule{
 
 ## Built-in Guardrails
 
+The snippets below continue from the `ctx` and `import` block shown in
+[Engine](#engine) above, plus `"fmt"` for printing results.
+
 ### BlocklistGuardrail
 
 Rejects content containing any blocked term (case-insensitive).
@@ -57,6 +71,7 @@ g := &guardrails.BlocklistGuardrail{
     Blocklist: []string{"password", "secret", "confidential"},
 }
 result := g.Check(ctx, "Please share your password")
+fmt.Println(result.Passed, result.Reason)
 // result.Passed == false, result.Reason == "blocked term: \"password\""
 ```
 
@@ -66,7 +81,8 @@ Rejects content exceeding a character limit.
 
 ```go
 g := &guardrails.MaxLengthGuardrail{MaxChars: 1000}
-result := g.Check(ctx, longString)
+result := g.Check(ctx, longString) // longString is any string, e.g. from user input
+fmt.Println(result.Passed)
 // result.Passed == false if len(longString) > 1000
 ```
 
@@ -103,7 +119,35 @@ When a guardrail fails, the method returns an error: `"input guardrail failed: [
 
 Implement the `Guardrail` interface for custom logic:
 
+:::caution `engine/guardrails.PIIGuardrail` and `InjectionGuardrail` do not currently implement `Guardrail`
+The `engine/guardrails` package also exports types named `PIIGuardrail` (in
+`pii.go`) and `InjectionGuardrail` (in `injection.go`) with built-in regex
+detectors for emails, SSNs, credit cards, IP addresses, and common prompt-injection
+phrasing. As currently written, their `Check` method signature is
+`Check(_ interface{}, content string) *Result` — this does **not** satisfy the
+`Guardrail` interface (`Check(ctx context.Context, content string) Result`),
+because the parameter type (`interface{}` vs. `context.Context`) and the return
+type (`*Result` vs. `Result`) both differ. Passing `&guardrails.PIIGuardrail{}`
+or `&guardrails.InjectionGuardrail{}` as a `Rule.Guardrail` or to
+`AddInputGuardrail`/`AddOutputGuardrail` fails to compile.
+
+You can still call their `Check` method directly as a standalone helper (e.g.
+`(&guardrails.PIIGuardrail{}).Check(nil, content)`), and `guardrails.RedactPII`
+is a free function for redacting detected PII in text. But to *wire* PII or
+injection detection into the `Guardrail`/`Engine`/builder pipeline today, define
+your own type with the correct signature, as shown below — it is not simply an
+alias for the package's built-in type of the same name.
+:::
+
 ```go
+import (
+    "context"
+    "fmt"
+    "regexp"
+
+    "github.com/spawn08/chronos/engine/guardrails"
+)
+
 type PIIGuardrail struct {
     Patterns []*regexp.Regexp
 }

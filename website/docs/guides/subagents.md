@@ -85,7 +85,15 @@ executing it dies, the reaper re-leases the run and another worker completes it 
 the subagent is resumable and can run on any node.
 
 ```go
-runner := harness.NewQueuedRunner(svc, queue, store, harness.WithTimeout(30*time.Second))
+import (
+    "time"
+
+    "github.com/spawn08/chronos/engine/queue"
+    "github.com/spawn08/chronos/sdk/harness"
+)
+
+// q is a *queue.Queue and store a storage.Storage, both already constructed.
+runner := harness.NewQueuedRunner(svc, q, store, harness.WithTimeout(30*time.Second))
 harness.Attach(svc, runner)
 ```
 
@@ -97,9 +105,20 @@ Durable delegation requires the subagent to be **registered** (a remote worker
 rebuilds it by name), and every worker must run the shared subagent graph:
 
 ```go
+import (
+    "context"
+    "time"
+
+    "github.com/spawn08/chronos/engine/graph"
+    "github.com/spawn08/chronos/engine/queue"
+    "github.com/spawn08/chronos/sdk/harness"
+)
+
+// svc, store, and q (a *queue.Queue) are the same instances from above; ctx is
+// a long-lived context this worker runs under.
 g, _ := harness.NewSubAgentGraph(svc)
 exec := graph.NewQueuedExecutor(store, graph.SingleGraphResolver(g)).Executor()
-worker, _ := queue.NewWorker(queue, exec, queue.WorkerConfig{ID: "w1", Lease: 30 * time.Second})
+worker, _ := queue.NewWorker(q, exec, queue.WorkerConfig{ID: "w1", Lease: 30 * time.Second})
 go worker.Run(ctx)
 ```
 

@@ -20,7 +20,13 @@ Each tool is defined by a `tool.Definition`:
 Example:
 
 ```go
-&tool.Definition{
+import (
+    "context"
+
+    "github.com/spawn08/chronos/engine/tool"
+)
+
+var weatherTool = &tool.Definition{
     Name:        "get_weather",
     Description: "Get the current weather for a location",
     Parameters: map[string]any{
@@ -109,28 +115,38 @@ The registry manages tool definitions, permissions, and execution:
 Register tools when building an agent:
 
 ```go
-a, err := agent.New("tool-agent", "Tool Agent").
-    WithModel(provider).
-    AddTool(&tool.Definition{
-        Name:        "get_weather",
-        Description: "Get weather for a location",
-        Parameters: map[string]any{
-            "type": "object",
-            "properties": map[string]any{
-                "location": map[string]any{
-                    "type":        "string",
-                    "description": "City name",
+import (
+    "context"
+
+    "github.com/spawn08/chronos/engine/model"
+    "github.com/spawn08/chronos/engine/tool"
+    "github.com/spawn08/chronos/sdk/agent"
+)
+
+func buildToolAgent(provider model.Provider) (*agent.Agent, error) {
+    return agent.New("tool-agent", "Tool Agent").
+        WithModel(provider).
+        AddTool(&tool.Definition{
+            Name:        "get_weather",
+            Description: "Get weather for a location",
+            Parameters: map[string]any{
+                "type": "object",
+                "properties": map[string]any{
+                    "location": map[string]any{
+                        "type":        "string",
+                        "description": "City name",
+                    },
                 },
+                "required": []string{"location"},
             },
-            "required": []string{"location"},
-        },
-        Permission: tool.PermAllow,
-        Handler: func(ctx context.Context, args map[string]any) (any, error) {
-            loc, _ := args["location"].(string)
-            return map[string]any{"location": loc, "temp": 20}, nil
-        },
-    }).
-    Build()
+            Permission: tool.PermAllow,
+            Handler: func(ctx context.Context, args map[string]any) (any, error) {
+                loc, _ := args["location"].(string)
+                return map[string]any{"location": loc, "temp": 20}, nil
+            },
+        }).
+        Build()
+}
 ```
 
 ## Automatic Tool-Call Loop
@@ -172,11 +188,20 @@ type Event struct {
 For tools with `PermRequireApproval`, set an approval handler on the registry. The handler blocks until the user approves or denies.
 
 ```go
-a.Tools.SetApprovalHandler(func(ctx context.Context, toolName string, args map[string]any) (bool, error) {
-    // In production: show UI, wait for user decision
-    log.Printf("Approval requested for %s with args %v", toolName, args)
-    return true, nil // true = approved
-})
+import (
+    "context"
+    "log"
+
+    "github.com/spawn08/chronos/sdk/agent"
+)
+
+func setApprovalHandler(a *agent.Agent) {
+    a.Tools.SetApprovalHandler(func(ctx context.Context, toolName string, args map[string]any) (bool, error) {
+        // In production: show UI, wait for user decision
+        log.Printf("Approval requested for %s with args %v", toolName, args)
+        return true, nil // true = approved
+    })
+}
 ```
 
 If no handler is set and a tool requires approval, execution returns an error.

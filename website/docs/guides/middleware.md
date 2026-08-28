@@ -5,6 +5,23 @@ title: "Middleware & Hooks"
 
 Chronos uses a hook-based middleware system to intercept execution events. Hooks run before and after model calls, tool calls, graph nodes, and session lifecycle events. Use them for logging, metrics, retries, rate limiting, cost tracking, and caching.
 
+The snippets on this page (except the fully self-contained "Complete Example")
+assume these imports, plus a previously-built `a *agent.Agent` (or
+`*agent.Builder`) and `provider model.Provider`:
+
+```go
+import (
+    "context"
+    "fmt"
+    "log"
+    "strings"
+    "time"
+
+    "github.com/spawn08/chronos/engine/hooks"
+    "github.com/spawn08/chronos/sdk/agent"
+)
+```
+
 ## Hook Interface
 
 Every hook implements the `Hook` interface:

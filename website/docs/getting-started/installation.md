@@ -29,7 +29,7 @@ Add Chronos as a library to your Go project:
 go get github.com/spawn08/chronos
 ```
 
-**Requirements:** Go 1.24+, C compiler (for SQLite via CGO).
+**Requirements:** Go 1.24+. No C compiler is required — the bundled SQLite adapter uses the pure-Go `modernc.org/sqlite` driver (`CGO_ENABLED=0`).
 
 ## Option 3: Build from Source
 

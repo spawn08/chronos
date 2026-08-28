@@ -48,6 +48,23 @@ Source: [examples/durable_hitl](https://github.com/spawn08/chronos/tree/main/exa
 
 ---
 
+## durable_llm_graph
+
+Shows **where LLM calls happen and how the StateGraph runtime makes them durable**: a 3-step content pipeline (`draft` (LLM) → `review` (LLM) → `finalize`) where `review` is made to fail on its first attempt to simulate a crash. On `Resume`, `draft`'s already-checkpointed output is skipped and execution picks up at `review` — so a completed, expensive LLM call is never re-executed. Uses a deterministic stub provider so it runs offline and in CI with no API keys.
+
+```bash
+go run ./examples/durable_llm_graph/
+```
+
+**Demonstrates:**
+- LLM calls inside graph nodes, with the runtime itself remaining LLM-agnostic
+- Checkpointing after every completed node
+- `Resume` continuing from the last checkpoint after a simulated crash, without re-running expensive prior nodes
+
+Source: [examples/durable_llm_graph](https://github.com/spawn08/chronos/tree/main/examples/durable_llm_graph)
+
+---
+
 ## sandbox_execution
 
 Process sandbox for running untrusted commands with timeouts and output capture.

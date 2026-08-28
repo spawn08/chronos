@@ -84,14 +84,20 @@ Precedence is fixed (OpenAI → Anthropic → Gemini → Azure → Vertex → Be
 | [tools_and_guardrails](./examples/fundamentals.md#tools_and_guardrails) | Permissions, guardrails |
 | [graph_patterns](./examples/fundamentals.md#graph_patterns) | Conditional edges, interrupts, streaming |
 | [memory_and_sessions](./examples/fundamentals.md#memory_and_sessions) | Short/long-term memory, sessions |
+| [multi_round_tools](./examples/fundamentals.md#multi_round_tools) | Multi-round tool calling (tool A feeds tool B) |
 | [streaming_sse](./examples/fundamentals.md#streaming_sse) | Event broker, SSE |
+| [rag_knowledge](./examples/fundamentals.md#rag_knowledge) | Offline RAG: ingest, embed, similarity-search |
+| [skills](./examples/fundamentals.md#skills) | Skill registry: install, upgrade, resolve |
+| [structured_output](./examples/fundamentals.md#structured_output) | Strict JSON output decoded into a struct |
+| [server_embedded](./examples/fundamentals.md#server_embedded) | Embed the ChronosOS server in your own process |
 
 ### LLM Agents — API key (mock fallback)
 
 | Example | Feature area |
 |---------|-------------|
 | [graph_with_llm](./examples/llm-agents.md#graph_with_llm) | StateGraph + live LLM |
-| [mcp_agent](./examples/llm-agents.md#mcp_agent) | Model Context Protocol tools |
+| [mcp_agent](./examples/llm-agents.md#mcp_agent) | Model Context Protocol tools (stdio transport) |
+| [mcp_sse](./examples/llm-agents.md#mcp_sse) | Model Context Protocol tools (HTTP+SSE transport) |
 | [coding_agent](./examples/llm-agents.md#coding_agent) | Autonomous coding agent + RAG |
 | [multi_agent](./examples/llm-agents.md#multi_agent) | 4 team strategies, bus delegation |
 | [team_deploy](./examples/llm-agents.md#team_deploy) | YAML teams + sandbox deploy |
@@ -102,6 +108,8 @@ Precedence is fixed (OpenAI → Anthropic → Gemini → Azure → Vertex → Be
 |---------|-------------|
 | [multi_provider](./examples/providers.md#multi_provider) | Multiple providers side by side |
 | [azure](./examples/providers.md#azure) | Azure OpenAI (chat + streaming) |
+| [azure_tools](./examples/providers.md#azure_tools) | Azure OpenAI multi-round tool calling |
+| [azure_rag](./examples/providers.md#azure_rag) | Azure OpenAI embeddings + RAG |
 | [vertex](./examples/providers.md#vertex) | Google Cloud Vertex AI |
 | [fallback_provider](./examples/providers.md#fallback_provider) | Provider failover |
 
@@ -111,6 +119,7 @@ Precedence is fixed (OpenAI → Anthropic → Gemini → Azure → Vertex → Be
 |---------|-------------|
 | [durable_queue](./examples/durability.md#durable_queue) | Leased workers, sleep, park/signal HITL, orphan recovery |
 | [durable_hitl](./examples/durability.md#durable_hitl) | Human-in-the-loop approval with checkpoint + resume |
+| [durable_llm_graph](./examples/durability.md#durable_llm_graph) | Checkpoint/resume around LLM calls in a StateGraph |
 | [sandbox_execution](./examples/durability.md#sandbox_execution) | Process sandbox with timeouts and I/O capture |
 
 ### Enterprise & Multi-Tenancy
@@ -119,6 +128,7 @@ Precedence is fixed (OpenAI → Anthropic → Gemini → Azure → Vertex → Be
 |---------|-------------|
 | [enterprise_sso](./examples/enterprise.md#enterprise_sso) | ChronosOS behind OIDC/JWKS SSO |
 | [data_residency](./examples/enterprise.md#data_residency) | Per-tenant storage routing (EU vs US) |
+| [multitenancy](./examples/enterprise.md#multitenancy) | Storage-level tenant isolation (`storage.WithTenant`) |
 | [multitenant_memory](./examples/enterprise.md#multitenant_memory) | Per-tenant long-term memory isolation on one agent |
 
 ### Observability & CLI

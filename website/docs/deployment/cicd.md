@@ -18,6 +18,7 @@ The CI workflow (`.github/workflows/ci.yml`) runs on every push to `main` and on
 | **Test** | Runs tests with race detector on Ubuntu and macOS |
 | **Vet** | Static analysis with `go vet ./...` |
 | **Examples** | Smoke-tests all example programs |
+| **Eval Gate** | Runs the eval-loop example and verifies `chronos evals gate` passes a healthy report and blocks a regressed one |
 | **Docker** | Verifies the Docker image builds |
 
 ### Running Locally
@@ -75,6 +76,35 @@ This triggers the full release pipeline. The resulting artifacts:
 | macOS | amd64, arm64 (Apple Silicon) |
 | Windows | amd64, arm64 |
 
+## Security Scanning
+
+The security workflow (`.github/workflows/security.yml`) runs on every push to `main` and on pull requests:
+
+| Job | Description |
+|-----|--------------|
+| **govulncheck** | Scans Go dependencies for known vulnerabilities |
+| **gosec** (SAST) | Static analysis for Go source; uploads SARIF results — new alerts fail the PR check |
+| **CodeQL** (Go) | GitHub's semantic SAST for Go |
+
+### Running Locally
+
+```bash
+go install github.com/securego/gosec/v2/cmd/gosec@v2.28.0
+gosec ./...
+```
+
+## Documentation Deployment
+
+The docs workflow (`.github/workflows/docs.yml`) builds the Docusaurus site under `website/` and deploys it to GitHub Pages on every push to `main`.
+
+```bash
+# Build and preview the docs site locally
+cd website
+npm install
+npm run build
+npm run serve
+```
+
 ## Dependabot
 
 Automated dependency updates are configured in `.github/dependabot.yml`:
@@ -83,7 +113,7 @@ Automated dependency updates are configured in `.github/dependabot.yml`:
 |-----------|----------|
 | Go modules | Weekly |
 | GitHub Actions | Weekly |
-| Docker | Weekly |
+| Docker | Monthly |
 
 Dependabot creates pull requests for outdated dependencies. The CI workflow validates each PR before merging.
 
@@ -106,9 +136,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
-          go-version: "1.24"
+          go-version: "1.25.12"
       - run: go build ./...
       - run: your-custom-check
 ```

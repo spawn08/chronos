@@ -67,6 +67,14 @@ its sequence space. A worker resuming a session — or a process restarting afte
 crash — reloads the plan exactly as it was:
 
 ```go
+import (
+    "fmt"
+
+    "github.com/spawn08/chronos/engine/tool/builtins"
+    "github.com/spawn08/chronos/storage"
+)
+
+// ctx and store (a storage.Storage) come from wherever the process resumed.
 resumeCtx := storage.WithSession(ctx, "session-1")
 plan, _ := builtins.NewStoragePlanStore(store).Load(resumeCtx)
 fmt.Println(plan.Summary()) // the plan, intact after resume

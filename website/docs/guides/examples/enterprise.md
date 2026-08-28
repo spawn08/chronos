@@ -30,13 +30,13 @@ export OIDC_JWKS_URL=https://www.googleapis.com/oauth2/v3/certs
 export OIDC_AUDIENCE=<oauth-client-id>
 
 go run ./examples/enterprise_sso/
-curl -H "Authorization: Bearer <id-token>" http://localhost:8420/v1/sessions
+curl -H "Authorization: Bearer <id-token>" http://localhost:8420/api/sessions
 ```
 
 **Demonstrates:**
 - `chronosos.NewWithOptions(addr, store, chronosos.WithJWTAuth(...))`
 - `auth.JWTConfig{ Issuer, Audience, JWKSURL }` — OIDC/JWKS verification with `kid`-cached rotation
-- Health-probe paths (`/healthz`, `/livez`, `/readyz`) bypassing auth for Kubernetes
+- Health-probe paths (`/healthz`, `/health/live`, `/health/ready`) bypassing auth for Kubernetes
 
 ---
 

@@ -20,6 +20,10 @@ Turn a stored session's conversation into a golden dataset (each user turn → a
 input, the assistant reply → the expected output):
 
 ```go
+import "github.com/spawn08/chronos/evals"
+
+// ctx is a context.Context; store is a storage.Storage; sessionID names an
+// existing session to capture.
 ds, err := evals.CaptureFromSession(ctx, store, sessionID, "capitals")
 data, _ := evals.MarshalDataset(ds) // JSON for on-disk storage
 ```
@@ -40,6 +44,15 @@ Run the dataset against a **target** (any `func(ctx, input) (string, error)` —
 evaluators:
 
 ```go
+import (
+    "context"
+    "fmt"
+
+    "github.com/spawn08/chronos/evals"
+)
+
+// myAgent is any *agent.Agent (or wrap a graph.Runner); judgeModel is a
+// model.Provider used as the LLM judge for AccuracyEval.
 runner := &evals.DatasetRunner{
     Target: func(ctx context.Context, input string) (string, error) {
         resp, err := myAgent.Chat(ctx, input)
@@ -65,6 +78,14 @@ A `Gate` compares a report against thresholds and, optionally, a baseline
 (typically the previous run) to catch regressions:
 
 ```go
+import (
+    "log"
+
+    "github.com/spawn08/chronos/evals"
+)
+
+// baseline is a *evals.DatasetReport from a prior run, or nil to skip the
+// regression check.
 result := evals.Gate(report, baseline, evals.GateConfig{
     MinAvgScore:   0.9,
     MinPassRate:   0.9,
@@ -93,7 +114,9 @@ Scores are queryable over time via a `ReportStore`, scoped to the tenant. Save e
 run and use the most recent as the next run's baseline:
 
 ```go
-history := evals.NewStorageReportStore(store) // or NewMemReportStore()
+import "github.com/spawn08/chronos/evals"
+
+history := evals.NewStorageReportStore(store) // or evals.NewMemReportStore()
 past, _ := history.History(ctx, ds.Name)
 baseline := evals.BaselineFrom(past) // nil on the first run
 // … run + gate against baseline …

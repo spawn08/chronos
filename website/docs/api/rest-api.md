@@ -444,6 +444,101 @@ Fetch past fires for a schedule.
 curl http://localhost:8420/api/schedules/sched-2/history
 ```
 
+### Using the Scheduler from Go
+
+The `/api/schedules*` endpoints above are a thin HTTP wrapper over the
+`os/scheduler` package (`chronosos.WithScheduler` attaches whatever
+`scheduler.Runner` you pass — `Add`, `Remove`, `List`, `Get`, `History`,
+`Start`, `Stop`). You can drive the same scheduler directly from Go, with no
+HTTP round-trip:
+
+```go
+package main
+
+import (
+	"context"
+	"log"
+
+	chronosos "github.com/spawn08/chronos/os"
+	"github.com/spawn08/chronos/os/scheduler"
+	"github.com/spawn08/chronos/storage/adapters/sqlite"
+
+	_ "modernc.org/sqlite"
+)
+
+func main() {
+	ctx := context.Background()
+
+	store, err := sqlite.New("chronos.db")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// runFn fires when a schedule is due. Wire it to however you dispatch
+	// agent runs (e.g. an sdk/agent.Agent's Run method).
+	sched := scheduler.New(func(ctx context.Context, agentID, input, sessionID string) error {
+		log.Printf("firing %s (session %s): %s", agentID, sessionID, input)
+		return nil
+	})
+
+	if _, err := sched.Add("digest-bot", "0 9 * * *",
+		`{"topic":"overnight incidents"}`, true); err != nil {
+		log.Fatal(err)
+	}
+
+	go sched.Start(ctx)
+	defer sched.Stop()
+
+	srv := chronosos.NewWithOptions(":8420", store, chronosos.WithScheduler(sched))
+	if err := srv.Start(ctx); err != nil {
+		log.Fatal(err)
+	}
+}
+```
+
+`scheduler.New(runFn)` returns an in-process `*scheduler.Scheduler`: schedules
+and run history live in memory and are lost on restart, so it fits a single
+replica or tests. `sched.Add(agentID, cronExpr, input string, newSession bool)`
+validates the 5-field cron expression and returns the created `*scheduler.Schedule`.
+
+For multiple replicas, back the scheduler with any `*sql.DB` via
+`scheduler.NewSQLStore(db, dialect)` — which implements the `scheduler.Store`
+interface (`Migrate`, `Add`, `Remove`, `Get`, `List`, `ClaimDue`, `SetSession`,
+`AddRunRecord`, `History`, `Close`) — and hand it to
+`scheduler.NewStoreScheduler(store, runFn)`. Its `ClaimDue` atomically advances
+each due schedule's next-fire time (`SELECT ... FOR UPDATE SKIP LOCKED` on
+`scheduler.DialectPostgres`; SQLite's serialized writers give the same
+exactly-once-claim guarantee under `scheduler.DialectSQLite`), so a cron firing
+is claimed by exactly one replica:
+
+```go
+// Add "database/sql" to the import block above.
+db, err := sql.Open("sqlite", "chronos-scheduler.db")
+if err != nil {
+	log.Fatal(err)
+}
+
+store := scheduler.NewSQLStore(db, scheduler.DialectSQLite)
+sched := scheduler.NewStoreScheduler(store, runFn)
+
+if err := sched.Migrate(ctx); err != nil {
+	log.Fatal(err)
+}
+if _, err := sched.AddContext(ctx, "digest-bot", "0 9 * * *",
+	`{"topic":"overnight incidents"}`, true); err != nil {
+	log.Fatal(err)
+}
+
+go sched.Start(ctx) // migrates again (idempotent) and polls for due schedules
+defer sched.Stop()
+```
+
+`StoreScheduler` implements `scheduler.Runner` too, so it's a drop-in
+replacement for `scheduler.New` in `chronosos.WithScheduler`. Its `Add`/`List`/
+`History` methods (required by `Runner`) use a background context and swallow
+store errors; use the `*Context` variants (`AddContext`, `ListContext`,
+`HistoryContext`) when you need error propagation.
+
 ---
 
 ## Swagger / OpenAPI

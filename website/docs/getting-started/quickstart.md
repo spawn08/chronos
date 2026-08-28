@@ -54,13 +54,35 @@ func main() {
 Connect to any provider to get LLM-powered responses:
 
 ```go
-a, _ := agent.New("chat-agent", "Chat Agent").
-    WithModel(model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))).
-    WithSystemPrompt("You are a helpful assistant.").
-    Build()
+package main
 
-resp, _ := a.Chat(ctx, "What is Go?")
-fmt.Println(resp.Content)
+import (
+    "context"
+    "fmt"
+    "log"
+    "os"
+
+    "github.com/spawn08/chronos/engine/model"
+    "github.com/spawn08/chronos/sdk/agent"
+)
+
+func main() {
+    ctx := context.Background()
+
+    a, err := agent.New("chat-agent", "Chat Agent").
+        WithModel(model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))).
+        WithSystemPrompt("You are a helpful assistant.").
+        Build()
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    resp, err := a.Chat(ctx, "What is Go?")
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println(resp.Content)
+}
 ```
 
 Swap `NewOpenAI` with `NewAnthropic`, `NewGemini`, `NewOllama`, or any other provider — the API is identical.
@@ -70,24 +92,42 @@ Swap `NewOpenAI` with `NewAnthropic`, `NewGemini`, `NewOllama`, or any other pro
 Register tools the LLM can call:
 
 ```go
-a, _ := agent.New("tool-agent", "Tool Agent").
-    WithModel(model.NewOpenAI(key)).
-    AddTool(&tool.Definition{
-        Name:        "calculate",
-        Description: "Perform arithmetic",
-        Permission:  tool.PermAllow,
-        Parameters: map[string]any{
-            "type": "object",
-            "properties": map[string]any{
-                "expression": map[string]any{"type": "string"},
+package main
+
+import (
+    "context"
+    "log"
+    "os"
+
+    "github.com/spawn08/chronos/engine/model"
+    "github.com/spawn08/chronos/engine/tool"
+    "github.com/spawn08/chronos/sdk/agent"
+)
+
+func main() {
+    a, err := agent.New("tool-agent", "Tool Agent").
+        WithModel(model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))).
+        AddTool(&tool.Definition{
+            Name:        "calculate",
+            Description: "Perform arithmetic",
+            Permission:  tool.PermAllow,
+            Parameters: map[string]any{
+                "type": "object",
+                "properties": map[string]any{
+                    "expression": map[string]any{"type": "string"},
+                },
             },
-        },
-        Handler: func(_ context.Context, args map[string]any) (any, error) {
-            // Your calculation logic here
-            return "42", nil
-        },
-    }).
-    Build()
+            Handler: func(_ context.Context, args map[string]any) (any, error) {
+                // Your calculation logic here
+                return "42", nil
+            },
+        }).
+        Build()
+    if err != nil {
+        log.Fatal(err)
+    }
+    _ = a
+}
 ```
 
 ## 4. Multi-Turn Sessions
@@ -95,18 +135,45 @@ a, _ := agent.New("tool-agent", "Tool Agent").
 Persistent conversations across multiple turns with automatic context management:
 
 ```go
-store, _ := sqlite.New("sessions.db")
-store.Migrate(ctx)
+package main
 
-a, _ := agent.New("session-agent", "Session Agent").
-    WithModel(provider).
-    WithStorage(store).
-    Build()
+import (
+    "context"
+    "fmt"
+    "log"
+    "os"
 
-// Same session ID = continuous conversation
-a.ChatWithSession(ctx, "session-1", "My name is Alice")
-a.ChatWithSession(ctx, "session-1", "What is my name?")
-// Agent remembers: "Your name is Alice"
+    "github.com/spawn08/chronos/engine/model"
+    "github.com/spawn08/chronos/sdk/agent"
+    "github.com/spawn08/chronos/storage/adapters/sqlite"
+)
+
+func main() {
+    ctx := context.Background()
+
+    store, err := sqlite.New("sessions.db")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer store.Close()
+    if err := store.Migrate(ctx); err != nil {
+        log.Fatal(err)
+    }
+
+    a, err := agent.New("session-agent", "Session Agent").
+        WithModel(model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))).
+        WithStorage(store).
+        Build()
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Same session ID = continuous conversation
+    a.ChatWithSession(ctx, "session-1", "My name is Alice")
+    resp, _ := a.ChatWithSession(ctx, "session-1", "What is my name?")
+    fmt.Println(resp.Content)
+    // Agent remembers: "Your name is Alice"
+}
 ```
 
 ## 5. Local Models (No API Key)
@@ -120,11 +187,33 @@ ollama pull llama3.2
 ```
 
 ```go
-a, _ := agent.New("local-agent", "Local Agent").
-    WithModel(model.NewOllama("http://localhost:11434", "llama3.2")).
-    Build()
+package main
 
-resp, _ := a.Chat(ctx, "Explain goroutines")
+import (
+    "context"
+    "fmt"
+    "log"
+
+    "github.com/spawn08/chronos/engine/model"
+    "github.com/spawn08/chronos/sdk/agent"
+)
+
+func main() {
+    ctx := context.Background()
+
+    a, err := agent.New("local-agent", "Local Agent").
+        WithModel(model.NewOllama("http://localhost:11434", "llama3.2")).
+        Build()
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    resp, err := a.Chat(ctx, "Explain goroutines")
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println(resp.Content)
+}
 ```
 
 ## Next Steps

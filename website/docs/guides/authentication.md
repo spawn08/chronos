@@ -240,7 +240,7 @@ With auth disabled, all traffic runs under `DefaultTenant`. See
   where mutation is required.
 - **Store secrets externally.** Inject `CHRONOS_*` secrets from a secret manager
   (Vault, AWS Secrets Manager, Kubernetes Secrets) — never commit them.
-- **Keep rate limiting on** and use `WithRateLimiter(store)` across replicas so
+- **Keep rate limiting on** and use `WithRateLimiter(middleware.NewSQLLimiter(db, dialect))` across replicas so
   limits and quotas are enforced fleet-wide.
 - **Disable Swagger on hardened control planes.** The Swagger UI and OpenAPI spec
   intentionally **bypass auth** (so docs stay reachable), which means the schema

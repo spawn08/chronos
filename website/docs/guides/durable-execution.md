@@ -35,20 +35,40 @@ approvals) that dies mid-flight is lost. The queue makes execution:
 ## Setting it up
 
 ```go
-import "github.com/spawn08/chronos/engine/queue"
+import (
+    "context"
+    "database/sql"
+    "log"
 
-// Postgres for production (FOR UPDATE SKIP LOCKED across replicas); use
-// queue.DialectSQLite for dev/test.
-store := queue.NewSQLStore(db, queue.DialectPostgres)
+    _ "modernc.org/sqlite" // pure-Go driver; swap for a Postgres driver in production
+
+    "github.com/spawn08/chronos/engine/queue"
+)
+
+ctx := context.Background()
+
+// This example uses SQLite (queue.DialectSQLite) so it is runnable with no
+// external services; production uses Postgres (queue.DialectPostgres) so
+// dequeue can use FOR UPDATE SKIP LOCKED across replicas.
+db, err := sql.Open("sqlite", "queue.db")
+if err != nil {
+    log.Fatal(err)
+}
+store := queue.NewSQLStore(db, queue.DialectSQLite)
 q := queue.New(store, queue.Config{
     MaxDepth:           1000,
     Policy:             queue.PolicyPark, // park (not reject) under overload
     DefaultMaxAttempts: 3,                // error-retry budget per run
 })
-if err := q.Migrate(ctx); err != nil { /* ... */ }
+if err := q.Migrate(ctx); err != nil {
+    log.Fatal(err)
+}
 ```
 
 ### Workers and the reaper
+
+Continuing with the `q` and `ctx` constructed above (this snippet additionally
+needs `"time"` and an `executor` of type `queue.Executor`, shown next):
 
 ```go
 // Run as many workers as you like, on as many hosts as you like.
@@ -87,7 +107,18 @@ Wrap the graph runner with `graph.NewQueuedExecutor` to execute complete Chronos
 of synchronously:
 
 ```go
-qe := graph.NewQueuedExecutor(store, resolver) // resolver maps graph IDs to CompiledGraphs
+import "github.com/spawn08/chronos/engine/graph"
+
+// checkpointStore is a storage.Storage (e.g. storage/adapters/sqlite or
+// storage/adapters/postgres) that holds graph checkpoints. It is distinct
+// from the queue.SQLStore constructed above, which persists the work queue
+// itself — the two stores may share a *sql.DB but implement different
+// interfaces (storage.Storage vs. queue.Store).
+//
+// resolver maps a run's GraphID to its CompiledGraph; SingleGraphResolver is
+// the simplest resolver when a worker only ever executes one graph.
+resolver := graph.SingleGraphResolver(compiledGraph)
+qe := graph.NewQueuedExecutor(checkpointStore, resolver)
 w, _ := queue.NewWorker(q, qe.Executor(), queue.WorkerConfig{ID: "w1", Lease: 30 * time.Second})
 go w.Run(ctx)
 ```

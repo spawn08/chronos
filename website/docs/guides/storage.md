@@ -3,7 +3,7 @@ title: "Storage Adapters"
 ---
 
 
-Chronos defines a single `Storage` interface with 18 methods covering sessions, memory, audit logs, traces, events, and checkpoints. All adapters implement the same contract, so you can swap backends with zero code changes.
+Chronos defines a single `Storage` interface with 21 methods covering sessions, memory, audit logs, traces, events, and checkpoints. All adapters implement the same contract, so you can swap backends with zero code changes.
 
 ## Storage Interface
 
@@ -52,6 +52,7 @@ type Storage interface {
 |---------|------|---------|--------|
 | SQLite | Storage | `storage/adapters/sqlite` | Production-ready |
 | PostgreSQL | Storage | `storage/adapters/postgres` | Production-ready |
+| In-memory | Storage | `storage/adapters/memory` | Testing/dev only (no persistence) |
 | Redis | Storage | `storage/adapters/redis` | Available (go-redis/v9) |
 | MongoDB | Storage | `storage/adapters/mongo` | Available (official driver) |
 | DynamoDB | Storage | `storage/adapters/dynamo` | Available (aws-sdk-go-v2) |
@@ -60,6 +61,9 @@ type Storage interface {
 | Weaviate | VectorStore | `storage/adapters/weaviate` | Available |
 | Milvus | VectorStore | `storage/adapters/milvus` | Available |
 | Redis Vector | VectorStore | `storage/adapters/redisvector` | Available (go-redis/v9) |
+| pgvector | VectorStore | `storage/adapters/pgvector` | Available (requires the Postgres `vector` extension) |
+| ChromaDB | VectorStore | `storage/adapters/chromadb` | Available (REST API) |
+| LanceDB | VectorStore | `storage/adapters/lancedb` | Available (REST API) |
 
 The Redis, MongoDB, DynamoDB, and Redis Vector adapters are built on their
 respective **official Go SDKs** (`redis/go-redis/v9`, `go.mongodb.org/mongo-driver`,
@@ -82,16 +86,23 @@ All records carry a `tenant_id`, and reads/writes can be scoped per tenant with
 The default adapter for development and testing. Data is stored in a single file.
 
 ```go
-import "github.com/spawn08/chronos/storage/adapters/sqlite"
+import (
+    "context"
+    "log"
 
-store, err := sqlite.New("chronos.db")
-if err != nil {
-    log.Fatal(err)
-}
-defer store.Close()
+    "github.com/spawn08/chronos/storage/adapters/sqlite"
+)
 
-if err := store.Migrate(context.Background()); err != nil {
-    log.Fatal(err)
+func main() {
+    store, err := sqlite.New("chronos.db")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer store.Close()
+
+    if err := store.Migrate(context.Background()); err != nil {
+        log.Fatal(err)
+    }
 }
 ```
 
@@ -106,16 +117,23 @@ store, _ := sqlite.New(":memory:")
 The recommended adapter for production deployments.
 
 ```go
-import "github.com/spawn08/chronos/storage/adapters/postgres"
+import (
+    "context"
+    "log"
 
-store, err := postgres.New("postgres://user:pass@host:5432/chronos?sslmode=require")
-if err != nil {
-    log.Fatal(err)
-}
-defer store.Close()
+    "github.com/spawn08/chronos/storage/adapters/postgres"
+)
 
-if err := store.Migrate(context.Background()); err != nil {
-    log.Fatal(err)
+func main() {
+    store, err := postgres.New("postgres://user:pass@host:5432/chronos?sslmode=require")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer store.Close()
+
+    if err := store.Migrate(context.Background()); err != nil {
+        log.Fatal(err)
+    }
 }
 ```
 
@@ -126,28 +144,52 @@ Vector stores power the knowledge/RAG system. They store and search high-dimensi
 ```go
 type VectorStore interface {
     Upsert(ctx context.Context, collection string, embeddings []Embedding) error
-    Search(ctx context.Context, collection string, query []float32, topK int) ([]SearchResult, error)
+    Search(ctx context.Context, collection string, query []float32, topK int, opts ...SearchOption) ([]SearchResult, error)
     Delete(ctx context.Context, collection string, ids []string) error
     CreateCollection(ctx context.Context, name string, dimension int) error
     Close() error
 }
 ```
 
+`Search`'s variadic `SearchOption`s let you scope a shared collection — e.g.
+`storage.WithFilter(map[string]any{"tenant": "acme"})` restricts results to
+embeddings whose metadata matches every given key/value pair.
+
 ### Qdrant Example
 
 ```go
-import "github.com/spawn08/chronos/storage/adapters/qdrant"
+import (
+    "context"
+    "log"
 
-vectors := qdrant.New("http://localhost:6333")
-defer vectors.Close()
+    "github.com/spawn08/chronos/storage"
+    "github.com/spawn08/chronos/storage/adapters/qdrant"
+)
 
-vectors.CreateCollection(ctx, "documents", 1536)
+func main() {
+    ctx := context.Background()
 
-vectors.Upsert(ctx, "documents", []storage.Embedding{
-    {ID: "doc-1", Vector: embedding, Metadata: map[string]any{"title": "Guide"}},
-})
+    vectors := qdrant.New("http://localhost:6333")
+    defer vectors.Close()
 
-results, _ := vectors.Search(ctx, "documents", queryVector, 5)
+    if err := vectors.CreateCollection(ctx, "documents", 1536); err != nil {
+        log.Fatal(err)
+    }
+
+    var embedding []float32 // from your embeddings provider
+    if err := vectors.Upsert(ctx, "documents", []storage.Embedding{
+        {ID: "doc-1", Vector: embedding, Metadata: map[string]any{"title": "Guide"}},
+    }); err != nil {
+        log.Fatal(err)
+    }
+
+    var queryVector []float32 // from your embeddings provider
+    results, err := vectors.Search(ctx, "documents", queryVector, 5)
+    if err != nil {
+        log.Fatal(err)
+    }
+    _ = results
+}
 ```
 
 ## YAML Configuration
@@ -181,13 +223,14 @@ storage:
 
 ## Implementing a Custom Adapter
 
-Create a new package under `storage/adapters/<name>/` that implements all 18 methods of `Storage` (or the 5 methods of `VectorStore`):
+Create a new package under `storage/adapters/<name>/` that implements all 21 methods of `Storage` (or the 5 methods of `VectorStore`):
 
 ```go
 package myadapter
 
 import (
     "context"
+
     "github.com/spawn08/chronos/storage"
 )
 
@@ -210,5 +253,5 @@ func (s *Store) Close() error {
     return nil
 }
 
-// Implement remaining 16 Storage methods...
+// Implement remaining 19 Storage methods...
 ```

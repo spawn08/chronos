@@ -75,6 +75,12 @@ go build ./...
 Every example in this guide uses the same pattern: detect which API key is set and connect to that provider. The agent code never changes — only the environment variable.
 
 ```go
+import (
+    "os"
+
+    "github.com/spawn08/chronos/engine/model"
+)
+
 func resolveProvider() model.Provider {
     if key := os.Getenv("OPENAI_API_KEY"); key != "" {
         return model.NewOpenAI(key)
@@ -772,34 +778,53 @@ flowchart TB
 ### Go Code
 
 ```go
-ctx := context.Background()
-provider := model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))
+package main
 
-lead, _ := agent.New("lead", "Tech Lead").
-    WithModel(provider).
-    WithSystemPrompt("Break feature requests into tasks. Assign to backend-dev or frontend-dev.").
-    Build()
+import (
+    "context"
+    "fmt"
+    "log"
+    "os"
 
-backend, _ := agent.New("backend", "Backend Dev").
-    WithModel(provider).
-    WithSystemPrompt("Write clean Go backend code with error handling.").
-    Build()
+    "github.com/spawn08/chronos/engine/graph"
+    "github.com/spawn08/chronos/engine/model"
+    "github.com/spawn08/chronos/sdk/agent"
+    "github.com/spawn08/chronos/sdk/team"
+)
 
-frontend, _ := agent.New("frontend", "Frontend Dev").
-    WithModel(provider).
-    WithSystemPrompt("Write TypeScript/React code with accessibility.").
-    Build()
+func main() {
+    ctx := context.Background()
+    provider := model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))
 
-t := team.New("dev-team", "Dev Team", team.StrategyCoordinator)
-t.SetCoordinator(lead)
-t.AddAgent(backend)
-t.AddAgent(frontend)
-t.SetMaxIterations(2)
+    lead, _ := agent.New("lead", "Tech Lead").
+        WithModel(provider).
+        WithSystemPrompt("Break feature requests into tasks. Assign to backend-dev or frontend-dev.").
+        Build()
 
-result, _ := t.Run(ctx, graph.State{
-    "message": "Build a user registration feature with email/password",
-})
-fmt.Println(result["response"])
+    backend, _ := agent.New("backend", "Backend Dev").
+        WithModel(provider).
+        WithSystemPrompt("Write clean Go backend code with error handling.").
+        Build()
+
+    frontend, _ := agent.New("frontend", "Frontend Dev").
+        WithModel(provider).
+        WithSystemPrompt("Write TypeScript/React code with accessibility.").
+        Build()
+
+    t := team.New("dev-team", "Dev Team", team.StrategyCoordinator)
+    t.SetCoordinator(lead)
+    t.AddAgent(backend)
+    t.AddAgent(frontend)
+    t.SetMaxIterations(2)
+
+    result, err := t.Run(ctx, graph.State{
+        "message": "Build a user registration feature with email/password",
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println(result["response"])
+}
 ```
 
 ### YAML Equivalent
@@ -866,70 +891,85 @@ sequenceDiagram
 ### Go Code
 
 ```go
-ctx := context.Background()
-provider := model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))
-store, _ := sqlite.New("approval.db")
-defer store.Close()
-store.Migrate(ctx)
+package main
 
-g := graph.New("approval-workflow")
+import (
+    "context"
+    "fmt"
+    "os"
 
-g.AddNode("analyze", func(ctx context.Context, s graph.State) (graph.State, error) {
-    resp, err := provider.Chat(ctx, &model.ChatRequest{
-        Messages: []model.Message{
-            {Role: model.RoleSystem, Content: "Analyze this request and recommend approve or reject with reasoning."},
-            {Role: model.RoleUser, Content: s["request"].(string)},
-        },
+    "github.com/spawn08/chronos/engine/graph"
+    "github.com/spawn08/chronos/engine/model"
+    "github.com/spawn08/chronos/sdk/agent"
+    "github.com/spawn08/chronos/storage/adapters/sqlite"
+)
+
+func main() {
+    ctx := context.Background()
+    provider := model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))
+    store, _ := sqlite.New("approval.db")
+    defer store.Close()
+    store.Migrate(ctx)
+
+    g := graph.New("approval-workflow")
+
+    g.AddNode("analyze", func(ctx context.Context, s graph.State) (graph.State, error) {
+        resp, err := provider.Chat(ctx, &model.ChatRequest{
+            Messages: []model.Message{
+                {Role: model.RoleSystem, Content: "Analyze this request and recommend approve or reject with reasoning."},
+                {Role: model.RoleUser, Content: s["request"].(string)},
+            },
+        })
+        if err != nil {
+            return s, err
+        }
+        s["analysis"] = resp.Content
+        return s, nil
     })
-    if err != nil {
-        return s, err
-    }
-    s["analysis"] = resp.Content
-    return s, nil
-})
 
-// This node pauses for human review BEFORE executing
-g.AddInterruptNode("human_review", func(ctx context.Context, s graph.State) (graph.State, error) {
-    s["reviewed"] = true
-    s["status"] = "approved"
-    return s, nil
-})
-
-g.AddNode("execute", func(ctx context.Context, s graph.State) (graph.State, error) {
-    resp, err := provider.Chat(ctx, &model.ChatRequest{
-        Messages: []model.Message{
-            {Role: model.RoleSystem, Content: "Execute the approved request. Confirm what was done."},
-            {Role: model.RoleUser, Content: fmt.Sprintf("Request: %s\nAnalysis: %s", s["request"], s["analysis"])},
-        },
+    // This node pauses for human review BEFORE executing
+    g.AddInterruptNode("human_review", func(ctx context.Context, s graph.State) (graph.State, error) {
+        s["reviewed"] = true
+        s["status"] = "approved"
+        return s, nil
     })
-    if err != nil {
-        return s, err
-    }
-    s["result"] = resp.Content
-    return s, nil
-})
 
-g.SetEntryPoint("analyze")
-g.AddEdge("analyze", "human_review")
-g.AddEdge("human_review", "execute")
-g.SetFinishPoint("execute")
+    g.AddNode("execute", func(ctx context.Context, s graph.State) (graph.State, error) {
+        resp, err := provider.Chat(ctx, &model.ChatRequest{
+            Messages: []model.Message{
+                {Role: model.RoleSystem, Content: "Execute the approved request. Confirm what was done."},
+                {Role: model.RoleUser, Content: fmt.Sprintf("Request: %s\nAnalysis: %s", s["request"], s["analysis"])},
+            },
+        })
+        if err != nil {
+            return s, err
+        }
+        s["result"] = resp.Content
+        return s, nil
+    })
 
-a, _ := agent.New("approval-agent", "Approval Agent").
-    WithStorage(store).
-    WithGraph(g).
-    Build()
+    g.SetEntryPoint("analyze")
+    g.AddEdge("analyze", "human_review")
+    g.AddEdge("human_review", "execute")
+    g.SetFinishPoint("execute")
 
-// Start the workflow — it will pause at human_review
-result, _ := a.Run(ctx, map[string]any{
-    "request": "Deploy version 2.0 to production",
-})
-fmt.Printf("Status: %s (paused for review)\n", result.Status)
-fmt.Printf("Analysis: %s\n", result.State["analysis"])
+    a, _ := agent.New("approval-agent", "Approval Agent").
+        WithStorage(store).
+        WithGraph(g).
+        Build()
 
-// Later: resume after human approves
-result, _ = a.Resume(ctx, result.SessionID)
-fmt.Printf("Status: %s\n", result.Status)
-fmt.Printf("Result: %s\n", result.State["result"])
+    // Start the workflow — it will pause at human_review
+    result, _ := a.Run(ctx, map[string]any{
+        "request": "Deploy version 2.0 to production",
+    })
+    fmt.Printf("Status: %s (paused for review)\n", result.Status)
+    fmt.Printf("Analysis: %s\n", result.State["analysis"])
+
+    // Later: resume after human approves
+    result, _ = a.Resume(ctx, result.SessionID)
+    fmt.Printf("Status: %s\n", result.Status)
+    fmt.Printf("Result: %s\n", result.State["result"])
+}
 ```
 
 ---
@@ -958,22 +998,38 @@ flowchart LR
 ### Go Code
 
 ```go
-primary := model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))
-secondary := model.NewAnthropic(os.Getenv("ANTHROPIC_API_KEY"))
-local := model.NewOllama("http://localhost:11434", "llama3.2")
+package main
 
-provider, _ := model.NewFallbackProvider(primary, secondary, local)
-provider.OnFallback = func(index int, name string, err error) {
-    log.Printf("Provider %s failed (index %d): %v", name, index, err)
+import (
+    "context"
+    "fmt"
+    "log"
+    "os"
+
+    "github.com/spawn08/chronos/engine/model"
+    "github.com/spawn08/chronos/sdk/agent"
+)
+
+func main() {
+    ctx := context.Background()
+
+    primary := model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))
+    secondary := model.NewAnthropic(os.Getenv("ANTHROPIC_API_KEY"))
+    local := model.NewOllama("http://localhost:11434", "llama3.2")
+
+    provider, _ := model.NewFallbackProvider(primary, secondary, local)
+    provider.OnFallback = func(index int, name string, err error) {
+        log.Printf("Provider %s failed (index %d): %v", name, index, err)
+    }
+
+    a, _ := agent.New("ha-agent", "HA Agent").
+        WithModel(provider).
+        WithSystemPrompt("You are a helpful assistant.").
+        Build()
+
+    resp, _ := a.Chat(ctx, "Hello!")
+    fmt.Println(resp.Content)
 }
-
-a, _ := agent.New("ha-agent", "HA Agent").
-    WithModel(provider).
-    WithSystemPrompt("You are a helpful assistant.").
-    Build()
-
-resp, _ := a.Chat(ctx, "Hello!")
-fmt.Println(resp.Content)
 ```
 
 ---
@@ -985,22 +1041,36 @@ Get token-by-token streaming output from any provider.
 ### Go Code
 
 ```go
-provider := model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))
+package main
 
-ch, err := provider.StreamChat(ctx, &model.ChatRequest{
-    Messages: []model.Message{
-        {Role: model.RoleUser, Content: "Write a haiku about programming."},
-    },
-    Stream: true,
-})
-if err != nil {
-    log.Fatal(err)
-}
+import (
+    "context"
+    "fmt"
+    "log"
+    "os"
 
-for resp := range ch {
-    fmt.Print(resp.Content) // prints token by token
+    "github.com/spawn08/chronos/engine/model"
+)
+
+func main() {
+    ctx := context.Background()
+    provider := model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))
+
+    ch, err := provider.StreamChat(ctx, &model.ChatRequest{
+        Messages: []model.Message{
+            {Role: model.RoleUser, Content: "Write a haiku about programming."},
+        },
+        Stream: true,
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    for resp := range ch {
+        fmt.Print(resp.Content) // prints token by token
+    }
+    fmt.Println()
 }
-fmt.Println()
 ```
 
 ---

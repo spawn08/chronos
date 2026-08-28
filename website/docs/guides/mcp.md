@@ -35,12 +35,19 @@ back over the stream by id. Per-call timeouts are honored and `CloseMCP` cancels
 the stream and closes idle connections.
 
 ```go
-// Connect to a remote MCP server over HTTP + SSE.
-builder.AddMCPServer(mcp.ServerConfig{
-    Name:      "remote-tools",
-    Transport: mcp.TransportSSE,
-    URL:       "https://mcp.example.com/sse", // required for SSE
-})
+import (
+    "github.com/spawn08/chronos/engine/mcp"
+    "github.com/spawn08/chronos/sdk/agent"
+)
+
+func addRemoteMCPServer(b *agent.Builder) *agent.Builder {
+    // Connect to a remote MCP server over HTTP + SSE.
+    return b.AddMCPServer(mcp.ServerConfig{
+        Name:      "remote-tools",
+        Transport: mcp.TransportSSE,
+        URL:       "https://mcp.example.com/sse", // required for SSE
+    })
+}
 ```
 
 ## Go builder API
@@ -141,13 +148,24 @@ agents:
 When you build agents with `agent.BuildAgent` / `agent.BuildAll`, the servers are registered automatically. You still call `ConnectMCP` before running:
 
 ```go
-fc, _ := agent.LoadFile(".chronos/agents.yaml")
-agents, _ := agent.BuildAll(ctx, fc)
-a := agents["assistant"]
-if err := a.ConnectMCP(ctx); err != nil {
-    log.Fatal(err)
+import (
+    "context"
+    "log"
+
+    "github.com/spawn08/chronos/sdk/agent"
+)
+
+func run() {
+    ctx := context.Background()
+
+    fc, _ := agent.LoadFile(".chronos/agents.yaml")
+    agents, _ := agent.BuildAll(ctx, fc)
+    a := agents["assistant"]
+    if err := a.ConnectMCP(ctx); err != nil {
+        log.Fatal(err)
+    }
+    defer a.CloseMCP()
 }
-defer a.CloseMCP()
 ```
 
 ## Working with resources
@@ -155,26 +173,38 @@ defer a.CloseMCP()
 Beyond tools, MCP servers can expose **resources** — readable content addressed by URI (files, database rows, API responses). The client exposes these directly:
 
 ```go
-client, _ := mcp.NewClient(mcp.ServerConfig{
-    Name:    "filesystem",
-    Command: "npx",
-    Args:    []string{"-y", "@modelcontextprotocol/server-filesystem", "."},
-})
-if err := client.Connect(ctx); err != nil {
-    log.Fatal(err)
-}
-defer client.Close()
+import (
+    "context"
+    "fmt"
+    "log"
 
-// Discover resources
-resources, _ := client.ListResources(ctx)
-for _, r := range resources {
-    fmt.Printf("%s (%s)\n", r.URI, r.MimeType)
-}
+    "github.com/spawn08/chronos/engine/mcp"
+)
 
-// Read one
-contents, _ := client.ReadResource(ctx, "file:///path/to/README.md")
-for _, c := range contents {
-    fmt.Println(c.Text)
+func readResources() {
+    ctx := context.Background()
+
+    client, _ := mcp.NewClient(mcp.ServerConfig{
+        Name:    "filesystem",
+        Command: "npx",
+        Args:    []string{"-y", "@modelcontextprotocol/server-filesystem", "."},
+    })
+    if err := client.Connect(ctx); err != nil {
+        log.Fatal(err)
+    }
+    defer client.Close()
+
+    // Discover resources
+    resources, _ := client.ListResources(ctx)
+    for _, r := range resources {
+        fmt.Printf("%s (%s)\n", r.URI, r.MimeType)
+    }
+
+    // Read one
+    contents, _ := client.ReadResource(ctx, "file:///path/to/README.md")
+    for _, c := range contents {
+        fmt.Println(c.Text)
+    }
 }
 ```
 
@@ -196,14 +226,27 @@ for _, c := range contents {
 If you want more control (e.g. filter or rename tools before registering), use the adapter directly:
 
 ```go
-import "github.com/spawn08/chronos/engine/mcp"
+import (
+    "context"
 
-// Register every tool from a connected client into a registry:
-n, err := mcp.RegisterTools(ctx, client, agent.Tools)
+    "github.com/spawn08/chronos/engine/mcp"
+    "github.com/spawn08/chronos/sdk/agent"
+)
 
-// Or convert to definitions without registering, for inspection:
-tools, _ := client.ListTools(ctx)
-defs := mcp.ToolInfoToDefinitions(client, tools)
+func registerManually(ctx context.Context, client *mcp.Client, a *agent.Agent) error {
+    // Register every tool from a connected client into a registry:
+    n, err := mcp.RegisterTools(ctx, client, a.Tools)
+    if err != nil {
+        return err
+    }
+    _ = n
+
+    // Or convert to definitions without registering, for inspection:
+    tools, _ := client.ListTools(ctx)
+    defs := mcp.ToolInfoToDefinitions(client, tools)
+    _ = defs
+    return nil
+}
 ```
 
 ## Permissions & approval
@@ -213,8 +256,15 @@ Imported MCP tools are ordinary `tool.Definition` entries, so they participate i
 MCP tools are registered with `tool.PermRequireApproval` **by default** — because they come from an external server, they route through the human-approval path unless you explicitly opt out. To auto-allow a specific MCP tool you trust, look it up after `ConnectMCP` and relax its policy:
 
 ```go
-if def, ok := a.Tools.Get("list_files"); ok {
-    def.Permission = tool.PermAllow // trust this read-only MCP tool
+import (
+    "github.com/spawn08/chronos/engine/tool"
+    "github.com/spawn08/chronos/sdk/agent"
+)
+
+func allowListFiles(a *agent.Agent) {
+    if def, ok := a.Tools.Get("list_files"); ok {
+        def.Permission = tool.PermAllow // trust this read-only MCP tool
+    }
 }
 ```
 
@@ -236,20 +286,26 @@ the client above consumes external servers, this lets Chronos be one.
 
 ```go
 import (
+    "context"
+    "net/http"
+    "os"
+
     "github.com/spawn08/chronos/engine/interop/mcpserver"
     "github.com/spawn08/chronos/engine/tool"
 )
 
-srv := mcpserver.New("chronos-tools", mcpserver.WithVersion("1.0.0"))
-srv.Expose(addTool)        // a *tool.Definition
-srv.ExposeAll(registry)    // or a whole tool.Registry
-srv.SetApprover(approver)  // human-in-the-loop for guarded tools
+func exposeTools(ctx context.Context, addTool *tool.Definition, registry *tool.Registry, approver tool.Approver) {
+    srv := mcpserver.New("chronos-tools", mcpserver.WithVersion("1.0.0"))
+    srv.Expose(addTool)       // a *tool.Definition
+    srv.ExposeAll(registry)   // or a whole tool.Registry
+    srv.SetApprover(approver) // human-in-the-loop for guarded tools
 
-// stdio (for a host that launches the process):
-srv.ServeStdio(ctx, os.Stdin, os.Stdout)
+    // stdio (for a host that launches the process):
+    srv.ServeStdio(ctx, os.Stdin, os.Stdout)
 
-// or HTTP+SSE (mount the handler on your server):
-http.Handle("/mcp", srv.SSEHandler())
+    // or HTTP+SSE (mount the handler on your server):
+    http.Handle("/mcp", srv.SSEHandler())
+}
 ```
 
 A `tools/call` is dispatched through the underlying `tool.Registry`, so it

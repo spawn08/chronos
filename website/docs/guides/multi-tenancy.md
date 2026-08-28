@@ -17,13 +17,18 @@ Tenant identity travels on the `context.Context` that you already pass to every
 storage call:
 
 ```go
-import "github.com/spawn08/chronos/storage"
+import (
+    "context"
+
+    "github.com/spawn08/chronos/storage"
+)
 
 // Stamp the tenant on the context.
 ctx := storage.WithTenant(context.Background(), "acme")
 
 // Every read and write on this ctx is now scoped to tenant "acme".
-store.CreateSession(ctx, session)          // written with tenant_id = "acme"
+// store implements storage.Storage; session is a *storage.Session; agentID is a string.
+store.CreateSession(ctx, session)                       // written with tenant_id = "acme"
 sessions, _ := store.ListSessions(ctx, agentID, 100, 0) // returns only "acme" sessions
 ```
 

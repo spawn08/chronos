@@ -39,23 +39,31 @@ type TokenCounter interface {
 The default implementation uses a character-ratio heuristic: approximately 4 characters per token. This avoids external dependencies (e.g., tiktoken) and works across models.
 
 ```go
+import (
+    "fmt"
+
+    "github.com/spawn08/chronos/engine/model"
+)
+
 counter := model.NewEstimatingCounter()
 
 // Estimate tokens for a string
 tokens := counter.CountString("Hello, world!")
-// tokens ≈ 4 (12 chars / 4)
+fmt.Println(tokens) // tokens ≈ 4 (12 chars / 4)
 
 // Estimate tokens for messages
 msgs := []model.Message{
     {Role: model.RoleUser, Content: "What is the capital of France?"},
 }
 total := counter.CountTokens(msgs)
+fmt.Println(total)
 ```
 
 You can customize the ratio:
 
 ```go
 counter := &model.EstimatingCounter{CharsPerToken: 3.5}
+_ = counter
 ```
 
 ## Model Context Limits Registry
@@ -63,10 +71,16 @@ counter := &model.EstimatingCounter{CharsPerToken: 3.5}
 Chronos maintains built-in context limits for well-known models. Use `ContextLimit` to resolve the limit for a given model:
 
 ```go
-limit := model.ContextLimit("gpt-5.5", 0)            // 1000000
-limit := model.ContextLimit("claude-opus-4-8", 0)    // 1000000
-limit := model.ContextLimit("gemini-3.5-flash", 0)   // 1048576
-limit := model.ContextLimit("unknown-model", 8192)   // fallback 8192
+import (
+    "fmt"
+
+    "github.com/spawn08/chronos/engine/model"
+)
+
+fmt.Println(model.ContextLimit("gpt-5.5", 0))          // 1000000
+fmt.Println(model.ContextLimit("claude-opus-4-8", 0))  // 1000000
+fmt.Println(model.ContextLimit("gemini-3.5-flash", 0)) // 1048576
+fmt.Println(model.ContextLimit("unknown-model", 8192)) // fallback 8192
 ```
 
 Built-in limits include:
@@ -99,11 +113,17 @@ Unknown models use the provided fallback, or 8192 if fallback is 0.
 | `PinnedMessages` | `[]model.Message` | Content always retained through compaction (see below) | none |
 
 ```go
-agent.WithContextConfig(agent.ContextConfig{
-    MaxContextTokens:    128000,
-    SummarizeThreshold:  0.8,
-    PreserveRecentTurns: 5,
-})
+import "github.com/spawn08/chronos/sdk/agent"
+
+// WithContextConfig is a Builder method, chained like the rest of the builder:
+a, err := agent.New("assistant", "Assistant").
+    WithModel(provider).
+    WithContextConfig(agent.ContextConfig{
+        MaxContextTokens:    128000,
+        SummarizeThreshold:  0.8,
+        PreserveRecentTurns: 5,
+    }).
+    Build()
 ```
 
 ## Automatic compaction & pinned context
@@ -163,22 +183,22 @@ bounded.
 The `Summarizer` compresses older messages into a rolling summary using an LLM. It is constructed with a provider, token counter, and configuration:
 
 ```go
+import "github.com/spawn08/chronos/engine/model"
+
 summarizer := model.NewSummarizer(provider, counter, model.SummarizationConfig{
     Threshold:           0.8,
     PreserveRecentTurns: 5,
-    MaxSummaryTokens:    1024,
-    Prompt:             "",  // optional custom prompt
 })
 ```
 
 ### SummarizationConfig
 
+`SummarizationConfig` has exactly two fields — there is no configurable summary-length cap or custom prompt override; the summarization call itself is capped at 500 completion tokens (`ChatRequest.MaxTokens`) and uses a fixed built-in system prompt:
+
 | Field | Type | Description | Default |
 |-------|------|-------------|---------|
 | `Threshold` | float64 | Fraction of context window that triggers summarization | 0.8 |
 | `PreserveRecentTurns` | int | Recent user/assistant pairs to keep unsummarized | 5 |
-| `MaxSummaryTokens` | int | Cap on generated summary length | 1024 |
-| `Prompt` | string | Custom summarization system prompt | built-in |
 
 ### NeedsSummarization
 
@@ -187,7 +207,11 @@ Check whether summarization is needed before calling `Summarize`:
 ```go
 if summarizer.NeedsSummarization(systemTokens, messages, contextLimit) {
     result, err := summarizer.Summarize(ctx, priorSummary, messages)
-    // ...
+    if err != nil {
+        return err
+    }
+    priorSummary = result.Summary
+    messages = result.PreservedMessages
 }
 ```
 
@@ -200,8 +224,8 @@ result, err := summarizer.Summarize(ctx, priorSummary, messages)
 if err != nil {
     return err
 }
-// result.Summary: new rolling summary
-// result.PreservedMessages: recent messages kept intact
+fmt.Println(result.Summary)           // new rolling summary
+fmt.Println(len(result.PreservedMessages)) // recent messages kept intact
 ```
 
 ## Rolling Summarization Flow
@@ -253,17 +277,24 @@ When summarization occurs, hooks receive:
 - **EventSummarization** (after summarization): `Metadata` includes `summary_length` and `preserved_messages`
 
 ```go
+import (
+    "fmt"
+
+    "github.com/spawn08/chronos/engine/hooks"
+)
+
 a.AddHook(&MyHook{})
 
 // In Before/After:
 if evt.Type == hooks.EventContextOverflow {
     estimated := evt.Metadata["estimated_tokens"].(int)
     limit := evt.Metadata["context_limit"].(int)
-    // log or alert
+    fmt.Printf("context overflow: %d/%d tokens\n", estimated, limit) // log or alert
 }
 if evt.Type == hooks.EventSummarization {
     length := evt.Metadata["summary_length"].(int)
     preserved := evt.Metadata["preserved_messages"].(int)
+    fmt.Printf("summarized: %d-char summary, %d messages preserved\n", length, preserved)
 }
 ```
 

@@ -142,12 +142,12 @@ For broader autonomy, use `chronos deploy` with the deployment YAML schema. The 
 ### Create `sandbox-deploy.yaml`
 
 ```yaml
-name: sandbox-coding-team
-
-sandbox:
-  backend: process
-  work_dir: /tmp/chronos-sandbox
-  timeout: 5m
+deployment:
+  name: sandbox-coding-team
+  sandbox:
+    backend: process
+    work_dir: /tmp/chronos-sandbox
+    timeout: 5m
 
 defaults:
   model:

@@ -3,7 +3,7 @@ title: "Kubernetes & Helm"
 ---
 
 
-Chronos provides a Helm chart for production Kubernetes deployments with Deployment, Service, Secret, Ingress, HPA, and ServiceAccount templates.
+Chronos provides a Helm chart for production Kubernetes deployments with Deployment, Service, Secret (or ExternalSecret via the External Secrets Operator), Ingress, HPA, PodDisruptionBudget, ServiceMonitor, and ServiceAccount templates. Pods run hardened by default — non-root user, read-only root filesystem, dropped Linux capabilities, and soft pod anti-affinity across nodes (configurable via `podSecurityContext`, `securityContext`, `podAntiAffinity`, and `topologySpreadConstraints` in `values.yaml`).
 
 ## Quick Deploy
 
@@ -22,8 +22,11 @@ deploy/helm/chronos/
 └── templates/
     ├── deployment.yaml
     ├── secret.yaml
+    ├── externalsecret.yaml
     ├── ingress.yaml
     ├── hpa.yaml
+    ├── pdb.yaml
+    ├── servicemonitor.yaml
     └── serviceaccount.yaml
 ```
 
@@ -37,29 +40,36 @@ The chart exposes these values:
 # Image
 image:
   repository: ghcr.io/spawn08/chronos
-  tag: latest
+  tag: "0.1.0"
   pullPolicy: IfNotPresent
 
 # Replicas (overridden by HPA when enabled)
-replicaCount: 1
+replicaCount: 2
+
+# Storage backend selector, exported as CHRONOS_STORAGE_BACKEND
+storage:
+  backend: postgres
 
 # Service
 service:
   type: ClusterIP
   port: 8420
 
-# Secrets (stored as Kubernetes Secret)
+# Secrets (stored as Kubernetes Secret; create=false + externalSecret.enabled=true
+# for production instead of the plaintext dev-only values below)
 secrets:
-  storageDSN: ""
-  openaiAPIKey: ""
-  anthropicAPIKey: ""
+  create: true
+  name: chronos-secrets
+  storageDSN: "postgres://chronos:changeme@postgres:5432/chronos?sslmode=disable"
+  apiKey: ""
+  embeddingsKey: ""
 
 # Ingress
 ingress:
   enabled: false
-  className: nginx
+  className: ""
   hosts:
-    - host: chronos.example.com
+    - host: chronos.local
       paths:
         - path: /
           pathType: Prefix
@@ -70,14 +80,14 @@ autoscaling:
   enabled: false
   minReplicas: 2
   maxReplicas: 10
-  targetCPUUtilizationPercentage: 70
-  targetMemoryUtilizationPercentage: 80
+  targetCPUUtilization: 70
+  targetMemoryUtilization: 80
 
 # Resources
 resources:
   requests:
-    cpu: 100m
-    memory: 128Mi
+    cpu: 250m
+    memory: 256Mi
   limits:
     cpu: "1"
     memory: 512Mi
@@ -85,7 +95,7 @@ resources:
 # Service Account
 serviceAccount:
   create: true
-  name: ""
+  name: "chronos-os"
   annotations: {}
 ```
 
@@ -96,17 +106,19 @@ API keys and database credentials are stored as Kubernetes Secrets:
 ```bash
 helm install chronos deploy/helm/chronos/ \
   --set secrets.storageDSN="postgres://user:pass@db:5432/chronos" \
-  --set secrets.openaiAPIKey="sk-..." \
-  --set secrets.anthropicAPIKey="sk-ant-..."
+  --set secrets.apiKey="sk-..." \
+  --set secrets.embeddingsKey="sk-..."
 ```
 
-The Secret is mounted as environment variables in the Deployment:
+Only `storageDSN` is automatically wired into the Deployment's environment; `apiKey`
+and `embeddingsKey` are stored in the Secret for you to reference (e.g. via
+`extraEnv` in `values.yaml`) but are not consumed by `chronos serve` itself:
 
 | Secret Key | Environment Variable |
 |-----------|---------------------|
-| `storageDSN` | `STORAGE_DSN` |
-| `openaiAPIKey` | `OPENAI_API_KEY` |
-| `anthropicAPIKey` | `ANTHROPIC_API_KEY` |
+| `storageDSN` | `CHRONOS_STORAGE_DSN` (via `secretKeyRef` on key `storage-dsn`) |
+| `apiKey` | not auto-wired — reference key `api-key` from `extraEnv` if needed |
+| `embeddingsKey` | not auto-wired — reference key `embeddings-key` from `extraEnv` if needed |
 
 ## Ingress
 
@@ -139,8 +151,20 @@ helm install chronos deploy/helm/chronos/ \
   --set autoscaling.enabled=true \
   --set autoscaling.minReplicas=2 \
   --set autoscaling.maxReplicas=10 \
-  --set autoscaling.targetCPUUtilizationPercentage=70
+  --set autoscaling.targetCPUUtilization=70
 ```
+
+## Observability & Availability
+
+Enable a Prometheus Operator `ServiceMonitor` to scrape `/metrics` automatically:
+
+```bash
+helm install chronos deploy/helm/chronos/ \
+  --set metrics.serviceMonitor.enabled=true \
+  --set metrics.serviceMonitor.interval=30s
+```
+
+A `PodDisruptionBudget` (enabled by default, `minAvailable: 1`) keeps capacity during voluntary disruptions like node drains and rolling upgrades — tune it under `podDisruptionBudget` in `values.yaml`.
 
 ## Production Checklist
 
@@ -151,7 +175,7 @@ helm install chronos deploy/helm/chronos/ \
 | Ingress | Enable TLS termination |
 | Autoscaling | Enable HPA with CPU/memory targets |
 | Resources | Set requests and limits |
-| Health checks | Liveness and readiness probes on `/healthz` |
+| Health checks | Liveness and readiness probes on `/health/live` and `/health/ready` |
 | Logging | Structured JSON logs to stdout |
 | Monitoring | Export metrics via `/metrics` endpoint |
 

@@ -45,8 +45,9 @@ requests before exiting (see [Graceful shutdown](#graceful-shutdown)).
 
 ### From the SDK
 
-For embedding the control plane in your own binary, use the `os/chronosos`
-package. The functional-options constructor lets you enable auth, tune the
+For embedding the control plane in your own binary, use the `os` package
+(package name `chronosos`, to avoid colliding with the standard library `os`
+package). The functional-options constructor lets you enable auth, tune the
 hardening defaults, and attach a scheduler, approval service, or a store-backed
 rate limiter:
 
@@ -55,18 +56,31 @@ package main
 
 import (
     "context"
+    "database/sql"
     "log"
 
-    "github.com/spawn08/chronos/os/chronosos"
+    chronosos "github.com/spawn08/chronos/os"
     "github.com/spawn08/chronos/os/auth"
+    "github.com/spawn08/chronos/os/middleware"
     "github.com/spawn08/chronos/storage/adapters/postgres"
 )
 
 func main() {
     ctx := context.Background()
 
-    store, err := postgres.New(ctx, "postgres://user:pass@db:5432/chronos")
+    store, err := postgres.New("postgres://user:pass@db:5432/chronos")
     if err != nil {
+        log.Fatal(err)
+    }
+
+    // Store-backed limiter so limits are shared across replicas — shares the
+    // same *sql.DB as your storage backend.
+    db, err := sql.Open("postgres", "postgres://user:pass@db:5432/chronos")
+    if err != nil {
+        log.Fatal(err)
+    }
+    limiter := middleware.NewSQLLimiter(db, middleware.DialectPostgres)
+    if err := limiter.Migrate(ctx); err != nil {
         log.Fatal(err)
     }
 
@@ -77,11 +91,10 @@ func main() {
             Issuer:   "https://issuer.example.com",
             Audience: "chronos",
         }),
-        // Store-backed limiter so limits are shared across replicas
-        chronosos.WithRateLimiter(store),
+        chronosos.WithRateLimiter(limiter),
     )
 
-    if err := srv.ListenAndServe(ctx); err != nil {
+    if err := srv.Start(ctx); err != nil {
         log.Fatal(err)
     }
 }
@@ -102,7 +115,7 @@ Every hardening behaviour has a sensible default and a corresponding SDK option.
 | `WithSwagger(false)` | Swagger **on** | Disable the Swagger UI and OpenAPI spec (`CHRONOS_SWAGGER`). |
 | `WithCORS(cfg)` / `WithoutCORS()` | CORS **on** | Configure or disable the CORS middleware. |
 | `WithRateLimit(cfg)` / `WithoutRateLimit()` | rate limit **on** | Configure or disable request rate limiting. |
-| `WithRateLimiter(store)` | in-memory | Use a **store-backed** limiter so limits are shared across replicas. |
+| `WithRateLimiter(middleware.NewSQLLimiter(db, dialect))` | in-memory | Use a **store-backed** limiter (backed by a shared `*sql.DB`) so limits are shared across replicas. |
 | `WithTimeouts(read, readHeader, write, idle)` | see below | Override the server timeouts. |
 | `WithMaxBodyBytes(n)` | 1 MiB | Maximum request body size (also caps header size). |
 | `WithScheduler(sched)` | off | Attach a cron scheduler to enable the `/api/schedules` endpoints. |
@@ -209,6 +222,84 @@ scrape_configs:
       - targets: ["chronos:8420"]
 ```
 
+### The `metrics.Registry`
+
+`/metrics` is served by a `*metrics.Registry` from the `os/metrics` package.
+`chronosos.NewWithOptions` creates one automatically (`metrics.NewRegistry()`)
+and exposes it as `srv.Metrics`; it pre-registers the Chronos counters,
+gauges, and histogram used throughout the control plane
+(`chronos_agent_runs_total`, `chronos_tool_calls_total`,
+`chronos_tokens_used_total`, `chronos_model_calls_total`,
+`chronos_errors_total`, `chronos_active_sessions`,
+`chronos_model_latency_seconds`, `chronos_tool_latency_seconds`).
+
+To feed it from agent execution (agents run outside the control plane), add
+`hooks.NewPrometheusHook(srv.Metrics)` to the hook chain of the agents you run
+— see [Middleware & Hooks](/guides/hooks#metricshook). You can also register
+your own series directly:
+
+```go
+requests := srv.Metrics.Counter("myapp_requests_total", "Total app requests")
+requests.Inc(map[string]string{"route": "/checkout"})
+```
+
+`Registry.Handler()` returns the `http.Handler` mounted at `/metrics`; you
+only need it yourself if you are serving metrics from a mux that isn't
+ChronosOS.
+
+### Exporting to an OTLP collector
+
+For push-based pipelines (e.g. an OpenTelemetry Collector that forwards to a
+remote-write endpoint), export the registry over OTLP/HTTP with
+`metrics.NewOTLPExporter`, instead of — or in addition to — letting Prometheus
+scrape `/metrics`:
+
+```go
+package main
+
+import (
+	"context"
+	"log"
+	"time"
+
+	chronosos "github.com/spawn08/chronos/os"
+	"github.com/spawn08/chronos/os/metrics"
+)
+
+func main() {
+	ctx := context.Background()
+
+	srv := chronosos.New(":8420", store) // store: your storage.Storage
+
+	// POSTs the registry snapshot to "<endpoint>/v1/metrics" as OTLP/JSON.
+	exporter := metrics.NewOTLPExporter("http://otel-collector:4318")
+
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			if err := exporter.Export(ctx, srv.Metrics); err != nil {
+				log.Printf("otlp export: %v", err)
+			}
+		}
+	}()
+
+	if err := srv.Start(ctx); err != nil {
+		log.Fatal(err)
+	}
+}
+```
+
+`NewOTLPExporter(endpoint)` builds an exporter that targets
+`"<endpoint>/v1/metrics"`; passing an empty endpoint makes `Export` a no-op
+(`exporter.Enabled()` reports `false`), which keeps offline runs and tests
+safe. Chain `WithHeader(key, value)` to attach auth headers (e.g. an
+`Authorization` bearer token) and `WithHTTPClient(c)` to override the default
+10s-timeout client. `Export` marshals the registry's counters, gauges, and
+histograms into a cumulative-temporality `ExportMetricsServiceRequest` and
+POSTs it once per call — call it on your own schedule (as above) since the
+exporter does not run a background loop.
+
 ## Streaming & SSE
 
 `GET /api/events/stream` is a long-lived `text/event-stream` connection that
@@ -270,7 +361,7 @@ where per-request coordination is needed:
 | Concern | Single replica | Multiple replicas |
 |---------|----------------|-------------------|
 | Sessions / checkpoints / traces | Storage backend | Same shared backend |
-| Rate limiting | In-memory (default) | `WithRateLimiter(store)` — shared buckets |
+| Rate limiting | In-memory (default) | `WithRateLimiter(middleware.NewSQLLimiter(db, dialect))` — shared buckets |
 | Scheduler | `WithScheduler` | Store-backed scheduler with leasing so a cron job fires **once** across the fleet |
 | Approvals | `WithApproval` | Store-backed approval service — any replica can resolve a pending approval |
 | SSE firehose | All events | Each replica streams the events it processes; subscribe per session, or fan-in downstream |

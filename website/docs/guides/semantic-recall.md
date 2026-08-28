@@ -18,16 +18,39 @@ It builds on [Memory](/guides/memory): attach a vector index to a
 
 ```go
 import (
+    "context"
+    "log"
+    "os"
+
+    "github.com/spawn08/chronos/engine/model"
     "github.com/spawn08/chronos/sdk/agent"
     "github.com/spawn08/chronos/sdk/memory"
+    "github.com/spawn08/chronos/storage/adapters/qdrant"
+    "github.com/spawn08/chronos/storage/adapters/sqlite"
 )
+
+ctx := context.Background()
+userID := "user-123"
+
+backend, err := sqlite.New("chronos.db") // any storage.Storage adapter works
+if err != nil {
+    log.Fatal(err)
+}
+if err := backend.Migrate(ctx); err != nil {
+    log.Fatal(err)
+}
+
+provider := model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))
+embedder := model.NewOpenAIEmbeddings(os.Getenv("OPENAI_API_KEY"))
+vectorStore := qdrant.New("http://localhost:6333")
+memStore := memory.NewStoreForUser("assistant", userID, backend)
 
 // A Manager with a semantic index: an EmbeddingsProvider + a VectorStore.
 mgr := memory.NewManager("assistant", userID, memStore, provider).
     WithVectorIndex(embedder, vectorStore, "text-embedding-3-small", 1536)
 
 a, _ := agent.New("assistant", "Assistant").
-    WithModel(model).
+    WithModel(provider).
     WithUserID(userID).
     WithMemoryManager(mgr). // recall is ON by default once the index is attached
     Build()

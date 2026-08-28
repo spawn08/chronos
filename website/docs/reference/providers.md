@@ -33,6 +33,8 @@ provider's model list for the authoritative, up-to-date IDs and snapshots.
 | Mistral | Mistral Large, Mistral Medium, Mistral Small | `mistral-large-latest` |
 | Groq / Together / Fireworks | Hosted open models (Llama, Qwen, DeepSeek, …) | provider-specific |
 | DeepSeek | DeepSeek-V3, DeepSeek-R1 (reasoning) | `deepseek-chat` |
+| Cohere (Go SDK only) | Command R+, Command R, Command | `command-r-plus` |
+| AWS Bedrock (Go SDK only) | Claude, Titan, Llama, and other Bedrock-hosted models | `anthropic.claude-3-sonnet-20240229-v1:0` |
 
 :::note
 Anthropic model IDs above are exact. OpenAI and Gemini IDs track the mid-2026
@@ -102,6 +104,23 @@ Supports the Gemini 3 line: Gemini 3.5 Flash (`gemini-3.5-flash`), Gemini 3.1 Pr
 p := model.NewMistral(apiKey)
 ```
 
+### Cohere
+
+```go
+// Simple (modelID e.g. "command-r-plus", "command-r", "command")
+p := model.NewCohere(apiKey, modelID)
+
+// With configuration (default model: "command-r-plus")
+p := model.NewCohereWithConfig(model.ProviderConfig{
+    APIKey: apiKey,
+    Model:  "command-r-plus",
+})
+```
+
+`Cohere` is Go-SDK-only: it is not currently one of the values accepted by the
+`provider:` field in `.chronos/agents.yaml` (see [YAML Configuration](#yaml-configuration)
+below for the exact YAML enum). Construct it directly in Go if you need it.
+
 ### Ollama (Local, No API Key)
 
 ```go
@@ -155,6 +174,9 @@ p := model.NewBedrockWithConfig(region, model.ProviderConfig{
 }, secretKey)
 ```
 
+`Bedrock` is also Go-SDK-only — it is not one of the values accepted by the
+`provider:` field in `.chronos/agents.yaml` (see [YAML Configuration](#yaml-configuration)).
+
 ### OpenAI-Compatible
 
 Works with any API that follows the OpenAI chat completions format:
@@ -200,17 +222,30 @@ fallback.OnFallback = func(index int, name string, err error) {
 For RAG pipelines and knowledge base search:
 
 ```go
-// OpenAI embeddings
+// OpenAI embeddings (default model: text-embedding-3-small)
 emb := model.NewOpenAIEmbeddings(apiKey)
 emb := model.NewOpenAIEmbeddingsWithConfig(model.ProviderConfig{
     APIKey: apiKey,
     Model:  "text-embedding-3-small",
 })
 
-// Ollama local embeddings
+// Ollama local embeddings (default model: nomic-embed-text)
 emb := model.NewOllamaEmbeddings("http://localhost:11434", "nomic-embed-text")
 
-// With in-memory caching
+// Azure OpenAI embeddings (endpoint + deployment, e.g. "text-embedding-3-large")
+emb := model.NewAzureOpenAIEmbeddings(endpoint, apiKey, deployment)
+emb := model.NewAzureOpenAIEmbeddingsWithConfig(model.ProviderConfig{
+    APIKey:  apiKey,
+    BaseURL: endpoint,
+}, deployment, "2024-02-01")
+
+// Google AI (Gemini) embeddings (default model: text-embedding-004)
+emb := model.NewGoogleEmbeddings(apiKey, "text-embedding-004")
+
+// Cohere embeddings (default model: embed-english-v3.0)
+emb := model.NewCohereEmbeddings(apiKey, "embed-english-v3.0")
+
+// With in-memory caching (wraps any EmbeddingsProvider)
 emb := model.NewCachedEmbeddings(model.NewOpenAIEmbeddings(apiKey))
 
 // Usage
@@ -219,6 +254,19 @@ resp, _ := emb.Embed(ctx, &model.EmbeddingRequest{
 })
 // resp.Embeddings: [][]float32
 ```
+
+Embeddings providers are Go-SDK-only (there is no YAML config surface for them):
+you pass the API key as a constructor argument, typically read from an env var
+of your choosing in application code.
+
+| Constructor | Import | Suggested env var | Default model |
+|-------------|--------|--------------------|----------------|
+| `model.NewOpenAIEmbeddings(apiKey)` | `engine/model` | `OPENAI_API_KEY` | `text-embedding-3-small` |
+| `model.NewOllamaEmbeddings(baseURL, modelID)` | `engine/model` | none (local server) | `nomic-embed-text` |
+| `model.NewAzureOpenAIEmbeddings(endpoint, apiKey, deployment)` | `engine/model` | `AZURE_OPENAI_API_KEY` | none — `deployment` is required |
+| `model.NewGoogleEmbeddings(apiKey, modelID)` | `engine/model` | `GOOGLE_API_KEY` / `GEMINI_API_KEY` | `text-embedding-004` |
+| `model.NewCohereEmbeddings(apiKey, modelID)` | `engine/model` | `COHERE_API_KEY` | `embed-english-v3.0` |
+| `model.NewCachedEmbeddings(inner)` | `engine/model` | — (wraps another provider) | n/a |
 
 ## Streaming
 
@@ -251,4 +299,12 @@ agents:
       api_key: ${OPENAI_API_KEY}
 ```
 
-Supported YAML provider values: `openai`, `anthropic`, `gemini`, `mistral`, `ollama`, `azure`, `groq`, `together`, `deepseek`, `openrouter`, `fireworks`, `perplexity`, `anyscale`, `compatible`.
+Supported YAML provider values: `openai`, `anthropic`, `gemini` (or `google`), `mistral`, `ollama`, `azure`, `groq`, `together`, `deepseek`, `openrouter`, `fireworks`, `perplexity`, `anyscale`, `compatible` (or `custom`).
+
+:::note Go-SDK-only providers
+`Cohere` and `AWS Bedrock` are **not** in this enum — they can only be constructed
+directly in Go (`model.NewCohere`, `model.NewBedrock`), not selected via
+`provider:` in `.chronos/agents.yaml`. Embeddings providers (OpenAI, Ollama,
+Azure, Google, Cohere) are Go-SDK-only entirely; there is no YAML config surface
+for embeddings.
+:::

@@ -58,9 +58,16 @@ The mapping layer (`os/interop/agui`) is a thin translator over the
 `stream.Broker`; you can mount it on your own server:
 
 ```go
-import "github.com/spawn08/chronos/os/interop/agui"
+import (
+    "net/http"
 
-http.Handle("/agui", agui.Handler(broker)) // broker is your *stream.Broker
+    "github.com/spawn08/chronos/engine/stream"
+    "github.com/spawn08/chronos/os/interop/agui"
+)
+
+func mountAGUI(mux *http.ServeMux, broker *stream.Broker) {
+    mux.Handle("/agui", agui.Handler(broker)) // broker is your *stream.Broker
+}
 ```
 
 The `agui.Translator` is also usable directly if you deliver events over a

@@ -12,10 +12,29 @@ The `memory.Store` provides short-term (session-scoped) and long-term (persisten
 ### Creating a Store
 
 ```go
-store := memory.NewStore(agentID, backend)
+import (
+    "context"
+    "log"
+
+    "github.com/spawn08/chronos/sdk/memory"
+    "github.com/spawn08/chronos/storage/adapters/sqlite"
+)
+
+ctx := context.Background()
+backend, err := sqlite.New("chronos.db")
+if err != nil {
+    log.Fatal(err)
+}
+if err := backend.Migrate(ctx); err != nil {
+    log.Fatal(err)
+}
+
+memStore := memory.NewStore(agentID, backend)
 ```
 
 `backend` must implement `storage.Storage` (e.g., SQLite or PostgreSQL adapter).
+The remaining snippets in this section continue to use `memStore` and `ctx` from
+this example.
 
 ### Short-Term Memory
 
@@ -73,10 +92,18 @@ The `memory.Manager` uses an LLM to autonomously extract facts from conversation
 ### Creating a Manager
 
 ```go
+import (
+    "os"
+
+    "github.com/spawn08/chronos/engine/model"
+    "github.com/spawn08/chronos/sdk/memory"
+)
+
+provider := model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))
 mgr := memory.NewManager(agentID, userID, memStore, provider)
 ```
 
-`provider` is a `model.Provider` used for extraction and optimization. The manager calls it to decide what to remember.
+`provider` is a `model.Provider` used for extraction and optimization. The manager calls it to decide what to remember. `memStore` is the `*memory.Store` from the previous section.
 
 ### ExtractMemories
 
@@ -118,6 +145,11 @@ Runs only when there are at least 5 long-term memories.
 Each `MemoryTool` has `Name`, `Description`, and `Handler`. Convert to `tool.Definition` by adding `Parameters` (JSON Schema) and `Permission`:
 
 ```go
+import (
+    "github.com/spawn08/chronos/engine/tool"
+    "github.com/spawn08/chronos/sdk/agent"
+)
+
 builder := agent.New("agent", "Agent").WithModel(provider).WithMemoryManager(mgr)
 for _, mt := range mgr.MemoryTools() {
     var params map[string]any

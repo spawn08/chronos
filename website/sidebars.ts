@@ -27,6 +27,7 @@ const sidebars: SidebarsConfig = {
         'guides/agents',
         'guides/models',
         'guides/tools',
+        'guides/skills',
         'guides/cli-runtime-controls',
         'guides/planning',
         'guides/virtual-filesystem',
@@ -56,7 +57,12 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Infrastructure',
-      items: ['guides/storage', 'guides/multi-tenancy', 'guides/streaming', 'guides/durable-execution'],
+      items: ['guides/storage', 'guides/multi-tenancy', 'guides/streaming', 'guides/durable-execution', 'guides/sandbox'],
+    },
+    {
+      type: 'category',
+      label: 'Integrations',
+      items: ['guides/webhooks', 'guides/chat-interfaces'],
     },
     {
       type: 'category',

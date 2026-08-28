@@ -10,9 +10,19 @@ Chronos provides two streaming mechanisms: model-level token streaming via `Stre
 Every provider supports streaming via `StreamChat`, which returns a channel of partial responses:
 
 ```go
+import (
+    "context"
+    "fmt"
+    "log"
+
+    "github.com/spawn08/chronos/engine/model"
+)
+
+// provider is any model.Provider (OpenAI, Anthropic, Gemini, Ollama, â€¦).
+ctx := context.Background()
 ch, err := provider.StreamChat(ctx, &model.ChatRequest{
     Messages: []model.Message{
-        {Role: "user", Content: "Tell me a story about a robot"},
+        {Role: model.RoleUser, Content: "Tell me a story about a robot"},
     },
 })
 if err != nil {
@@ -50,6 +60,16 @@ history), handles the tool-calling loop, and streams the answer token by token â
 mirroring the blocking `Agent.Chat` but incrementally.
 
 ```go
+import (
+    "context"
+    "fmt"
+    "log"
+
+    "github.com/spawn08/chronos/engine/model"
+)
+
+// myAgent is a *agent.Agent built via agent.New(...).Build().
+ctx := context.Background()
 ch, err := myAgent.ChatStream(ctx, "Tell me a story about a robot")
 if err != nil {
     log.Fatal(err) // e.g. no model configured, or an input guardrail rejected the message
@@ -183,6 +203,17 @@ Multi-agent teams stream too, via `Team.RunStream`, which returns a channel of
 you can attribute output even when agents run concurrently.
 
 ```go
+import (
+    "context"
+    "fmt"
+    "log"
+
+    "github.com/spawn08/chronos/engine/graph"
+    "github.com/spawn08/chronos/sdk/team"
+)
+
+// myTeam is a *team.Team built via team.New(...) (see the Teams guide).
+ctx := context.Background()
 ch, err := myTeam.RunStream(ctx, graph.State{"message": "what can you do?"})
 if err != nil {
     log.Fatal(err)
@@ -230,6 +261,17 @@ applies to each agent's output.
 The `Runner` emits `StreamEvent` values as nodes execute:
 
 ```go
+import (
+    "context"
+    "fmt"
+    "log"
+
+    "github.com/spawn08/chronos/engine/graph"
+)
+
+// compiled is a *graph.CompiledGraph (see the StateGraph guide) and store is
+// a storage.Storage.
+ctx := context.Background()
 runner := graph.NewRunner(compiled, store)
 
 // Start consuming events before Run
@@ -240,6 +282,10 @@ go func() {
 }()
 
 result, err := runner.Run(ctx, sessionID, initialState)
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Printf("final state: %v\n", result.State)
 ```
 
 ### Event Types
@@ -270,13 +316,23 @@ type StreamEvent struct {
 The `stream.Broker` provides server-sent events for web clients:
 
 ```go
-import "github.com/spawn08/chronos/engine/stream"
+import (
+    "fmt"
+
+    "github.com/spawn08/chronos/engine/stream"
+)
 
 broker := stream.NewBroker()
 
 // Subscribe a client
 ch := broker.Subscribe("client-123")
 defer broker.Unsubscribe("client-123")
+
+go func() {
+    for evt := range ch {
+        fmt.Println(evt.Type, evt.Data)
+    }
+}()
 
 // Publish events from anywhere
 broker.Publish(stream.Event{
@@ -290,6 +346,8 @@ broker.Publish(stream.Event{
 The broker includes an SSE HTTP handler:
 
 ```go
+import "net/http"
+
 http.Handle("/events", broker.SSEHandler("client-123"))
 ```
 
@@ -308,10 +366,19 @@ source.onmessage = (event) => {
 For agents that use both a model and a graph, you can wire model streaming into graph node functions:
 
 ```go
+import (
+    "context"
+    "strings"
+
+    "github.com/spawn08/chronos/engine/graph"
+    "github.com/spawn08/chronos/engine/model"
+)
+
+// provider is any model.Provider.
 chatNode := func(ctx context.Context, s graph.State) (graph.State, error) {
     ch, err := provider.StreamChat(ctx, &model.ChatRequest{
         Messages: []model.Message{
-            {Role: "user", Content: s["query"].(string)},
+            {Role: model.RoleUser, Content: s["query"].(string)},
         },
     })
     if err != nil {

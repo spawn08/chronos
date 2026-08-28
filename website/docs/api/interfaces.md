@@ -66,7 +66,7 @@ type TokenCounter interface {
 }
 ```
 
-**Implementations:** `EstimatingCounter` (4-chars-per-token heuristic)
+**Implementations:** `EstimatingCounter` (4-chars-per-token heuristic), `BPECounter` (BPE tokenizer, falls back to `EstimatingCounter` if unavailable)
 
 ---
 
@@ -115,7 +115,7 @@ type Storage interface {
 }
 ```
 
-**Implementations:** `sqlite.Store`, `postgres.Store`, `redis.Store`, `mongo.Store`, `dynamo.Store`
+**Implementations:** `sqlite.Store`, `postgres.Store`, `redis.Store`, `mongo.Store`, `dynamo.Store`, `memory.Store` (in-memory, for tests)
 
 ---
 
@@ -128,14 +128,16 @@ Vector storage for embeddings, used by the knowledge/RAG system.
 ```go
 type VectorStore interface {
     Upsert(ctx context.Context, collection string, embeddings []Embedding) error
-    Search(ctx context.Context, collection string, query []float32, topK int) ([]SearchResult, error)
+    Search(ctx context.Context, collection string, query []float32, topK int, opts ...SearchOption) ([]SearchResult, error)
     Delete(ctx context.Context, collection string, ids []string) error
     CreateCollection(ctx context.Context, name string, dimension int) error
     Close() error
 }
 ```
 
-**Implementations:** `qdrant.Store`, `pinecone.Store`, `weaviate.Store`, `milvus.Store`, `redisvector.Store`
+`Search`'s variadic `opts` carry optional `SearchOption`s — currently just `WithFilter(filter map[string]any)`, which restricts results to embeddings whose metadata matches every key/value pair (exact match, AND semantics). Adapters that store metadata structurally (`qdrant`, `pgvector`, `pinecone`, `chromadb`) apply the filter server-side, so top-k is computed over the matching subset. Adapters that store metadata as an opaque blob (`lancedb`, `milvus`, `weaviate`, `redisvector`) apply it client-side over the returned window instead, which can under-return results under a highly selective filter. This is the mechanism that powers multitenant memory recall — e.g. scoping a shared collection by a tenant token.
+
+**Implementations:** `qdrant.Store`, `pinecone.Store`, `weaviate.Store`, `milvus.Store`, `redisvector.Store`, `pgvector.Store`, `lancedb.Store`, `chromadb.Store`
 
 ---
 
@@ -173,6 +175,10 @@ type Guardrail interface {
 
 **Implementations:** `BlocklistGuardrail`, `MaxLengthGuardrail`
 
+:::caution
+`PIIGuardrail` (`engine/guardrails/pii.go`) and `InjectionGuardrail` (`engine/guardrails/injection.go`) do **not** currently satisfy this interface — their `Check` methods are `Check(_ interface{}, content string) *Result` (wrong parameter type, pointer return) instead of `Check(ctx context.Context, content string) Result`. They're usable directly (`g.Check(nil, content)`), just not as a `Guardrail` value. See [guides/guardrails.md](/guides/guardrails) for details.
+:::
+
 ---
 
 ## hooks.Hook
@@ -188,7 +194,7 @@ type Hook interface {
 }
 ```
 
-**Implementations:** `LoggingHook`, `RetryHook`, `RateLimitHook`, `CostTracker`, `CacheHook`, `MetricsHook`, `Chain`
+**Implementations:** `LoggingHook`, `RetryHook`, `RateLimitHook`, `CostTracker`, `CacheHook`, `MetricsHook`, `PrometheusHook`, `Chain`
 
 ---
 
@@ -205,4 +211,4 @@ type Sandbox interface {
 }
 ```
 
-**Implementations:** `ProcessSandbox`, `ContainerSandbox`
+**Implementations:** `ProcessSandbox`, `ContainerSandbox`, `WASMSandbox`, `K8sJobSandbox`

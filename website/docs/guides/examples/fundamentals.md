@@ -63,6 +63,21 @@ go run ./examples/tools_and_guardrails/
 
 ---
 
+## multi_round_tools
+
+An agent performing **multiple sequential tool-calling rounds**, where the result of one tool feeds the arguments of the next (resolve a customer, then fetch their orders, then answer). Driven by a small deterministic mock `model.Provider` — no API key or network access.
+
+```bash
+go run ./examples/multi_round_tools/
+```
+
+**Demonstrates:**
+- `Agent.Chat` running a multi-round tool loop, feeding each tool result back to the model
+- Chaining tool calls where tool B's arguments depend on tool A's result
+- A deterministic mock provider for fully offline testing of multi-round flows
+
+---
+
 ## graph_patterns
 
 StateGraph patterns: conditional edges, interrupt nodes (human-in-the-loop), stream events, and multi-path routing.
