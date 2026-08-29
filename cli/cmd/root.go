@@ -153,6 +153,11 @@ func stripGlobalFlags() error {
 			if err := os.Setenv("CHRONOS_TRACE", value); err != nil {
 				return fmt.Errorf("set CHRONOS_TRACE: %w", err)
 			}
+		case arg == "--stream" || arg == "-s" || arg == "--no-stream":
+			value := strconv.FormatBool(arg == "--stream" || arg == "-s")
+			if err := os.Setenv("CHRONOS_STREAM", value); err != nil {
+				return fmt.Errorf("set CHRONOS_STREAM: %w", err)
+			}
 		default:
 			kept = append(kept, arg)
 		}
@@ -177,6 +182,8 @@ Global options:
                             Auto-approve approval-gated tools for this CLI process
   --debug, --no-debug       Enable or disable agent execution logs on stderr
   --trace, --no-trace       Enable or disable persisted model/tool/graph spans
+  --stream, --no-stream, -s
+                            Enable or disable token streaming for "run"/"team run"
 
 Commands:
   repl                      Start interactive REPL (loads agent from YAML config)
@@ -695,11 +702,11 @@ func swaggerHost(addr string) string {
 }
 
 func runAgent() error {
-	// Parse: chronos run [--agent <id>] [--stream|--no-stream] <message...>
+	// Parse: chronos run [--agent <id>] <message...>
+	// --stream/--no-stream/-s are global flags (see stripGlobalFlags) and work
+	// anywhere on the command line, not just here after "run".
 	args := os.Args[2:]
 	agentID := ""
-	streaming := false
-	streamSet := false
 	var msgParts []string
 
 	for i := 0; i < len(args); i++ {
@@ -710,12 +717,6 @@ func runAgent() error {
 			}
 			agentID = args[i+1]
 			i++
-		case "--stream", "-s":
-			streaming = true
-			streamSet = true
-		case "--no-stream":
-			streaming = false
-			streamSet = true
 		default:
 			msgParts = append(msgParts, args[i])
 		}
@@ -725,6 +726,13 @@ func runAgent() error {
 		return fmt.Errorf("usage: chronos run [--agent <id>] [--stream] <message>")
 	}
 	message := strings.Join(msgParts, " ")
+
+	streaming := false
+	streamSet := false
+	if v, configured := os.LookupEnv("CHRONOS_STREAM"); configured {
+		streaming = strings.EqualFold(v, "true")
+		streamSet = true
+	}
 
 	var a *agent.Agent
 	var err error
@@ -1228,27 +1236,22 @@ func buildHierarchyTeam(tc *agent.TeamConfig, agents map[string]*agent.Agent, me
 }
 
 func teamRun() error {
-	// Parse: chronos team run [--stream|--no-stream] <team_id> <message...>
-	streaming := false
-	streamSet := false
-	var positional []string
-	for _, arg := range os.Args[3:] {
-		switch arg {
-		case "--stream", "-s":
-			streaming = true
-			streamSet = true
-		case "--no-stream":
-			streaming = false
-			streamSet = true
-		default:
-			positional = append(positional, arg)
-		}
-	}
+	// Parse: chronos team run <team_id> <message...>
+	// --stream/--no-stream/-s are global flags (see stripGlobalFlags) and work
+	// anywhere on the command line, not just here after "team run".
+	positional := os.Args[3:]
 	if len(positional) < 2 {
 		return fmt.Errorf("usage: chronos team run [--stream|--no-stream] <team_id> <message>")
 	}
 	teamID := positional[0]
 	message := strings.Join(positional[1:], " ")
+
+	streaming := false
+	streamSet := false
+	if v, configured := os.LookupEnv("CHRONOS_STREAM"); configured {
+		streaming = strings.EqualFold(v, "true")
+		streamSet = true
+	}
 
 	ctx := context.Background()
 

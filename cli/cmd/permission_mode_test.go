@@ -99,6 +99,51 @@ func TestStripGlobalNegativeRuntimeFlags(t *testing.T) {
 	}
 }
 
+// TestStripGlobalStreamFlagsPositionIndependent proves --stream/-s/--no-stream
+// work regardless of where they appear on the command line — before the
+// subcommand, after it, or after other arguments — matching the position
+// independence stripGlobalFlags already gives --debug/--trace/--permission-mode.
+// Before this fix, --stream/-s/--no-stream were parsed locally inside
+// runAgent/teamRun's own arg loops, so `chronos --stream run <msg>` failed
+// with "unknown command: --stream" since it never reached that loop.
+func TestStripGlobalStreamFlagsPositionIndependent(t *testing.T) {
+	oldArgs := os.Args
+	oldStream, hadStream := os.LookupEnv("CHRONOS_STREAM")
+	t.Cleanup(func() {
+		os.Args = oldArgs
+		restoreEnv("CHRONOS_STREAM", oldStream, hadStream)
+	})
+
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "--stream before the subcommand", args: []string{"chronos", "--stream", "run", "hello"}, want: "true"},
+		{name: "-s before the subcommand", args: []string{"chronos", "-s", "run", "hello"}, want: "true"},
+		{name: "--stream after the subcommand", args: []string{"chronos", "run", "hello", "--stream"}, want: "true"},
+		{name: "--no-stream before the subcommand", args: []string{"chronos", "--no-stream", "run", "hello"}, want: "false"},
+		{name: "--no-stream after the subcommand", args: []string{"chronos", "team", "run", "myteam", "hello", "--no-stream"}, want: "false"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_ = os.Unsetenv("CHRONOS_STREAM")
+			os.Args = append([]string(nil), tt.args...)
+			if err := stripGlobalFlags(); err != nil {
+				t.Fatalf("stripGlobalFlags(%v): %v", tt.args, err)
+			}
+			if got := os.Getenv("CHRONOS_STREAM"); got != tt.want {
+				t.Fatalf("CHRONOS_STREAM = %q, want %q", got, tt.want)
+			}
+			for _, arg := range os.Args {
+				if arg == "--stream" || arg == "-s" || arg == "--no-stream" {
+					t.Fatalf("stream flag %q was not stripped from os.Args: %#v", arg, os.Args)
+				}
+			}
+		})
+	}
+}
+
 func TestApplyCLIRuntimeOverridesRejectsTracingWithoutStorage(t *testing.T) {
 	t.Setenv("CHRONOS_TRACE", "true")
 	a := &agent.Agent{ID: "no-store"}
