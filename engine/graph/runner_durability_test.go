@@ -546,12 +546,12 @@ func TestRunner_SyncSessionStatus_DoesNotClobberMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	sess.Metadata = map[string]any{"plan": "do not lose me"}
-	if err := store.UpdateSession(ctx, sess); err != nil {
-		t.Fatal(err)
+	if updateErr := store.UpdateSession(ctx, sess); updateErr != nil {
+		t.Fatal(updateErr)
 	}
 
-	if _, err := NewRunner(buildApprovalGraph(&a, &pause, &b), store).Resume(ctx, "s1"); err != nil {
-		t.Fatalf("Resume: %v", err)
+	if _, resumeErr := NewRunner(buildApprovalGraph(&a, &pause, &b), store).Resume(ctx, "s1"); resumeErr != nil {
+		t.Fatalf("Resume: %v", resumeErr)
 	}
 
 	got, err := store.GetSession(ctx, "s1")
