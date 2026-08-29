@@ -94,9 +94,11 @@ sdk/ ──►  engine/  ──►  storage/            (SDK → runtime → per
 
 ## Definition of "world-class" (exit criteria for this roadmap)
 
-1. **Harness parity** — an agent can plan, offload context to a virtual FS, spawn
-   context-isolated (and dynamic) subagents, and auto-compact, out of the box (Workstream A).
-2. **Interop** — Chronos agents expose and consume A2A + MCP-server + a standard UI stream (B).
-3. **Loved DX** — trace→dataset→eval→gate loop and a visual debugger exist; deploy is one command (C).
-4. **Automatic memory** — cross-session semantic recall on by default (D).
-5. **Enterprise lead** — per-tenant budgets/policy/compliance-export shipped and self-hostable (F).
+Shipped: harness parity (Workstream A, retired from the active roadmap), interop (A2A +
+MCP-server + AG-UI stream, Workstream B), and automatic cross-session semantic memory
+(Workstream D). Remaining:
+
+1. **Loved DX** — trace→dataset→eval→gate loop exists; a visual debugger and one-command
+   deploy do not yet (Workstream C).
+2. **Enterprise lead** — per-tenant budgets/policy/compliance-export shipped and
+   self-hostable (Workstream F).

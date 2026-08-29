@@ -287,6 +287,85 @@ func TestCheckpointCRUD(t *testing.T) {
 	}
 }
 
+// TestCheckpointState_IndependentOfLaterMutation reproduces the graph
+// runner's real usage pattern — the same State map object is mutated in place
+// and saved again at every step of a run — and proves each saved checkpoint
+// keeps its own point-in-time snapshot rather than aliasing a shared map.
+// Without cloneCheckpointState, mutating the map after a save retroactively
+// changed every previously stored checkpoint's State, silently breaking
+// time-travel.
+func TestCheckpointState_IndependentOfLaterMutation(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	state := map[string]any{"path": "a"}
+	if err := s.SaveCheckpoint(ctx, &storage.Checkpoint{ID: "cp1", SessionID: "s1", NodeID: "b", State: state, SeqNum: 1, CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The caller (the graph runner) mutates the same map object and saves it
+	// again under a new checkpoint id, exactly as executing the next node does.
+	state["path"] = "ab"
+	if err := s.SaveCheckpoint(ctx, &storage.Checkpoint{ID: "cp2", SessionID: "s1", NodeID: "c", State: state, SeqNum: 2, CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+
+	got1, err := s.GetCheckpoint(ctx, "cp1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got1.State["path"] != "a" {
+		t.Errorf("cp1 State[path] = %v, want %q (leaked later mutation)", got1.State["path"], "a")
+	}
+
+	list, err := s.ListCheckpoints(ctx, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if list[0].State["path"] != "a" {
+		t.Errorf("ListCheckpoints[0] State[path] = %v, want %q", list[0].State["path"], "a")
+	}
+	if list[1].State["path"] != "ab" {
+		t.Errorf("ListCheckpoints[1] State[path] = %v, want %q", list[1].State["path"], "ab")
+	}
+
+	// Mutating a returned checkpoint's State must not corrupt the stored copy.
+	got1.State["path"] = "corrupted"
+	again, err := s.GetCheckpoint(ctx, "cp1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.State["path"] != "a" {
+		t.Errorf("stored State was mutated via a returned copy: got %v", again.State["path"])
+	}
+}
+
+// TestGetLatestCheckpoint_OrdersBySeqNum proves GetLatestCheckpoint picks the
+// highest seq_num, not the latest wall-clock CreatedAt — two checkpoints
+// stamped with the same (or an out-of-order) timestamp must not make the
+// "latest" checkpoint non-deterministic.
+func TestGetLatestCheckpoint_OrdersBySeqNum(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	same := time.Now()
+
+	if err := s.SaveCheckpoint(ctx, &storage.Checkpoint{ID: "cp1", SessionID: "s1", NodeID: "a", State: map[string]any{}, SeqNum: 1, CreatedAt: same}); err != nil {
+		t.Fatal(err)
+	}
+	// Same timestamp as cp1, but a later seq_num: this is the one that must win.
+	if err := s.SaveCheckpoint(ctx, &storage.Checkpoint{ID: "cp2", SessionID: "s1", NodeID: "b", State: map[string]any{}, SeqNum: 2, CreatedAt: same}); err != nil {
+		t.Fatal(err)
+	}
+
+	latest, err := s.GetLatestCheckpoint(ctx, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest.ID != "cp2" {
+		t.Errorf("latest = %q, want cp2 (highest seq_num)", latest.ID)
+	}
+}
+
 func TestClose(t *testing.T) {
 	s := New()
 	if err := s.Close(); err != nil {

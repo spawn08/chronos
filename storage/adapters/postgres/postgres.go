@@ -219,6 +219,25 @@ func (s *Store) UpdateSession(ctx context.Context, sess *storage.Session) error 
 	return err
 }
 
+// UpdateSessionStatus implements storage.SessionStatusUpdater: a narrow
+// UPDATE touching only status/updated_at, so it can never clobber a
+// concurrent Metadata writer's row the way a whole-record UpdateSession
+// (which always rewrites the metadata column) could.
+func (s *Store) UpdateSessionStatus(ctx context.Context, sessionID, status string, updatedAt time.Time) error {
+	tenant := storage.TenantFromContext(ctx)
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE sessions SET status=$1, updated_at=$2 WHERE id=$3 AND tenant_id=$4`,
+		status, updatedAt, sessionID, tenant,
+	)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return fmt.Errorf("session %q not found", sessionID)
+	}
+	return nil
+}
+
 func (s *Store) ListSessions(ctx context.Context, agentID string, limit, offset int) ([]*storage.Session, error) {
 	tenant := storage.TenantFromContext(ctx)
 	rows, err := s.db.QueryContext(ctx,

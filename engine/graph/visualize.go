@@ -82,6 +82,63 @@ func (cg *CompiledGraph) ToDOT() string {
 	return b.String()
 }
 
+// GraphView is a JSON-serializable description of a compiled graph's topology
+// (nodes + edges), for clients — such as the dashboard UI (os/dashboard) —
+// that render their own visualization instead of parsing Mermaid/DOT text.
+// Synthetic start/end markers are included so a renderer can draw the same
+// entry/exit points ToMermaid/ToDOT show.
+type GraphView struct {
+	ID    string          `json:"id"`
+	Entry string          `json:"entry"`
+	Nodes []GraphViewNode `json:"nodes"`
+	Edges []GraphViewEdge `json:"edges"`
+}
+
+// GraphViewNode describes one node in a GraphView. Kind is "start", "end",
+// "interrupt", or "node".
+type GraphViewNode struct {
+	ID   string `json:"id"`
+	Kind string `json:"kind"`
+}
+
+// GraphViewEdge describes one transition in a GraphView. To is empty when
+// Conditional is true and the target is decided at runtime (see
+// EdgeCondition); a renderer should badge such a node rather than draw an
+// arrow to an unknown destination.
+type GraphViewEdge struct {
+	From        string `json:"from"`
+	To          string `json:"to,omitempty"`
+	Conditional bool   `json:"conditional"`
+}
+
+// ToJSON returns a serializable view of the graph's topology.
+func (cg *CompiledGraph) ToJSON() GraphView {
+	view := GraphView{ID: cg.ID, Entry: cg.Entry}
+
+	view.Nodes = append(view.Nodes, GraphViewNode{ID: StartNode, Kind: "start"})
+	for _, id := range sortedNodeIDs(cg.Nodes) {
+		kind := "node"
+		if cg.Nodes[id].Interrupt {
+			kind = "interrupt"
+		}
+		view.Nodes = append(view.Nodes, GraphViewNode{ID: id, Kind: kind})
+	}
+	view.Nodes = append(view.Nodes, GraphViewNode{ID: EndNode, Kind: "end"})
+
+	fromIDs := make([]string, 0, len(cg.AdjList))
+	for from := range cg.AdjList {
+		fromIDs = append(fromIDs, from)
+	}
+	sort.Strings(fromIDs)
+	for _, from := range fromIDs {
+		for _, e := range cg.AdjList[from] {
+			view.Edges = append(view.Edges, GraphViewEdge{From: from, To: e.To, Conditional: e.Condition != nil})
+		}
+	}
+
+	return view
+}
+
 func sortedNodeIDs(nodes map[string]*Node) []string {
 	ids := make([]string, 0, len(nodes))
 	for id := range nodes {
