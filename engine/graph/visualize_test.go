@@ -140,6 +140,103 @@ func TestToDOT_ConditionalEdge(t *testing.T) {
 	}
 }
 
+func TestToJSON_LinearGraph(t *testing.T) {
+	g := New("test")
+	g.AddNode("a", func(_ context.Context, s State) (State, error) { return s, nil })
+	g.AddInterruptNode("b", func(_ context.Context, s State) (State, error) { return s, nil })
+	g.SetEntryPoint("a")
+	g.AddEdge("a", "b")
+	g.SetFinishPoint("b")
+
+	compiled, err := g.Compile()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	view := compiled.ToJSON()
+	if view.ID != "test" || view.Entry != "a" {
+		t.Errorf("id/entry = %q/%q, want test/a", view.ID, view.Entry)
+	}
+	if len(view.Nodes) != 4 { // start, a, b, end
+		t.Fatalf("got %d nodes, want 4", len(view.Nodes))
+	}
+
+	kinds := map[string]string{}
+	for _, n := range view.Nodes {
+		kinds[n.ID] = n.Kind
+	}
+	if kinds[StartNode] != "start" || kinds[EndNode] != "end" {
+		t.Errorf("start/end kinds = %q/%q", kinds[StartNode], kinds[EndNode])
+	}
+	if kinds["a"] != "node" {
+		t.Errorf("node a kind = %q, want node", kinds["a"])
+	}
+	if kinds["b"] != "interrupt" {
+		t.Errorf("node b kind = %q, want interrupt", kinds["b"])
+	}
+
+	var sawAB bool
+	for _, e := range view.Edges {
+		if e.From == "a" && e.To == "b" && !e.Conditional {
+			sawAB = true
+		}
+	}
+	if !sawAB {
+		t.Errorf("edges = %+v, missing a->b", view.Edges)
+	}
+}
+
+func TestToJSON_ConditionalEdgeHasNoTarget(t *testing.T) {
+	g := New("cond")
+	g.AddNode("a", func(_ context.Context, s State) (State, error) { return s, nil })
+	g.AddNode("b", func(_ context.Context, s State) (State, error) { return s, nil })
+	g.SetEntryPoint("a")
+	g.AddConditionalEdge("a", func(s State) string { return "b" })
+	g.SetFinishPoint("b")
+
+	compiled, err := g.Compile()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	view := compiled.ToJSON()
+	var found bool
+	for _, e := range view.Edges {
+		if e.From == "a" {
+			found = true
+			if !e.Conditional {
+				t.Error("conditional edge not marked Conditional")
+			}
+			if e.To != "" {
+				t.Errorf("conditional edge To = %q, want empty (target decided at runtime)", e.To)
+			}
+		}
+	}
+	if !found {
+		t.Error("missing edge from a")
+	}
+}
+
+func BenchmarkToJSON(b *testing.B) {
+	g := New("bench")
+	g.AddNode("a", func(_ context.Context, s State) (State, error) { return s, nil })
+	g.AddNode("b", func(_ context.Context, s State) (State, error) { return s, nil })
+	g.AddNode("c", func(_ context.Context, s State) (State, error) { return s, nil })
+	g.SetEntryPoint("a")
+	g.AddEdge("a", "b")
+	g.AddEdge("b", "c")
+	g.SetFinishPoint("c")
+	compiled, err := g.Compile()
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = compiled.ToJSON()
+	}
+}
+
 func TestSanitizeDOTID(t *testing.T) {
 	tests := []struct {
 		input, want string

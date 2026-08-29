@@ -12,6 +12,7 @@ import (
 
 	"github.com/spawn08/chronos/engine/stream"
 	"github.com/spawn08/chronos/storage"
+	"github.com/spawn08/chronos/storage/adapters/memory"
 )
 
 // buildApprovalGraph builds A -> pause(interrupt) -> B -> END, incrementing the
@@ -471,5 +472,109 @@ func TestRunner_UsesCheckpointCommitter(t *testing.T) {
 	}
 	if atomic.LoadInt64(&store.appendCalled) != 0 {
 		t.Error("runner should not call AppendEvent directly when a committer is available")
+	}
+}
+
+// A pause and its subsequent resume must be visible on storage.Session.Status
+// (not just the in-memory RunState), so a caller that only lists sessions —
+// the CLI's session list/monitor, the dashboard — can tell a run is paused
+// without loading a checkpoint.
+func TestRunner_SyncsSessionStatus(t *testing.T) {
+	store := newRunnerTestStorage()
+	ctx := context.Background()
+	if err := store.CreateSession(ctx, &storage.Session{ID: "s1", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var a, pause, b int64
+	rs, err := NewRunner(buildApprovalGraph(&a, &pause, &b), store).Run(ctx, "s1", State{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if rs.Status != RunStatusPaused {
+		t.Fatalf("run status = %q, want paused", rs.Status)
+	}
+	sess, err := store.GetSession(ctx, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.Status != string(RunStatusPaused) {
+		t.Errorf("session status after pause = %q, want %q", sess.Status, RunStatusPaused)
+	}
+
+	rs, err = NewRunner(buildApprovalGraph(&a, &pause, &b), store).Resume(ctx, "s1")
+	if err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	if rs.Status != RunStatusCompleted {
+		t.Fatalf("run status = %q, want completed", rs.Status)
+	}
+	sess, err = store.GetSession(ctx, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.Status != string(RunStatusCompleted) {
+		t.Errorf("session status after resume = %q, want %q", sess.Status, RunStatusCompleted)
+	}
+}
+
+// Against a store that implements storage.SessionStatusUpdater (e.g. the
+// memory adapter), syncing the run's status must never clobber a concurrent
+// Metadata write — the exact whole-record read-modify-write race a narrow
+// status-only update exists to avoid.
+func TestRunner_SyncSessionStatus_DoesNotClobberMetadata(t *testing.T) {
+	store := memory.New()
+	ctx := context.Background()
+	if err := store.CreateSession(ctx, &storage.Session{ID: "s1", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var a, pause, b int64
+	rs, err := NewRunner(buildApprovalGraph(&a, &pause, &b), store).Run(ctx, "s1", State{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if rs.Status != RunStatusPaused {
+		t.Fatalf("run status = %q, want paused", rs.Status)
+	}
+
+	// Simulate a concurrent Metadata writer (e.g. the planning tool's
+	// StoragePlanStore) recording state on the same session, as if it raced
+	// with the pause above.
+	sess, err := store.GetSession(ctx, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess.Metadata = map[string]any{"plan": "do not lose me"}
+	if updateErr := store.UpdateSession(ctx, sess); updateErr != nil {
+		t.Fatal(updateErr)
+	}
+
+	if _, resumeErr := NewRunner(buildApprovalGraph(&a, &pause, &b), store).Resume(ctx, "s1"); resumeErr != nil {
+		t.Fatalf("Resume: %v", resumeErr)
+	}
+
+	got, err := store.GetSession(ctx, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != string(RunStatusCompleted) {
+		t.Errorf("status = %q, want completed", got.Status)
+	}
+	if got.Metadata["plan"] != "do not lose me" {
+		t.Errorf("Metadata = %v, want plan preserved — status sync clobbered a concurrent Metadata write", got.Metadata)
+	}
+}
+
+// A run against a session the caller never persisted via CreateSession must
+// still complete normally: syncing the session status is best-effort.
+func TestRunner_SyncSessionStatus_MissingSessionIsNotFatal(t *testing.T) {
+	store := newRunnerTestStorage()
+	rs, err := NewRunner(buildLinearGraph("a", "b"), store).Run(context.Background(), "no-such-session", State{"visited": ""})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if rs.Status != RunStatusCompleted {
+		t.Errorf("status = %q, want completed", rs.Status)
 	}
 }

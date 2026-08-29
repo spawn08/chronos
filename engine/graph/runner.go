@@ -307,6 +307,14 @@ func (r *Runner) execute(ctx context.Context, rs *RunState, skipFirstInterrupt b
 	// state without threading the id through every signature.
 	ctx = storage.WithSession(ctx, rs.SessionID)
 
+	// Mirror the run's final status (running/paused/completed/failed) onto
+	// storage.Session.Status on every exit path, so callers that only look at
+	// the session record — the CLI's session list/monitor, the dashboard —
+	// can tell a session is paused without loading a checkpoint. Best-effort:
+	// a session the caller never persisted via CreateSession is not an error
+	// for the run itself.
+	defer r.syncSessionStatus(ctx, rs)
+
 	// Start a top-level graph execution span
 	var graphSpan *storage.Trace
 	if r.tracer != nil {
@@ -472,6 +480,35 @@ func (r *Runner) execute(ctx context.Context, rs *RunState, skipFirstInterrupt b
 	}
 
 	return rs, nil
+}
+
+// syncSessionStatus writes rs.Status onto the session's persisted Status
+// field. It is deliberately best-effort (errors are swallowed): a missing
+// session or a transient store error must never fail the run itself, since
+// the checkpoint — not the session record — is the durable source of truth.
+//
+// When the store implements storage.SessionStatusUpdater it uses that narrow
+// update, which cannot race with (and clobber) a concurrent Metadata writer —
+// e.g. the planning/VFS tools' own GetSession->mutate->UpdateSession
+// read-modify-write on the same session — because it never reads or rewrites
+// Metadata. Stores that don't implement it fall back to the same
+// whole-record GetSession/UpdateSession every other Session writer already
+// uses, accepting the pre-existing race rather than widening it further.
+func (r *Runner) syncSessionStatus(ctx context.Context, rs *RunState) {
+	if r.store == nil {
+		return
+	}
+	if su, ok := r.store.(storage.SessionStatusUpdater); ok {
+		_ = su.UpdateSessionStatus(ctx, rs.SessionID, string(rs.Status), time.Now())
+		return
+	}
+	sess, err := r.store.GetSession(ctx, rs.SessionID)
+	if err != nil {
+		return
+	}
+	sess.Status = string(rs.Status)
+	sess.UpdatedAt = time.Now()
+	_ = r.store.UpdateSession(ctx, sess)
 }
 
 // callNode invokes a node function with panic recovery. A panicking

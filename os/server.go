@@ -19,10 +19,12 @@ import (
 
 	httpSwagger "github.com/swaggo/http-swagger/v2"
 
+	"github.com/spawn08/chronos/engine/hooks"
 	"github.com/spawn08/chronos/engine/stream"
 	_ "github.com/spawn08/chronos/os/apidocs" // registers the generated OpenAPI spec with the swag registry
 	"github.com/spawn08/chronos/os/approval"
 	"github.com/spawn08/chronos/os/auth"
+	"github.com/spawn08/chronos/os/dashboard"
 	"github.com/spawn08/chronos/os/interop/agui"
 	"github.com/spawn08/chronos/os/logging"
 	"github.com/spawn08/chronos/os/metrics"
@@ -50,14 +52,19 @@ const (
 // (agents live outside the control plane, so this is wired at agent
 // construction). The registry is exposed at /metrics regardless.
 type Server struct {
-	Addr            string
-	Store           storage.Storage
-	Broker          *stream.Broker
-	Auth            *auth.Service
-	Trace           *trace.Collector
-	Approval        *approval.Service
-	Metrics         *metrics.Registry
-	Scheduler       scheduler.Runner
+	Addr      string
+	Store     storage.Storage
+	Broker    *stream.Broker
+	Auth      *auth.Service
+	Trace     *trace.Collector
+	Approval  *approval.Service
+	Metrics   *metrics.Registry
+	Scheduler scheduler.Runner
+	// Dashboard serves the visual studio (live graph view, checkpoint
+	// time-travel, per-session cost) at /dashboard/ and /api/dashboard/*. Wire
+	// in a graph registry (WithGraphs) and, optionally, a cost tracker
+	// (WithCostTracker) to enable its resume/time-travel/cost views.
+	Dashboard       *dashboard.Handler
 	ShutdownTimeout time.Duration
 	mux             *http.ServeMux
 	ready           atomic.Bool
@@ -77,6 +84,7 @@ type Server struct {
 	disableRateLimit bool
 	enableRecovery   bool
 	swaggerEnabled   bool            // serve the /swagger UI + OpenAPI spec (default true)
+	dashboardEnabled bool            // serve the /dashboard UI + /api/dashboard/* API (default true)
 	rbacEnabled      bool            // enforce method-based RBAC on /api/* (requires auth)
 	logger           *log.Logger     // nil => request logging disabled
 	structuredLogger *logging.Logger // nil => structured JSON logging disabled
@@ -145,6 +153,17 @@ func WithSwagger(enabled bool) Option {
 	return func(s *Server) { s.swaggerEnabled = enabled }
 }
 
+// WithDashboard enables or disables the dashboard UI and its /api/dashboard/*
+// API (/dashboard, /dashboard/*). It defaults to enabled. The static UI shell
+// (HTML/JS/CSS) is served without authentication, like Swagger, so a token can
+// be entered from the page itself when auth is enabled; every data call it
+// makes (/api/sessions, /api/dashboard/*, /api/approval/*, /api/agui/stream)
+// still goes through the normal auth chain. Disable it on hardened production
+// control planes where the dashboard should not be exposed anonymously.
+func WithDashboard(enabled bool) Option {
+	return func(s *Server) { s.dashboardEnabled = enabled }
+}
+
 // WithRBAC enforces role-based authorization on /api/* routes when
 // authentication is enabled: read requests (GET/HEAD) require the viewer role,
 // mutating requests require the user role. Roles come from the authenticated
@@ -186,6 +205,21 @@ func WithApproval(svc *approval.Service) Option {
 			s.Approval = svc
 		}
 	}
+}
+
+// WithGraphs registers the compiled graphs the dashboard (/dashboard/) may
+// render and resume/time-travel, keyed by the agent id that produced a
+// session (storage.Session.AgentID). Without this, the dashboard still lists
+// sessions/checkpoints/cost but its graph view and resume/time-travel actions
+// return 501.
+func WithGraphs(graphs dashboard.GraphRegistry) Option {
+	return func(s *Server) { s.Dashboard.WithGraphs(graphs) }
+}
+
+// WithCostTracker enriches the dashboard's per-session view with token usage
+// and cost from an already-wired engine/hooks.CostTracker.
+func WithCostTracker(ct *hooks.CostTracker) Option {
+	return func(s *Server) { s.Dashboard.WithCostTracker(ct) }
 }
 
 // WithA2A serves an Agent-to-Agent (A2A) endpoint under /a2a/, exposing a
@@ -246,6 +280,20 @@ const swaggerPathPrefix = "/swagger"
 // pass an already-canonicalized path (see cleanRequestPath).
 func isSwaggerPath(p string) bool {
 	return p == swaggerPathPrefix || strings.HasPrefix(p, swaggerPathPrefix+"/")
+}
+
+// dashboardUIPathPrefix is the mount point for the dashboard's static UI
+// shell. It does not cover /api/dashboard/*, which stays behind the normal
+// auth chain like every other /api/ route.
+const dashboardUIPathPrefix = "/dashboard"
+
+// isDashboardUIPath reports whether the request targets the dashboard's
+// static UI shell (HTML/JS/CSS), served without authentication — like Swagger
+// — so a bearer token/API key can be entered from the page itself when auth
+// is enabled. Callers pass an already-canonicalized path (see
+// cleanRequestPath).
+func isDashboardUIPath(p string) bool {
+	return p == dashboardUIPathPrefix || strings.HasPrefix(p, dashboardUIPathPrefix+"/")
 }
 
 // cleanRequestPath canonicalizes a request path (resolving "." and ".."
@@ -325,6 +373,7 @@ func NewWithOptions(addr string, store storage.Storage, opts ...Option) *Server 
 		rateLimitCfg:      middleware.DefaultRateLimitConfig(),
 		enableRecovery:    true,
 		swaggerEnabled:    true,
+		dashboardEnabled:  true,
 		logger:            log.Default(),
 		readTimeout:       defaultReadTimeout,
 		readHeaderTimeout: defaultReadHeaderTimeout,
@@ -333,6 +382,7 @@ func NewWithOptions(addr string, store storage.Storage, opts ...Option) *Server 
 		maxHeaderBytes:    defaultMaxHeaderBytes,
 		maxBodyBytes:      defaultMaxBodyBytes,
 	}
+	s.Dashboard = dashboard.New(store, s.Broker).WithTracer(s.Trace)
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -365,7 +415,15 @@ func (s *Server) Handler() http.Handler {
 		// auth: it normalizes to /api/sessions and takes the authenticated path.
 		// This keeps the guarantee independent of the router's own cleaning.
 		h = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if s.swaggerEnabled && isSwaggerPath(cleanRequestPath(r.URL.Path)) {
+			p := cleanRequestPath(r.URL.Path)
+			if s.swaggerEnabled && isSwaggerPath(p) {
+				s.mux.ServeHTTP(w, r)
+				return
+			}
+			// Same rationale as Swagger above: the dashboard's static UI shell
+			// (not /api/dashboard/*, which stays authenticated) must be reachable
+			// so a token can be entered from the page itself.
+			if s.dashboardEnabled && isDashboardUIPath(p) {
 				s.mux.ServeHTTP(w, r)
 				return
 			}
@@ -427,6 +485,19 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/approval/pending", s.handleApprovalPending)
 	s.mux.HandleFunc("/api/approval/respond", s.handleApprovalRespond)
 	s.mux.HandleFunc("/metrics", s.handleMetrics)
+
+	// Visual studio / graph debugger (WC-C-002): a read-only dashboard API plus
+	// resume/time-travel actions, and the static UI that consumes it. Session
+	// listing, traces, live streaming, and approvals reuse the routes above
+	// rather than being duplicated under /api/dashboard/. Disabled via
+	// WithDashboard(false) on hardened deployments.
+	if s.dashboardEnabled {
+		s.mux.Handle("/api/dashboard/", http.StripPrefix("/api/dashboard/", http.HandlerFunc(s.handleDashboardAPI)))
+		s.mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/dashboard/", http.StatusMovedPermanently)
+		})
+		s.mux.Handle("/dashboard/", http.StripPrefix("/dashboard/", dashboard.UI()))
+	}
 
 	// Agent-to-Agent (A2A) protocol endpoint, when configured via WithA2A. It is
 	// tenant-scoped and stays behind the auth chain (not in defaultAuthSkipPaths).
@@ -557,6 +628,26 @@ func (s *Server) handleA2A(w http.ResponseWriter, r *http.Request) {
 	// externally-facing endpoint gets the control plane's uniform hardening.
 	r.Body = http.MaxBytesReader(w, r.Body, s.maxBodyBytes)
 	s.a2aHandler.ServeHTTP(w, r)
+}
+
+// handleDashboardAPI serves the dashboard's read-only API and its
+// resume/time-travel actions (os/dashboard), scoped to the caller's tenant so
+// a session/checkpoint belonging to another tenant is never visible or
+// resumable from here (same guarantee as handleSessionState/handleA2A).
+//
+// @Summary     Dashboard API
+// @Description Read-only checkpoint history, graph topology, and per-session cost, plus resume/time-travel actions, for the dashboard UI (/dashboard). GET /api/dashboard/checkpoints?session_id=, GET /api/dashboard/graph?session_id=, GET /api/dashboard/cost?session_id=, POST /api/dashboard/resume {session_id}, POST /api/dashboard/timetravel {checkpoint_id}.
+// @Tags        Dashboard
+// @Produce     json
+// @Success     200 {object} map[string]interface{} "dashboard response"
+// @Failure     501 {object} map[string]interface{} "no graph registry or cost tracker configured"
+// @Security    BearerAuth
+// @Security    ApiKeyAuth
+// @Router      /api/dashboard/checkpoints [get]
+func (s *Server) handleDashboardAPI(w http.ResponseWriter, r *http.Request) {
+	r = r.WithContext(s.tenantContext(r))
+	r.Body = http.MaxBytesReader(w, r.Body, s.maxBodyBytes)
+	s.Dashboard.ServeHTTP(w, r)
 }
 
 // streaming wraps a streaming handler (e.g. SSE) to clear the connection's

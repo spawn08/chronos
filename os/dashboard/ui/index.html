@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Chronos Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>Chronos <span>Dashboard</span></h1>
+    <span id="conn-status" class="badge">connecting…</span>
+    <span class="spacer"></span>
+    <input id="auth-token" type="password" placeholder="Bearer token / API key (if auth is enabled)" />
+    <button id="auth-save" class="secondary">save</button>
+  </header>
+
+  <main>
+    <aside id="sessions-pane">
+      <h2>Sessions</h2>
+      <ul id="session-list"></ul>
+    </aside>
+
+    <section id="run-pane">
+      <div id="empty-state">Select a session to inspect its run.</div>
+
+      <div id="run-view" hidden>
+        <div class="run-header">
+          <h2 id="run-session-id"></h2>
+          <span id="run-status" class="badge"></span>
+          <button id="resume-btn" hidden>Resume</button>
+        </div>
+
+        <div class="columns">
+          <div class="col">
+            <h3>Graph</h3>
+            <svg id="graph-svg" width="100%" height="320"></svg>
+
+            <h3>Cost</h3>
+            <div id="cost-view">no cost tracker configured</div>
+
+            <h3>Pending approvals</h3>
+            <ul id="approval-list"></ul>
+          </div>
+
+          <div class="col">
+            <h3>Checkpoints (time-travel)</h3>
+            <ul id="checkpoint-list"></ul>
+
+            <h3>State</h3>
+            <pre id="state-view">—</pre>
+
+            <h3>Live events</h3>
+            <ul id="event-log"></ul>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

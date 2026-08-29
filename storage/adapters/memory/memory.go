@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/spawn08/chronos/storage"
 )
@@ -75,6 +76,23 @@ func (s *Store) UpdateSession(ctx context.Context, sess *storage.Session) error 
 	cp := *sess
 	cp.TenantID = tenant
 	s.sessions[sess.ID] = &cp
+	return nil
+}
+
+// UpdateSessionStatus implements storage.SessionStatusUpdater: a narrow write
+// that only touches Status/UpdatedAt, so it can never race with (and clobber)
+// a concurrent Metadata writer the way a GetSession->mutate->UpdateSession
+// read-modify-write could.
+func (s *Store) UpdateSessionStatus(ctx context.Context, sessionID, status string, updatedAt time.Time) error {
+	tenant := storage.TenantFromContext(ctx)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.sessions[sessionID]
+	if !ok || sess.TenantID != tenant {
+		return fmt.Errorf("session %q not found", sessionID)
+	}
+	sess.Status = status
+	sess.UpdatedAt = updatedAt
 	return nil
 }
 
@@ -262,12 +280,32 @@ func (s *Store) ListEvents(ctx context.Context, sessionID string, afterSeq int64
 
 // --- Checkpoints ---
 
+// cloneCheckpointState returns an independent copy of a checkpoint's State
+// map. The graph runner (engine/graph) mutates its State map in place and
+// reuses the same map object across every checkpoint of a run, so a bare
+// struct copy (`c := *cp`) would leave every stored checkpoint's State
+// aliasing that one mutable map — later mutations would then leak backward
+// into "past" checkpoints, silently breaking time-travel. SQL-backed adapters
+// don't have this problem because SaveCheckpoint serializes State to JSON
+// bytes at call time, an implicit deep copy.
+func cloneCheckpointState(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
 func (s *Store) SaveCheckpoint(ctx context.Context, cp *storage.Checkpoint) error {
 	tenant := storage.TenantFromContext(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	c := *cp
 	c.TenantID = tenant
+	c.State = cloneCheckpointState(cp.State)
 	s.checkpoints[cp.ID] = &c
 	return nil
 }
@@ -281,9 +319,15 @@ func (s *Store) GetCheckpoint(ctx context.Context, id string) (*storage.Checkpoi
 		return nil, fmt.Errorf("checkpoint %q not found", id)
 	}
 	c := *cp
+	c.State = cloneCheckpointState(cp.State)
 	return &c, nil
 }
 
+// GetLatestCheckpoint returns the checkpoint with the highest seq_num for the
+// session, not the one with the latest wall-clock CreatedAt: same-tick
+// checkpoints (or a clock step) would otherwise make the "latest" checkpoint
+// non-deterministic, the bug PLAN.md P0-003 fixed for the SQL adapters — this
+// applies the same fix here.
 func (s *Store) GetLatestCheckpoint(ctx context.Context, sessionID string) (*storage.Checkpoint, error) {
 	tenant := storage.TenantFromContext(ctx)
 	s.mu.RLock()
@@ -291,7 +335,7 @@ func (s *Store) GetLatestCheckpoint(ctx context.Context, sessionID string) (*sto
 	var latest *storage.Checkpoint
 	for _, cp := range s.checkpoints {
 		if cp.TenantID == tenant && cp.SessionID == sessionID {
-			if latest == nil || cp.CreatedAt.After(latest.CreatedAt) {
+			if latest == nil || cp.SeqNum > latest.SeqNum {
 				latest = cp
 			}
 		}
@@ -300,6 +344,7 @@ func (s *Store) GetLatestCheckpoint(ctx context.Context, sessionID string) (*sto
 		return nil, fmt.Errorf("no checkpoint found for session %q", sessionID)
 	}
 	c := *latest
+	c.State = cloneCheckpointState(latest.State)
 	return &c, nil
 }
 
@@ -311,6 +356,7 @@ func (s *Store) ListCheckpoints(ctx context.Context, sessionID string) ([]*stora
 	for _, cp := range s.checkpoints {
 		if cp.TenantID == tenant && cp.SessionID == sessionID {
 			c := *cp
+			c.State = cloneCheckpointState(cp.State)
 			out = append(out, &c)
 		}
 	}

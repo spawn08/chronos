@@ -6,25 +6,24 @@
 
 Legend: `TODO` · `IN-PROGRESS` · `REVIEW` · `DONE`
 
-## Wave 1 — Parity foundations
+## Wave 1 — Parity foundations — COMPLETE
+
+> Workstream A (Agent Harness: planning tool, virtual FS, subagents, compaction, deep-agent
+> preset) shipped in full and has been retired from the active roadmap — see the progress log
+> below for delivery detail and `plan/wc-a-*` branches for history.
 
 | Item | Title | Status | Owner / Agent | Branch | Depends on |
 |------|-------|:------:|---------------|--------|------------|
-| WC-A-001 | Planning ("todo") tool | DONE | claude | plan/wc-a-planning-tool | none |
-| WC-A-002 | Virtual filesystem (context offloading) | DONE | claude | plan/wc-a-vfs | none |
-| WC-A-003 | Context-isolated & dynamic subagents | DONE | claude | plan/wc-a-subagents | A-001, A-002 |
-| WC-A-004 | Automatic context compaction | DONE | claude | plan/wc-a-compaction | A-001, D-001 |
-| WC-A-005 | "Deep agent" harness preset | DONE | claude | plan/wc-a-deep-agent | A-001…004, D-001 |
-| WC-B-001 | A2A client + server | DONE | claude | plan/wc-b-a2a | A-003 |
+| WC-B-001 | A2A client + server | DONE | claude | plan/wc-b-a2a | none |
 | WC-B-002 | MCP server | DONE | claude | plan/wc-b-mcp-server | none |
-| WC-B-003 | AG-UI standard event stream | DONE | claude | plan/wc-b-agui | A-001 |
+| WC-B-003 | AG-UI standard event stream | DONE | claude | plan/wc-b-agui | none |
 
 ## Wave 2 — Make it lovable
 
 | Item | Title | Status | Owner / Agent | Branch | Depends on |
 |------|-------|:------:|---------------|--------|------------|
 | WC-C-001 | Eval-driven loop (trace→dataset→eval→gate) | DONE | claude | plan/wc-c-eval-loop | none |
-| WC-C-002 | Visual studio / graph debugger | TODO | — | — | B-003 |
+| WC-C-002 | Visual studio / graph debugger | DONE | claude | plan/wc-c-dashboard | B-003 |
 | WC-C-003 | One-command deploy | TODO | — | — | C-002 |
 | WC-D-001 | Automatic semantic long-term recall | DONE | claude | plan/wc-d-recall | none |
 | WC-D-002 | Finish & default RAG scaling | DONE | claude | plan/wc-d-rag-scaling | none |
@@ -47,6 +46,7 @@ Append a line when an item changes state (newest first):
 YYYY-MM-DD  WC-X-000  TODO→IN-PROGRESS  agent/owner  plan/wc-x-slug  note
 ```
 
+2026-08-29  WC-C-002  TODO→DONE  claude  plan/wc-c-dashboard  visual studio / graph debugger: os/dashboard (checkpoints/graph-topology/cost/resume/time-travel API, reusing existing sessions/traces/agui-stream/approval endpoints rather than duplicating them) + embedded no-CDN static UI at /dashboard/ (Swagger-style auth bypass for the shell only) + engine/graph.ToJSON + chronosos WithGraphs/WithCostTracker/WithDashboard options; fixed 2 bugs found building on top of checkpoints: Runner never synced RunState.Status onto storage.Session.Status (dashboard/CLI couldn't see "paused"), and the in-memory adapter aliased a mutable State map across checkpoints + ordered GetLatestCheckpoint by wall-clock (P0-003's bug, missed in this adapter); both review gates ran fresh and converged on the same CRITICAL (cross-tenant cost IDOR) plus 3 BLOCKs (404-vs-501 conflation, degraded 413/400 body-size handling, unescaped innerHTML in app.js) — all fixed in-branch, including a new optional storage.SessionStatusUpdater (narrow status-only write) to close a Session-record race the status-sync fix introduced; example + docs; full repo -race suite green
 2026-07-31  WC-C-001  TODO→DONE  claude  plan/wc-c-eval-loop  eval-driven loop: CaptureFromSession + DatasetRunner(Target seam) + Gate(regression) + tenant-scoped checkpoint-backed ReportStore + CLI capture/gate/history + CI eval-gate job; both gates run, fixed CRITICAL tenant collision (reworked onto checkpoints) + BLOCK strict flag parsing
 2026-07-31  WC-B-001  TODO→DONE  claude  plan/wc-b-a2a  A2A client+server recovered onto main (PR #40 had merged to the wrong branch); TaskStore seam + tenant-partitioned memStore + queue-backed DurableStore + SSE + NewRemoteAgentTool + WithA2A(auth+tenant); both gates run fresh, 2 blockers fixed (A2A body cap; DurableStore.Get error masking) + padding tests replaced
 2026-07-31  WC-A-005  TODO→DONE  claude  plan/wc-a-deep-agent  deep-agent preset: NewDeepAgent assembles planning+VFS+subagents+compaction(plan pinned)+recall with sensible defaults, all override-able; example + docs; both review gates APPROVED. Completes Workstream A.
