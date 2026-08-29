@@ -53,6 +53,8 @@ func Execute() error {
 		return runREPL()
 	case "serve":
 		return runServe()
+	case "auth":
+		return runAuthCmd()
 	case "run":
 		return runAgent()
 	case "pipe":
@@ -179,6 +181,8 @@ Global options:
 Commands:
   repl                      Start interactive REPL (loads agent from YAML config)
   serve [addr]              Start ChronosOS control plane server (default :8420)
+  auth token [--role <r>] [--tenant <id>] [--ttl <dur>]
+                            Mint a dev credential matching CHRONOS_AUTH (apikey or jwt)
   run [--agent <id>] [--stream|--no-stream] <msg>  Run an agent in headless mode
   pipe                      Non-interactive mode: reads from stdin, writes to stdout
   agent list                List agents defined in config
@@ -227,6 +231,15 @@ Cross-replica scheduling & rate limiting (serve):
                         for postgres; set true to opt SQLite in, false to opt
                         postgres out. Redis has no SQL-backed shared limiter,
                         so it keeps per-replica in-process limits.
+
+Serve + YAML agents:
+  chronos -c agents.yaml serve :8420   Load agents.yaml; any agent with
+                                        durable: true (requires a graph:
+                                        block) is registered with the
+                                        dashboard and /api/dashboard/runs so
+                                        its sessions are visible/resumable
+                                        from ChronosOS. No config found is
+                                        not an error — serve still starts.
 
 Serve auth (opt-in; default is no auth):
   CHRONOS_AUTH          none | jwt | apikey (default: none)
@@ -643,6 +656,12 @@ func runServe() error {
 		defer func() { _ = sharedClose() }()
 	}
 	opts = append(opts, sharedOpts...)
+
+	graphOpts, err := buildServeGraphOptions()
+	if err != nil {
+		return err
+	}
+	opts = append(opts, graphOpts...)
 
 	srv := chronosos.NewWithOptions(addr, store, opts...)
 	log.Printf("Starting ChronosOS on %s (auth: %s)", addr, mode)

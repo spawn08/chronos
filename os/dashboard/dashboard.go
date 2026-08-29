@@ -1,6 +1,6 @@
 // Package dashboard serves the Chronos visual studio: a read-only API over
 // sessions, checkpoints, graph topology, and per-session cost, plus
-// resume/time-travel actions that build a fresh graph.Runner against an
+// start/resume/time-travel actions that build a fresh graph.Runner against an
 // application-supplied GraphRegistry. It is mounted by the ChronosOS control
 // plane (os/server.go) behind the same auth/tenant chain as every other
 // /api/ route; approvals and live streaming reuse the existing
@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/spawn08/chronos/engine/graph"
 	"github.com/spawn08/chronos/engine/hooks"
@@ -73,6 +74,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleGraph(w, r)
 	case "cost":
 		h.handleCost(w, r)
+	case "runs":
+		h.handleStartRun(w, r)
 	case "resume":
 		h.handleResume(w, r)
 	case "timetravel":
@@ -157,6 +160,69 @@ func (h *Handler) handleCost(w http.ResponseWriter, r *http.Request) {
 	}
 	report := h.cost.GetSessionCost(sessionID)
 	writeJSON(w, report)
+}
+
+type startRunRequest struct {
+	AgentID string         `json:"agent_id"`
+	Input   map[string]any `json:"input,omitempty"`
+}
+
+// handleStartRun begins a new run against a registered graph (WithGraphs).
+// Before this handler existed, nothing in ChronosOS's HTTP surface could
+// start a run at all — handleResume/handleTimeTravel only ever act on a
+// session some other in-process caller had already created by calling
+// graph.Runner.Run before the server started. This closes that gap for any
+// registered graph, YAML-declared or hand-written in Go.
+//
+// The session id is always server-generated, never caller-supplied — unlike
+// resume/time-travel (which resolve an *existing* id through requireSession's
+// tenant-scoped lookup before touching the store), a new session id is a
+// globally-unique primary key across every storage adapter. Accepting a
+// caller-chosen id here would let one tenant probe whether an id already
+// exists for another tenant (a create-vs-conflict oracle) or permanently
+// squat an id another tenant might need. Every other new-session path in this
+// codebase (Agent.Run, graph.Runner) self-generates for the same reason.
+func (h *Handler) handleStartRun(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
+		return
+	}
+	var body startRunRequest
+	if status, err := decodeJSON(r, &body); err != nil {
+		writeError(w, status, err)
+		return
+	}
+	if body.AgentID == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("agent_id is required"))
+		return
+	}
+	cg, err := h.graphForAgent(body.AgentID)
+	if err != nil {
+		writeError(w, http.StatusNotImplemented, err)
+		return
+	}
+	sessionID := fmt.Sprintf("sess_%d", time.Now().UnixNano())
+	input := body.Input
+	if input == nil {
+		input = map[string]any{}
+	}
+	sess := &storage.Session{
+		ID:        sessionID,
+		AgentID:   body.AgentID,
+		Status:    "running",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	if createErr := h.store.CreateSession(r.Context(), sess); createErr != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("create session: %w", createErr))
+		return
+	}
+	rs, err := h.newRunner(cg).Run(r.Context(), sessionID, graph.State(input))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("run: %w", err))
+		return
+	}
+	writeJSON(w, rs)
 }
 
 type resumeRequest struct {
@@ -258,12 +324,18 @@ func (h *Handler) requireSession(w http.ResponseWriter, r *http.Request, session
 // requireSession's job (404), not this function's (501) — keeping the two
 // checks separate is what lets callers return the right status for each.
 func (h *Handler) graphForSession(sess *storage.Session) (*graph.CompiledGraph, error) {
+	return h.graphForAgent(sess.AgentID)
+}
+
+// graphForAgent looks up the compiled graph registered for agentID directly,
+// for callers (handleStartRun) that have no session yet to resolve one from.
+func (h *Handler) graphForAgent(agentID string) (*graph.CompiledGraph, error) {
 	if h.graphs == nil {
 		return nil, fmt.Errorf("dashboard: no graph registry configured (see WithGraphs)")
 	}
-	cg, ok := h.graphs[sess.AgentID]
+	cg, ok := h.graphs[agentID]
 	if !ok {
-		return nil, fmt.Errorf("no graph registered for agent %q", sess.AgentID)
+		return nil, fmt.Errorf("no graph registered for agent %q", agentID)
 	}
 	return cg, nil
 }

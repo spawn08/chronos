@@ -631,12 +631,12 @@ func (s *Server) handleA2A(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleDashboardAPI serves the dashboard's read-only API and its
-// resume/time-travel actions (os/dashboard), scoped to the caller's tenant so
-// a session/checkpoint belonging to another tenant is never visible or
-// resumable from here (same guarantee as handleSessionState/handleA2A).
+// start/resume/time-travel actions (os/dashboard), scoped to the caller's
+// tenant so a session/checkpoint belonging to another tenant is never visible
+// or resumable from here (same guarantee as handleSessionState/handleA2A).
 //
 // @Summary     Dashboard API
-// @Description Read-only checkpoint history, graph topology, and per-session cost, plus resume/time-travel actions, for the dashboard UI (/dashboard). GET /api/dashboard/checkpoints?session_id=, GET /api/dashboard/graph?session_id=, GET /api/dashboard/cost?session_id=, POST /api/dashboard/resume {session_id}, POST /api/dashboard/timetravel {checkpoint_id}.
+// @Description Read-only checkpoint history, graph topology, and per-session cost, plus start/resume/time-travel actions, for the dashboard UI (/dashboard). GET /api/dashboard/checkpoints?session_id=, GET /api/dashboard/graph?session_id=, GET /api/dashboard/cost?session_id=, POST /api/dashboard/runs {agent_id, input?} (the response's session_id is always server-generated), POST /api/dashboard/resume {session_id}, POST /api/dashboard/timetravel {checkpoint_id}.
 // @Tags        Dashboard
 // @Produce     json
 // @Success     200 {object} map[string]interface{} "dashboard response"

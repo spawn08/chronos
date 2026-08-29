@@ -35,10 +35,20 @@ chronos serve :9000
 chronos serve 127.0.0.1:8420
 ```
 
-The server reads its agent roster and storage configuration from
-`.chronos/agents.yaml` (see [Configuration](/getting-started/configuration)). On
-start it logs the resolved listen address, the storage backend, and whether auth
-is enabled.
+The server reads its **storage** configuration from environment variables (see
+[Storage](/guides/storage) and [Configuration](/getting-started/configuration)).
+On start it logs the resolved listen address, the storage backend, and whether
+auth is enabled.
+
+ChronosOS itself has no concept of "the agent roster" — agents are a Go/YAML
+concept from the `sdk/agent` package, not something the control plane runs by
+itself. `chronos serve` does, however, optionally load an agents YAML file (the
+same `-c <file>` / `CHRONOS_CONFIG` resolution as `chronos run`/`repl`, falling
+back to `.chronos/agents.yaml` if present) so that any agent marked
+`durable: true` gets its compiled graph registered with the dashboard — see
+[YAML Agents & the Dashboard](/guides/yaml-dashboard). A config file is
+entirely optional: with none found, `serve` starts exactly as before, with zero
+agents registered.
 
 Stop it with `Ctrl-C` (SIGINT) or `SIGTERM` — the server drains in-flight
 requests before exiting (see [Graceful shutdown](#graceful-shutdown)).
@@ -118,8 +128,9 @@ Every hardening behaviour has a sensible default and a corresponding SDK option.
 | `WithRateLimiter(middleware.NewSQLLimiter(db, dialect))` | in-memory | Use a **store-backed** limiter (backed by a shared `*sql.DB`) so limits are shared across replicas. |
 | `WithTimeouts(read, readHeader, write, idle)` | see below | Override the server timeouts. |
 | `WithMaxBodyBytes(n)` | 1 MiB | Maximum request body size (also caps header size). |
-| `WithScheduler(sched)` | off | Attach a cron scheduler to enable the `/api/schedules` endpoints. |
-| `WithApproval(svc)` | off | Attach a human-in-the-loop approval service for `/api/approval/*`. |
+| `WithScheduler(sched)` | in-process default | `/api/schedules` works out of the box against an in-memory scheduler; use this to swap in a store-backed one (see [Running multiple replicas](#running-multiple-replicas)). |
+| `WithApproval(svc)` | in-process default | `/api/approval/*` works out of the box against an in-memory service; use this to swap in a store-backed one. |
+| `WithGraphs(dashboard.GraphRegistry{…})` | none registered | Register compiled graphs (by agent id) so the dashboard and `/api/dashboard/runs` can start/resume/time-travel their sessions. `chronos serve` populates this automatically for `durable: true` YAML agents — see [YAML Agents & the Dashboard](/guides/yaml-dashboard). |
 
 ### Hardening defaults
 
@@ -181,6 +192,26 @@ what role it carries. Set `CHRONOS_RBAC=true` (or `WithRBAC(true)`) to also gate
 `/api/*` routes by role — reads require `viewer`, mutations require `user`. See
 [Roles & RBAC](/guides/authentication#roles--rbac).
 :::
+
+### Getting a credential quickly
+
+Once you've turned on auth (`CHRONOS_AUTH=apikey` or `CHRONOS_AUTH=jwt`), mint a
+working credential without writing or signing anything by hand:
+
+```bash
+export CHRONOS_AUTH=apikey
+chronos auth token --role admin
+# prints a CHRONOS_API_KEYS entry and a ready-to-use curl example
+
+export CHRONOS_AUTH=jwt
+export CHRONOS_JWT_SECRET=some-shared-secret
+chronos auth token --role admin --ttl 12h
+# prints a signed HS256 JWT and a ready-to-use curl example
+```
+
+`chronos auth token` reads the same `CHRONOS_AUTH`/`CHRONOS_JWT_SECRET`/
+`CHRONOS_API_KEYS` environment the server itself reads, so the credential it
+mints is guaranteed to match whatever mode `chronos serve` will start with.
 
 ## Health & readiness
 
@@ -385,6 +416,8 @@ contract see the [REST API Reference](/api/rest-api).
 
 - [REST API Reference](/api/rest-api) — every endpoint, with curl examples
 - [Authentication & Authorization](/guides/authentication) — enabling JWT / API-key auth
+- [YAML Agents & the Dashboard](/guides/yaml-dashboard) — declaring a durable graph in YAML and running it through ChronosOS
+- [The Dashboard](/guides/dashboard) — visual graph debugger, time-travel, HITL approvals
 - [Streaming & SSE](/guides/streaming) — the event broker and stream protocol
 - [Multi-Tenancy](/guides/multi-tenancy) — tenant isolation model
 - [Scaling & Best Practices](/guides/scaling-best-practices) — production patterns
