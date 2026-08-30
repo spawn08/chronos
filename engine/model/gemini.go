@@ -171,8 +171,14 @@ func (g *Gemini) buildRequestBody(req *ChatRequest) map[string]any {
 	if len(req.Stop) > 0 {
 		genConfig["stopSequences"] = req.Stop
 	}
-	if req.ResponseFormat == "json_object" {
+	switch req.ResponseFormat {
+	case "json_object":
 		genConfig["responseMimeType"] = "application/json"
+	case "json_schema":
+		if schema, ok := jsonSchemaFromMetadata(req); ok {
+			genConfig["responseMimeType"] = "application/json"
+			genConfig["responseSchema"] = schema
+		}
 	}
 	if req.Reasoning != nil && req.Reasoning.Enabled {
 		thinking := map[string]any{"includeThoughts": req.Reasoning.Summary}

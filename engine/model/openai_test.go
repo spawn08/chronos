@@ -210,6 +210,57 @@ func TestBuildOpenAIRequestBody_AllFields(t *testing.T) {
 	}
 }
 
+// TestBuildOpenAIRequestBody_JSONSchema proves ResponseFormat "json_schema"
+// actually sends the schema to the API as a native structured-output
+// parameter, not just a bare "json_object" request — the gap this fix
+// closes (previously only "json_object" was ever wired to any provider,
+// "json_schema" was silently dropped).
+func TestBuildOpenAIRequestBody_JSONSchema(t *testing.T) {
+	schema := map[string]any{
+		"type":       "object",
+		"properties": map[string]any{"answer": map[string]any{"type": "string"}},
+		"required":   []any{"answer"},
+	}
+	req := &ChatRequest{
+		Messages:       []Message{{Role: RoleUser, Content: "Hi"}},
+		ResponseFormat: "json_schema",
+		Metadata:       map[string]any{"json_schema": schema},
+	}
+	body := buildOpenAIRequestBody(req, "gpt-4o", false)
+
+	rf, ok := body["response_format"].(map[string]any)
+	if !ok {
+		t.Fatalf("response_format = %#v, want map[string]any", body["response_format"])
+	}
+	if rf["type"] != "json_schema" {
+		t.Errorf("response_format.type = %v, want json_schema", rf["type"])
+	}
+	js, ok := rf["json_schema"].(map[string]any)
+	if !ok {
+		t.Fatalf("response_format.json_schema = %#v, want map[string]any", rf["json_schema"])
+	}
+	if js["name"] == "" {
+		t.Error("response_format.json_schema.name must be set (OpenAI requires it)")
+	}
+	if got, ok := js["schema"].(map[string]any); !ok || got["type"] != "object" {
+		t.Errorf("response_format.json_schema.schema = %#v, want the original schema", js["schema"])
+	}
+}
+
+// TestBuildOpenAIRequestBody_JSONSchemaMissingIsNoop proves a "json_schema"
+// request with no actual schema in Metadata degrades to sending no
+// response_format at all, rather than a malformed one.
+func TestBuildOpenAIRequestBody_JSONSchemaMissingIsNoop(t *testing.T) {
+	req := &ChatRequest{
+		Messages:       []Message{{Role: RoleUser, Content: "Hi"}},
+		ResponseFormat: "json_schema",
+	}
+	body := buildOpenAIRequestBody(req, "gpt-4o", false)
+	if _, present := body["response_format"]; present {
+		t.Errorf("response_format = %#v, want absent when no schema is set", body["response_format"])
+	}
+}
+
 func TestBuildOpenAIRequestBody_DefaultModel(t *testing.T) {
 	req := &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "Hi"}}}
 	body := buildOpenAIRequestBody(req, "gpt-default", false)

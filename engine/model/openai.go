@@ -149,8 +149,19 @@ func buildOpenAIRequestBody(req *ChatRequest, defaultModel string, stream bool) 
 	if len(req.Tools) > 0 {
 		body["tools"] = req.Tools
 	}
-	if req.ResponseFormat == "json_object" {
+	switch req.ResponseFormat {
+	case "json_object":
 		body["response_format"] = map[string]string{"type": "json_object"}
+	case "json_schema":
+		if schema, ok := jsonSchemaFromMetadata(req); ok {
+			body["response_format"] = map[string]any{
+				"type": "json_schema",
+				"json_schema": map[string]any{
+					"name":   "response",
+					"schema": schema,
+				},
+			}
+		}
 	}
 	if req.Reasoning != nil && req.Reasoning.Enabled && req.Reasoning.Effort != "" {
 		body["reasoning_effort"] = req.Reasoning.Effort

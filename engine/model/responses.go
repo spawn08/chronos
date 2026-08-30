@@ -118,8 +118,17 @@ func buildResponsesRequestBody(req *ChatRequest, defaultModel string, stream boo
 	if req.TopP > 0 {
 		body["top_p"] = req.TopP
 	}
-	if req.ResponseFormat == "json_object" {
+	switch req.ResponseFormat {
+	case "json_object":
 		body["text"] = map[string]any{"format": map[string]string{"type": "json_object"}}
+	case "json_schema":
+		if schema, ok := jsonSchemaFromMetadata(req); ok {
+			body["text"] = map[string]any{"format": map[string]any{
+				"type":   "json_schema",
+				"name":   "response",
+				"schema": schema,
+			}}
+		}
 	}
 	if nativeReasoningEnabled(req.Reasoning) {
 		reasoning := map[string]any{}

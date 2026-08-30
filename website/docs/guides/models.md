@@ -188,7 +188,7 @@ Input to a chat completion:
 | `Stream` | bool | Enable streaming |
 | `Tools` | []ToolDefinition | Function definitions for tool calling |
 | `Stop` | []string | Stop sequences |
-| `ResponseFormat` | string | `"json_object"` for JSON mode |
+| `ResponseFormat` | string | `"json_object"` for plain JSON mode, or `"json_schema"` for schema-constrained JSON (schema in `Metadata["json_schema"]`) — see [Structured (JSON) Output](/guides/agents#structured-json-output) |
 | `Reasoning` | *ReasoningConfig | Provider-native reasoning/thinking settings |
 
 ## ChatResponse
