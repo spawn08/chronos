@@ -158,6 +158,22 @@ func stripGlobalFlags() error {
 			if err := os.Setenv("CHRONOS_STREAM", value); err != nil {
 				return fmt.Errorf("set CHRONOS_STREAM: %w", err)
 			}
+		case arg == "--output-schema":
+			if i+1 >= len(rest) || strings.TrimSpace(rest[i+1]) == "" {
+				return fmt.Errorf("global flag %s requires a JSON Schema file path", arg)
+			}
+			if err := os.Setenv("CHRONOS_OUTPUT_SCHEMA", rest[i+1]); err != nil {
+				return fmt.Errorf("set CHRONOS_OUTPUT_SCHEMA: %w", err)
+			}
+			i++
+		case strings.HasPrefix(arg, "--output-schema="):
+			value := strings.TrimPrefix(arg, "--output-schema=")
+			if value == "" {
+				return fmt.Errorf("global flag --output-schema requires a JSON Schema file path")
+			}
+			if err := os.Setenv("CHRONOS_OUTPUT_SCHEMA", value); err != nil {
+				return fmt.Errorf("set CHRONOS_OUTPUT_SCHEMA: %w", err)
+			}
 		default:
 			kept = append(kept, arg)
 		}
@@ -184,6 +200,9 @@ Global options:
   --trace, --no-trace       Enable or disable persisted model/tool/graph spans
   --stream, --no-stream, -s
                             Enable or disable token streaming for "run"/"team run"
+  --output-schema <file>    Path to a JSON Schema file; the loaded agent must
+                            return JSON conforming to it (overrides any
+                            output_schema: in its YAML config)
 
 Commands:
   repl                      Start interactive REPL (loads agent from YAML config)
@@ -224,6 +243,8 @@ Environment:
   CHRONOS_PERMISSION_MODE prompt | auto_approve | deny
   CHRONOS_DEBUG           true to enable debug logs
   CHRONOS_TRACE           true to persist execution spans
+  CHRONOS_STREAM          true | false to force token streaming on/off
+  CHRONOS_OUTPUT_SCHEMA   Path to a JSON Schema file (same as --output-schema)
 
 Storage (default: SQLite — fully backward compatible):
   CHRONOS_STORAGE_BACKEND  sqlite (default) | postgres | redis
@@ -481,7 +502,33 @@ func applyCLIRuntimeOverrides(a *agent.Agent) error {
 			return fmt.Errorf("CLI permission mode: %w", err)
 		}
 	}
+	if schemaPath := strings.TrimSpace(os.Getenv("CHRONOS_OUTPUT_SCHEMA")); schemaPath != "" {
+		schema, err := loadOutputSchemaFile(schemaPath)
+		if err != nil {
+			return err
+		}
+		a.OutputSchema = schema
+	}
 	return nil
+}
+
+// loadOutputSchemaFile reads and parses a --output-schema file into the
+// map[string]any shape Agent.OutputSchema/WithOutputSchema expects — the
+// same JSON Schema contract as YAML's output_schema:, letting a CLI
+// invocation request structured output ad hoc without a pre-configured
+// agent.
+func loadOutputSchemaFile(path string) (map[string]any, error) {
+	// #nosec G304 -- path is an operator-supplied CLI argument (--output-schema),
+	// intentional file access like the adjacent eval-suite/config readers.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read --output-schema file %q: %w", path, err)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(data, &schema); err != nil {
+		return nil, fmt.Errorf("parse --output-schema file %q as JSON: %w", path, err)
+	}
+	return schema, nil
 }
 
 func installInteractiveApprovalHandlers(agents ...*agent.Agent) {

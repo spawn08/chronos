@@ -254,6 +254,20 @@ Two things happen together:
 See [`examples/structured_output/`](https://github.com/spawn08/chronos/tree/main/examples/structured_output)
 for a full runnable example decoding the reply into a typed Go struct.
 
+### From the CLI
+
+`--output-schema <file>` (a global flag — works before or after the
+subcommand, like `--stream`/`--debug`) points at a JSON Schema file and
+applies it the same way `WithOutputSchema` does, overriding any
+`output_schema:` already set in the agent's YAML config:
+
+```bash
+chronos --output-schema schema.json run --agent extractor "Extract: Alice is 30"
+```
+
+`CHRONOS_OUTPUT_SCHEMA=<file>` is the equivalent environment variable. The
+file must be plain JSON (a JSON Schema document), not YAML.
+
 ## ChatWithSession (Multi-Turn)
 
 `ChatWithSession` maintains a persistent, multi-turn conversation. Messages are stored in the event ledger. When the context window approaches its limit, older messages are automatically summarized to stay within budget.
