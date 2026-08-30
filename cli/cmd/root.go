@@ -518,8 +518,9 @@ func applyCLIRuntimeOverrides(a *agent.Agent) error {
 // invocation request structured output ad hoc without a pre-configured
 // agent.
 func loadOutputSchemaFile(path string) (map[string]any, error) {
-	// #nosec G304 -- path is an operator-supplied CLI argument (--output-schema),
-	// intentional file access like the adjacent eval-suite/config readers.
+	// #nosec G304 G703 -- path is an operator-supplied CLI argument
+	// (--output-schema), intentional file access like the adjacent
+	// eval-suite/config readers.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read --output-schema file %q: %w", path, err)
