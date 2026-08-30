@@ -5,6 +5,17 @@ sidebar_label: "Release Notes"
 
 Chronos is distributed as a Go module (`github.com/spawn08/chronos`), cross-platform CLI binaries, and a container image. Tagged releases include checksums, an SBOM, and signed artifacts. See [CLI Install](getting-started/cli-install.md) for installation options.
 
+## v0.13.0 — Visual debugger and YAML-native durable graphs
+
+- **Dashboard (visual studio)** — a new `/dashboard/` UI and `/api/dashboard/*` API on ChronosOS: checkpoint history, graph topology, per-session cost, and resume/time-travel actions against a compiled `graph.Runner`, reusing the existing sessions/traces/streaming/approval endpoints instead of duplicating them.
+- **YAML-declarative durable graphs** — an agent's YAML config can declare a `graph:` block (`model`/`tool`/`subagent`/`passthrough` node types, static/conditional edges, human-in-the-loop interrupts) compiling to a real `graph.StateGraph`; `durable: true` auto-registers it with `chronos serve`'s dashboard.
+- **`POST /api/dashboard/runs`** — starts a brand-new run against a registered graph; previously nothing in ChronosOS's HTTP surface could start a run at all, only resume or time-travel a session some in-process caller had already created.
+- **`chronos auth token`** — mints a local dev credential (API key or JWT) matching the server's active `CHRONOS_AUTH` mode.
+- **Machine-readable CLI output** — `--json` prints `run`/`team run` output as a single JSON object instead of human-readable text; `--output-schema <file>` requests ad hoc structured output without a pre-configured agent.
+- **Structured output is now actually enforced** — `output_schema:`/`WithOutputSchema` sends the JSON Schema to the provider's native structured-output parameter (OpenAI, Azure OpenAI, OpenAI-compatible providers, Gemini, the Responses API) instead of only validating the reply after the fact.
+- **`--stream`/`-s`/`--no-stream` fixed** — now a global flag like `--debug`/`--trace`, so it works anywhere on the command line instead of only after the subcommand.
+- **CI**: pinned Go toolchain bumped to 1.25.13 (fixes 7 upstream stdlib CVEs).
+
 ## v0.12.2
 
 - **Release maintenance** — publishes the current Chronos `main` branch as a patch release with refreshed release metadata and artifacts.
