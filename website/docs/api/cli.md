@@ -80,8 +80,11 @@ Global options can appear before or after the subcommand:
 | `-c`, `--config <file>` | Select an agents YAML file |
 | `--permission-mode <mode>` | `prompt`, `auto_approve`, or `deny` |
 | `--dangerously-skip-permissions` | Alias for `--permission-mode auto_approve`; explicit tool denies still win |
-| `--debug` | Enable agent execution logs on stderr |
-| `--trace` | Persist model, tool, and graph spans in configured storage |
+| `--debug`, `--no-debug` | Enable or disable agent execution logs on stderr |
+| `--trace`, `--no-trace` | Enable or disable persisting model, tool, and graph spans in configured storage |
+| `--stream`, `--no-stream`, `-s` | Force token streaming on/off for `run`/`team run` |
+| `--output-schema <file>` | Path to a JSON Schema file; overrides any `output_schema:` in the loaded agent's YAML |
+| `--json` | Print `run`/`team run` output as one JSON object on stdout instead of human-readable text |
 
 ## Commands
 

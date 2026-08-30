@@ -31,28 +31,41 @@ Use this skill when:
 
 ### Server Configuration
 ```bash
-CHRONOS_AUTH=true                              # enable auth
-CHRONOS_JWT_SECRET="random-32-char-secret"     # JWT signing key
-CHRONOS_JWT_ISSUER="chronos"
-CHRONOS_JWT_AUDIENCE="chronos-api"
-CHRONOS_JWT_EXPIRY="24h"
-CHRONOS_API_KEYS="key-1-xxx,key-2-yyy"         # comma-separated
-CHRONOS_RBAC=true
+CHRONOS_AUTH=jwt                               # none (default) | jwt | apikey
+CHRONOS_JWT_SECRET="random-32-char-secret"     # HS256 signing key (jwt mode)
+CHRONOS_JWT_ISSUER="chronos"                   # optional, enforced if set
+CHRONOS_JWT_AUDIENCE="chronos-api"             # optional, enforced if set
+CHRONOS_JWT_JWKS_URL="https://issuer/.well-known/jwks.json"  # RS256/OIDC, jwt mode
+CHRONOS_API_KEYS="key-1-xxx:admin:tenant-a,key-2-yyy"        # "key:role:tenant" (apikey mode)
+CHRONOS_RBAC=true                              # enforce role checks (needs auth enabled)
 CHRONOS_CORS_ORIGINS="https://app.example.com"
 CHRONOS_SWAGGER=false                          # disable in production
 ```
 
+There is no `CHRONOS_JWT_EXPIRY` — a JWT's expiry is baked into the token itself (`exp` claim) at mint time, not configured server-side.
+
+### Minting a credential
+`chronos auth token` mints one matching whatever `CHRONOS_AUTH` mode is active, so you never hand-craft a key or sign a JWT yourself:
+```bash
+CHRONOS_AUTH=apikey chronos auth token --role admin --tenant tenant-a
+# prints a ready-to-use CHRONOS_API_KEYS entry + curl example
+
+CHRONOS_AUTH=jwt CHRONOS_JWT_SECRET=random-32-char-secret chronos auth token --role admin --ttl 24h
+# prints a signed HS256 JWT + curl example
+```
+
 ### Client Usage
 ```bash
-curl -H "Authorization: Bearer key-1-xxx" http://localhost:8420/api/sessions
+curl -H "X-Api-Key: key-1-xxx" http://localhost:8420/api/sessions       # apikey mode
+curl -H "Authorization: Bearer <jwt>" http://localhost:8420/api/sessions  # jwt mode
 ```
 
 ### Agent Permission Modes (YAML)
 ```yaml
-permission_mode: "strict"   # prompt | auto | strict
-# prompt — ask before risky tools (default)
-# auto   — allow all (dev ONLY)
-# strict — only explicitly allowed tools
+permission_mode: "auto_approve"   # prompt | auto_approve | deny
+# prompt        — ask before approval-gated tools (default)
+# auto_approve  — skip approval prompts (dev ONLY); explicit tool `deny` still wins
+# deny          — reject approval-gated tools without prompting
 ```
 
 ---
@@ -241,11 +254,11 @@ chronos monitor --addr http://localhost:8420 --interval 5s
 ## Production Checklist
 
 ```
-[ ] CHRONOS_AUTH=true with JWT or API keys
+[ ] CHRONOS_AUTH=jwt or apikey (never left at the default "none")
 [ ] JWT secret: random, 32+ characters
 [ ] CHRONOS_SWAGGER=false
 [ ] CORS: explicit origins (not "*")
-[ ] permission_mode: "strict" or "prompt" (never "auto")
+[ ] permission_mode: "prompt" or "deny" (never "auto_approve")
 [ ] Dangerous tools use "require_approval"
 [ ] Input guardrails validate length and content
 [ ] Output guardrails filter sensitive data

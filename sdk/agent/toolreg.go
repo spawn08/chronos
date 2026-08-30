@@ -47,6 +47,16 @@ type buildOptions struct {
 	// from FileConfig.SkillsDir. BuildAll populates it automatically; single
 	// BuildAgent callers can pass WithSkillCatalog explicitly.
 	skillCatalog map[string]*skill.Skill
+	// peerAgents resolves `subagent`-type graph nodes (see graphbuild.go) to
+	// already-built sibling agents. BuildAll populates it automatically in its
+	// post-build graph-compilation pass; single BuildAgent callers can pass
+	// WithPeerAgents explicitly when their graph references agents they built
+	// separately.
+	peerAgents map[string]*Agent
+	// deferGraph skips graph compilation inside BuildAgent so a caller (only
+	// BuildAll, via the internal deferGraphOption) can compile it later with a
+	// full peer-agent map available.
+	deferGraph bool
 }
 
 // BuildOption configures BuildAgent/BuildAll. Options are applied per call, so
@@ -76,6 +86,22 @@ func WithBasePath(path string) BuildOption {
 // when driving BuildAgent directly with a hand-built catalog.
 func WithSkillCatalog(catalog map[string]*skill.Skill) BuildOption {
 	return func(o *buildOptions) { o.skillCatalog = catalog }
+}
+
+// WithPeerAgents seeds the build with already-built sibling agents that a
+// `subagent`-type graph node (see graphbuild.go) may reference by ID. BuildAll
+// fills this automatically from its own build set; pass it explicitly when
+// driving BuildAgent directly with a graph that delegates to agents you built
+// separately.
+func WithPeerAgents(peers map[string]*Agent) BuildOption {
+	return func(o *buildOptions) { o.peerAgents = peers }
+}
+
+// deferGraphOption skips graph compilation inside BuildAgent. It is internal
+// to this package: only BuildAll uses it, to compile every agent's graph in a
+// dedicated pass once the full peer-agent set exists.
+func deferGraphOption() BuildOption {
+	return func(o *buildOptions) { o.deferGraph = true }
 }
 
 // newBuildOptions assembles a buildOptions from the given options. The returned

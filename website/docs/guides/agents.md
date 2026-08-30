@@ -211,6 +211,63 @@ func main() {
 }
 ```
 
+## Structured (JSON) Output
+
+`WithOutputSchema(schema map[string]any)` (or `output_schema:` in YAML) asks the
+model to return JSON conforming to a JSON Schema, and applies to `Chat`,
+`ChatWithSession`, and `Run`.
+
+```go
+schema := map[string]any{
+    "type": "object",
+    "properties": map[string]any{
+        "name": map[string]any{"type": "string"},
+        "age":  map[string]any{"type": "number"},
+    },
+    "required": []any{"name", "age"},
+}
+
+a, err := agent.New("extractor", "Extractor").
+    WithModel(model.NewOpenAI(os.Getenv("OPENAI_API_KEY"))).
+    WithOutputSchema(schema).
+    Build()
+```
+
+Two things happen together:
+
+1. **Request-side enforcement.** The schema is sent to the provider as its
+   native structured-output parameter — OpenAI's, Azure OpenAI's, any
+   OpenAI-compatible provider's (including Ollama and Mistral), and Gemini's
+   `response_format`/`responseSchema`, or the Responses API's
+   `text.format.json_schema` — so the model is actually constrained while
+   generating, not just asked nicely. **Anthropic has no equivalent API
+   parameter**, so `OutputSchema` has no request-side effect there; write an
+   explicit schema-following instruction into the system prompt instead, or
+   use tool-forcing for guaranteed structure.
+2. **Response-side validation**, regardless of provider: the reply is parsed
+   as JSON and checked against `required` fields and each property's `type`.
+   A mismatch (or non-JSON output) returns an error from `Chat`/
+   `ChatWithSession`/`Run` rather than silently passing through — this is
+   your safety net on providers (or schemas) the request-side enforcement
+   doesn't fully cover.
+
+See [`examples/structured_output/`](https://github.com/spawn08/chronos/tree/main/examples/structured_output)
+for a full runnable example decoding the reply into a typed Go struct.
+
+### From the CLI
+
+`--output-schema <file>` (a global flag — works before or after the
+subcommand, like `--stream`/`--debug`) points at a JSON Schema file and
+applies it the same way `WithOutputSchema` does, overriding any
+`output_schema:` already set in the agent's YAML config:
+
+```bash
+chronos --output-schema schema.json run --agent extractor "Extract: Alice is 30"
+```
+
+`CHRONOS_OUTPUT_SCHEMA=<file>` is the equivalent environment variable. The
+file must be plain JSON (a JSON Schema document), not YAML.
+
 ## ChatWithSession (Multi-Turn)
 
 `ChatWithSession` maintains a persistent, multi-turn conversation. Messages are stored in the event ledger. When the context window approaches its limit, older messages are automatically summarized to stay within budget.

@@ -108,8 +108,24 @@ agents:
     stream: true
     debug: false
     tracing: true
-    permission_mode: "prompt"  # prompt | auto | strict
+    permission_mode: "prompt"  # prompt | auto_approve | deny
     sub_agents: []
+
+    # Optional: declare a durable multi-node graph instead of a plain chat
+    # agent. Node type is model | tool | subagent | passthrough; `durable:
+    # true` (requires this graph: block + persistent storage above) registers
+    # the compiled graph with `chronos serve`'s dashboard automatically.
+    # durable: true
+    # graph:
+    #   entry: prepare
+    #   finish: respond
+    #   nodes:
+    #     - {id: prepare, type: tool, tool: some_registered_tool}
+    #     - {id: gate, type: passthrough, interrupt: true, set: {approved: true}}
+    #     - {id: respond, type: model, prompt: "Summarize: {{.state.prepare_result}}"}  # tool nodes default output_key to "<id>_result"
+    #   edges:
+    #     - {from: prepare, to: gate}
+    #     - {from: gate, to: respond}
 
 deployment:
   name: "my-agent"
@@ -126,23 +142,28 @@ deployment:
    - For **tool-using agents**: add relevant tool definitions with JSON Schema parameters
    - For **RAG agents**: add knowledge tools (file_read, file_grep) and suggest setting up VectorKnowledge
    - For **code agents**: add shell, file_read, file_write, file_list tools with appropriate permissions
-   - For **autonomous agents**: set permission_mode to "auto", add guardrail tools
+   - For **autonomous agents**: set permission_mode to "auto_approve", add guardrail tools
+   - For **durable multi-step workflows**: use the `graph:`/`durable:` fields instead of a plain chat agent
    - For **structured output agents**: define output_schema
 
 5. Include environment variable placeholders for API keys: `${PROVIDER_API_KEY}`
 
 6. Show how to run the agent:
 ```bash
-# Run with a single message
-go run ./cli/main.go run -c agents.yaml -a agent-id -m "Hello"
+# Run with a single message (the message is a positional argument, no -m flag)
+go run ./cli/main.go run -c agents.yaml -a agent-id "Hello"
 
-# Interactive REPL
-go run ./cli/main.go agent chat -c agents.yaml -a agent-id
+# Machine-readable output for scripts
+go run ./cli/main.go --json run -c agents.yaml -a agent-id "Hello"
+
+# Interactive REPL (agent-id is positional here, not -a)
+go run ./cli/main.go agent chat -c agents.yaml agent-id
 
 # Deploy in sandbox
 go run ./cli/main.go deploy agents.yaml "Start working"
 
-# Serve as HTTP API
+# Serve as HTTP API — a `durable: true` agent's graph is registered with the
+# dashboard (/dashboard/) automatically
 go run ./cli/main.go serve :8420
 ```
 

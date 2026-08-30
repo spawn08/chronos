@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -10,8 +11,10 @@ import (
 
 	chronosos "github.com/spawn08/chronos/os"
 	"github.com/spawn08/chronos/os/auth"
+	"github.com/spawn08/chronos/os/dashboard"
 	"github.com/spawn08/chronos/os/middleware"
 	"github.com/spawn08/chronos/os/scheduler"
+	"github.com/spawn08/chronos/sdk/agent"
 )
 
 // serveEnvKeys enumerates the environment variables that configure `chronos
@@ -252,6 +255,69 @@ func buildSharedStateOptions(cfg storageConfig, env map[string]string) ([]chrono
 		chronosos.WithRateLimiter(limiter),
 	}
 	return opts, db.Close, nil
+}
+
+// buildServeGraphOptions loads the agent config resolved by loadAgentConfig
+// (CHRONOS_CONFIG / -c, or the .chronos/agents.yaml auto-detect candidates)
+// and registers every `durable: true` agent's compiled graph with ChronosOS,
+// closing the gap where a YAML-defined agent was invisible to /api/sessions,
+// /api/traces, and the dashboard (Agent.Run only persists a session when the
+// agent has a graph, and nothing previously loaded YAML into `chronos serve`
+// at all).
+//
+// A registered agent's own `storage:` block is validated at build time
+// (Durable requires a persistent backend) but never used for persistence
+// here: a single ChronosOS instance has exactly one store — the one runServe
+// opens from CHRONOS_STORAGE_BACKEND/... just above this call — and every
+// registered graph's sessions/checkpoints go through that shared store via
+// os/dashboard, regardless of what any individual agent's `storage:` says.
+// `storage:` matters for persistence only when an agent is built and run
+// directly (e.g. examples/yaml_dashboard, which deliberately reuses one
+// agent's own store AS the server's store — a valid pattern for direct SDK
+// embedding, but not what this function does). Every storage.Storage
+// agent.BuildAll opens along the way is closed immediately below so this
+// path does not leak a connection/pool per configured agent.
+//
+// No config found is not an error here — unlike `run`/`repl`, serve has
+// always worked with zero agents configured, and that stays true. A config
+// that exists but fails to parse or validate IS an error and fails serve,
+// same as any other invalid startup configuration — only the "not found"
+// case (agent.ErrConfigNotFound) is special-cased.
+func buildServeGraphOptions() ([]chronosos.Option, error) {
+	fc, err := loadAgentConfig()
+	if err != nil {
+		if errors.Is(err, agent.ErrConfigNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("load agent config: %w", err)
+	}
+	agents, err := agent.BuildAll(context.Background(), fc)
+	if err != nil {
+		return nil, fmt.Errorf("build agents from %s: %w", envOrDefault("CHRONOS_CONFIG", "(auto-detected config)"), err)
+	}
+	defer closeAgentStorage(agents)
+
+	graphs := agent.DurableGraphs(fc, agents)
+	for id := range graphs {
+		log.Printf("Registered durable graph agent %q with ChronosOS (dashboard + /api/dashboard/runs)", id)
+	}
+	if len(graphs) == 0 {
+		return nil, nil
+	}
+	return []chronosos.Option{chronosos.WithGraphs(dashboard.GraphRegistry(graphs))}, nil
+}
+
+// closeAgentStorage closes every storage.Storage agent.BuildAll opened for
+// agents (one live connection/pool per agent's own `storage:` block), for
+// every agent regardless of whether it turned out to be durable — see
+// buildServeGraphOptions's doc comment for why that storage is never actually
+// used for persistence in this path.
+func closeAgentStorage(agents map[string]*agent.Agent) {
+	for _, a := range agents {
+		if a.Storage != nil {
+			_ = a.Storage.Close()
+		}
+	}
 }
 
 // splitCSV splits a comma-separated string into trimmed, non-empty fields.

@@ -457,3 +457,120 @@ func TestHandler_TenantIsolation(t *testing.T) {
 		t.Errorf("tenant-b saw %d of tenant-a's checkpoints, want 0", len(resp.Checkpoints))
 	}
 }
+
+// TestHandler_StartRun proves the gap this handler closes: before it existed,
+// nothing in ChronosOS's HTTP surface could start a brand-new run — only
+// resume/time-travel an already-existing session created by some other
+// in-process caller. A POST to /runs with just an agent_id must create the
+// session itself and drive it to its first pause/completion.
+func TestHandler_StartRun(t *testing.T) {
+	t.Run("400 with no agent_id", func(t *testing.T) {
+		h := newTestHandler(memory.New(), GraphRegistry{"wf-agent": linearGraph(t)})
+		w := doJSON(h, http.MethodPost, "/runs", map[string]string{})
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, want 400", w.Code)
+		}
+	})
+
+	t.Run("501 without a registered graph", func(t *testing.T) {
+		h := newTestHandler(memory.New(), nil)
+		w := doJSON(h, http.MethodPost, "/runs", map[string]string{"agent_id": "wf-agent"})
+		if w.Code != http.StatusNotImplemented {
+			t.Errorf("status = %d, want 501", w.Code)
+		}
+	})
+
+	t.Run("method not allowed for GET", func(t *testing.T) {
+		h := newTestHandler(memory.New(), GraphRegistry{"wf-agent": linearGraph(t)})
+		w := doJSON(h, http.MethodGet, "/runs", nil)
+		if w.Code != http.StatusMethodNotAllowed {
+			t.Errorf("status = %d, want 405", w.Code)
+		}
+	})
+
+	t.Run("starts a run through completion, generating a session id", func(t *testing.T) {
+		store := memory.New()
+		h := newTestHandler(store, GraphRegistry{"wf-agent": linearGraph(t)})
+		w := doJSON(h, http.MethodPost, "/runs", map[string]any{"agent_id": "wf-agent"})
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, body=%s", w.Code, w.Body.String())
+		}
+		var got graph.RunState
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.Status != graph.RunStatusCompleted {
+			t.Errorf("status = %s, want completed", got.Status)
+		}
+		if got.State["path"] != "abc" {
+			t.Errorf("path = %v, want abc", got.State["path"])
+		}
+		if got.SessionID == "" {
+			t.Error("expected a generated session_id")
+		}
+		sess, err := store.GetSession(context.Background(), got.SessionID)
+		if err != nil {
+			t.Fatalf("GetSession: %v", err)
+		}
+		if sess.AgentID != "wf-agent" {
+			t.Errorf("session AgentID = %q, want wf-agent", sess.AgentID)
+		}
+	})
+
+	t.Run("input seeds initial state; a client-supplied session_id is ignored", func(t *testing.T) {
+		store := memory.New()
+		h := newTestHandler(store, GraphRegistry{"hitl-agent": hitlGraph(t)})
+		w := doJSON(h, http.MethodPost, "/runs", map[string]any{
+			"agent_id":   "hitl-agent",
+			"session_id": "attacker-chosen-id", // must not reach the store — see handleStartRun's doc comment
+			"input":      map[string]any{"seed": "x"},
+		})
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, body=%s", w.Code, w.Body.String())
+		}
+		var got graph.RunState
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.SessionID == "attacker-chosen-id" {
+			t.Error("session id must always be server-generated, never the caller-supplied session_id")
+		}
+		if got.Status != graph.RunStatusPaused {
+			t.Errorf("status = %s, want paused (hitl gate)", got.Status)
+		}
+		if got.State["seed"] != "x" {
+			t.Errorf("seed = %v, want x (input should seed initial state)", got.State["seed"])
+		}
+	})
+
+	// TestHandler_StartRun_TenantScoping (below) covers cross-tenant isolation
+	// for the created session; there is no caller-supplied session_id to
+	// probe existence with any more (see the test above), which is the fix
+	// for the cross-tenant existence oracle a caller-chosen id would allow.
+}
+
+// TestHandler_StartRun_TenantScoping proves a session created via handleStartRun
+// is only visible under the tenant that created it.
+func TestHandler_StartRun_TenantScoping(t *testing.T) {
+	store := memory.New()
+	h := newTestHandler(store, GraphRegistry{"wf-agent": linearGraph(t)})
+	body, _ := json.Marshal(map[string]any{"agent_id": "wf-agent"})
+	r := httptest.NewRequest(http.MethodPost, "/runs", bytes.NewReader(body))
+	r = r.WithContext(storage.WithTenant(context.Background(), "tenant-a"))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", w.Code, w.Body.String())
+	}
+	var got graph.RunState
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := store.GetSession(storage.WithTenant(context.Background(), "tenant-b"), got.SessionID); err == nil {
+		t.Error("expected tenant-b to not see tenant-a's newly created session")
+	}
+	if _, err := store.GetSession(storage.WithTenant(context.Background(), "tenant-a"), got.SessionID); err != nil {
+		t.Errorf("expected tenant-a to see its own session: %v", err)
+	}
+}

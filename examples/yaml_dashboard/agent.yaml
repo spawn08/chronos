@@ -1,0 +1,52 @@
+# agent.yaml — a durable, YAML-declared graph (WC-C-004), mirroring
+# examples/dashboard's hand-built Go graph but expressed entirely in config.
+#
+# `graph:` declares three "passthrough" nodes: prepare assigns a request id,
+# gate is a human-in-the-loop interrupt, and disburse marks the payment sent
+# on resume. `durable: true` tells `chronos serve` to register this agent's
+# compiled graph with ChronosOS so its runs are visible/resumable/
+# time-travelable from the dashboard — same as a graph built by hand in Go.
+#
+# This file needs no Go code at all — run it directly:
+#
+#   chronos -c examples/yaml_dashboard/agent.yaml serve :8420
+#
+# No API key is required: the model provider is configured but never
+# called — every graph node here is a "passthrough" node, not a "model" node.
+# (See website/docs/guides/yaml-dashboard.md for "model"/"tool"/"subagent"
+# node examples, which do call out to a provider, a registered tool, or
+# another agent.)
+agents:
+  - id: expense-approver
+    name: Expense Approver
+    model:
+      provider: ollama
+      model: llama3.3
+    storage:
+      backend: sqlite
+      dsn: chronos-yaml-dashboard.db
+    durable: true
+    graph:
+      entry: prepare
+      finish: disburse
+      nodes:
+        - id: prepare
+          type: passthrough
+          set:
+            request_id: REQ-2026-0714
+            status: pending_approval
+        - id: gate
+          type: passthrough
+          interrupt: true
+          set:
+            approved: true
+            status: approved
+        - id: disburse
+          type: passthrough
+          set:
+            status: disbursed
+      edges:
+        - from: prepare
+          to: gate
+        - from: gate
+          to: disburse

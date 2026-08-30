@@ -265,6 +265,34 @@ func TestGemini_BuildRequestBody_GenConfig(t *testing.T) {
 	}
 }
 
+// TestGemini_BuildRequestBody_JSONSchema proves ResponseFormat "json_schema"
+// sends the schema as Gemini's native responseSchema, not just plain JSON
+// mode — previously "json_schema" was silently dropped for every provider.
+func TestGemini_BuildRequestBody_JSONSchema(t *testing.T) {
+	p := NewGemini("test")
+	schema := map[string]any{
+		"type":       "object",
+		"properties": map[string]any{"answer": map[string]any{"type": "string"}},
+	}
+	req := &ChatRequest{
+		Messages:       []Message{{Role: RoleUser, Content: "hi"}},
+		ResponseFormat: "json_schema",
+		Metadata:       map[string]any{"json_schema": schema},
+	}
+	body := p.buildRequestBody(req)
+	genConfig, _ := body["generationConfig"].(map[string]any)
+	if genConfig == nil {
+		t.Fatal("expected generationConfig")
+	}
+	if genConfig["responseMimeType"] != "application/json" {
+		t.Errorf("responseMimeType=%v, want application/json", genConfig["responseMimeType"])
+	}
+	got, ok := genConfig["responseSchema"].(map[string]any)
+	if !ok || got["type"] != "object" {
+		t.Errorf("responseSchema = %#v, want the original schema", genConfig["responseSchema"])
+	}
+}
+
 func TestGemini_BuildRequestBody_WithFunctionDecls(t *testing.T) {
 	p := NewGemini("test")
 	req := &ChatRequest{

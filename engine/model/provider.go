@@ -141,10 +141,33 @@ type ChatRequest struct {
 	Stop        []string         `json:"stop,omitempty"`
 	// ResponseFormat controls output format. Values:
 	//   "json_object"  — model returns valid JSON (no schema enforcement)
-	//   "json_schema"  — model returns JSON conforming to Metadata["json_schema"]
+	//   "json_schema"  — model returns JSON conforming to Metadata["json_schema"],
+	//                    a plain JSON Schema map (properties/required/type/etc.).
+	//                    Supported by OpenAI, Azure OpenAI, OpenAI-compatible
+	//                    providers (incl. Ollama, Mistral), Gemini, and the
+	//                    Responses API — passed to the provider's native
+	//                    structured-output parameter, not just requested and
+	//                    hoped for. Anthropic has no equivalent API parameter,
+	//                    so this mode has no effect there; callers needing
+	//                    schema-constrained output from Anthropic must use
+	//                    tool-forcing instead.
 	ResponseFormat string           `json:"response_format,omitempty"`
 	Metadata       map[string]any   `json:"metadata,omitempty"`
 	Reasoning      *ReasoningConfig `json:"reasoning,omitempty"`
+}
+
+// jsonSchemaFromMetadata extracts the JSON Schema stashed in
+// req.Metadata["json_schema"] by sdk/agent's applyOutputSchema, for a
+// provider building a ResponseFormat == "json_schema" request. ok is false
+// when ResponseFormat isn't "json_schema" or no schema was actually set —
+// either way, callers should fall back to not requesting structured output
+// rather than sending a malformed request.
+func jsonSchemaFromMetadata(req *ChatRequest) (schema map[string]any, ok bool) {
+	if req.ResponseFormat != "json_schema" {
+		return nil, false
+	}
+	schema, ok = req.Metadata["json_schema"].(map[string]any)
+	return schema, ok
 }
 
 // ChatResponse is the output of a chat completion.

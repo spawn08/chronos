@@ -257,7 +257,7 @@ go run ./cli/main.go deploy agents.yaml "Start processing"
 
 ```
 [ ] PostgreSQL for storage (not SQLite)
-[ ] Auth enabled (CHRONOS_AUTH=true)
+[ ] Auth enabled (CHRONOS_AUTH=jwt or apikey)
 [ ] JWT secret is random, 32+ characters
 [ ] Swagger disabled (CHRONOS_SWAGGER=false)
 [ ] CORS restricted to known origins

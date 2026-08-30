@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -64,6 +65,21 @@ type AgentConfig struct {
 
 	// Team nesting: an agent config can reference sub-agents by ID
 	SubAgents []string `yaml:"sub_agents,omitempty"`
+
+	// Graph declares a durable multi-node graph for this agent (see
+	// graphbuild.go). When set, BuildAgent/BuildAll compile it and attach it
+	// to the built Agent exactly as Agent.WithGraph would, so Agent.Run
+	// automatically creates a session and checkpoints through it — no
+	// additional wiring required.
+	Graph *GraphConfig `yaml:"graph,omitempty"`
+
+	// Durable opts this agent's compiled graph into being registered with
+	// ChronosOS by `chronos serve`/`chronos deploy` (a dashboard.GraphRegistry
+	// entry keyed by ID), so its runs are visible/resumable/time-travelable
+	// from the dashboard. It does not itself change Agent.Run's behavior —
+	// any agent with a Graph already runs durably once Storage is configured;
+	// this flag only controls server-side exposure. Requires Graph to be set.
+	Durable bool `yaml:"durable,omitempty"`
 }
 
 // ModelConfig describes which model provider and settings to use.
@@ -367,6 +383,33 @@ func validateFileConfig(fc *FileConfig) error {
 			}
 			seenSkill[name] = struct{}{}
 		}
+		if err := validateGraphConfig(cfg.ID, cfg.Graph); err != nil {
+			return err
+		}
+		if cfg.Durable {
+			if cfg.Graph == nil {
+				return fmt.Errorf("agent %q durable requires a graph block", cfg.ID)
+			}
+			if storageBackend == "none" || storageBackend == "memory" {
+				return fmt.Errorf("agent %q durable requires persistent storage; configure storage.backend as sqlite or postgres", cfg.ID)
+			}
+		}
+	}
+
+	for i := range fc.Agents {
+		cfg := &fc.Agents[i]
+		if cfg.Graph == nil {
+			continue
+		}
+		for j := range cfg.Graph.Nodes {
+			n := &cfg.Graph.Nodes[j]
+			if n.Type != "subagent" {
+				continue
+			}
+			if _, exists := exactAgentIDs[n.Agent]; !exists {
+				return fmt.Errorf("agent %q graph.nodes[%d] references unknown subagent %q", cfg.ID, j, n.Agent)
+			}
+		}
 	}
 
 	teamIDs := make(map[string]struct{}, len(fc.Teams))
@@ -521,8 +564,8 @@ func BuildAgent(ctx context.Context, cfg *AgentConfig, opts ...BuildOption) (*Ag
 	}
 	if store != nil {
 		if migrator, ok := store.(interface{ Migrate(context.Context) error }); ok {
-			if err := migrator.Migrate(ctx); err != nil {
-				return nil, fmt.Errorf("agent %q migrate: %w", cfg.ID, err)
+			if migrateErr := migrator.Migrate(ctx); migrateErr != nil {
+				return nil, fmt.Errorf("agent %q migrate: %w", cfg.ID, migrateErr)
 			}
 		}
 		b.WithStorage(store)
@@ -533,7 +576,16 @@ func BuildAgent(ctx context.Context, cfg *AgentConfig, opts ...BuildOption) (*Ag
 		return nil, fmt.Errorf("agent %q tracing requires persistent storage; configure storage backend as sqlite or postgres", cfg.ID)
 	}
 
-	return b.Build()
+	built, err := b.Build()
+	if err != nil {
+		return nil, err
+	}
+	if cfg.Graph != nil && !bo.deferGraph {
+		if attachErr := attachGraph(built, cfg, bo.peerAgents); attachErr != nil {
+			return nil, attachErr
+		}
+	}
+	return built, nil
 }
 
 // BuildAll constructs all agents from a FileConfig. BuildOptions (e.g.
@@ -550,9 +602,14 @@ func BuildAll(ctx context.Context, fc *FileConfig, opts ...BuildOption) (map[str
 		}
 		opts = append([]BuildOption{WithSkillCatalog(catalog)}, opts...)
 	}
+	// Graph compilation is deferred to a third pass below: a `subagent` graph
+	// node can reference any agent in the file, so the full set of built
+	// agents must exist first — the same reason SubAgents wiring is also a
+	// separate pass rather than done inline during the build loop.
+	graphOpts := append(append([]BuildOption(nil), opts...), deferGraphOption())
 	agents := make(map[string]*Agent, len(fc.Agents))
 	for i := range fc.Agents {
-		a, err := BuildAgent(ctx, &fc.Agents[i], opts...)
+		a, err := BuildAgent(ctx, &fc.Agents[i], graphOpts...)
 		if err != nil {
 			return nil, err
 		}
@@ -570,6 +627,17 @@ func BuildAll(ctx context.Context, fc *FileConfig, opts ...BuildOption) (map[str
 				return nil, fmt.Errorf("agent %q: sub-agent %q not defined", fc.Agents[i].ID, subID)
 			}
 			parent.SubAgents = append(parent.SubAgents, sub)
+		}
+	}
+	// Compile declared graphs now that every agent in the file exists, so
+	// `subagent` nodes can resolve their peers regardless of file order.
+	for i := range fc.Agents {
+		cfg := &fc.Agents[i]
+		if cfg.Graph == nil {
+			continue
+		}
+		if err := attachGraph(agents[cfg.ID], cfg, agents); err != nil {
+			return nil, err
 		}
 	}
 	return agents, nil
@@ -987,12 +1055,20 @@ func readConfigFile(path string) (data []byte, resolvedPath string, err error) {
 	}
 
 	if path != "" {
-		return nil, path, fmt.Errorf("config file not found: %s", path)
+		return nil, path, fmt.Errorf("%w: %s", ErrConfigNotFound, path)
 	}
-	return nil, "", fmt.Errorf("no agent config found (looked in: %s). "+
+	return nil, "", fmt.Errorf("%w (looked in: %s). "+
 		"Pass a file with `-c <file.yaml>` or set CHRONOS_CONFIG=<file.yaml>",
-		strings.Join(candidates, ", "))
+		ErrConfigNotFound, strings.Join(candidates, ", "))
 }
+
+// ErrConfigNotFound indicates no agent config file could be located — as
+// opposed to a config file that exists but fails to parse or validate.
+// Callers that treat "no config" as an acceptable default (e.g. `chronos
+// serve`, which starts fine with zero registered agents) should check for
+// this specifically with errors.Is rather than swallowing every LoadFile
+// error identically; a malformed or invalid file should still fail startup.
+var ErrConfigNotFound = errors.New("no agent config found")
 
 // expandEnvInConfig replaces ${VAR} references with environment variable values.
 func expandEnvInConfig(cfg *AgentConfig) {

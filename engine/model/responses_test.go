@@ -10,6 +10,40 @@ import (
 	"testing"
 )
 
+// TestBuildResponsesRequestBody_JSONSchema proves ResponseFormat
+// "json_schema" sends the schema as the Responses API's native
+// text.format.json_schema parameter, not just plain JSON mode — previously
+// "json_schema" was silently dropped for every provider.
+func TestBuildResponsesRequestBody_JSONSchema(t *testing.T) {
+	schema := map[string]any{
+		"type":       "object",
+		"properties": map[string]any{"answer": map[string]any{"type": "string"}},
+	}
+	req := &ChatRequest{
+		Messages:       []Message{{Role: RoleUser, Content: "hi"}},
+		ResponseFormat: "json_schema",
+		Metadata:       map[string]any{"json_schema": schema},
+	}
+	body := buildResponsesRequestBody(req, "deployment", false)
+	text, ok := body["text"].(map[string]any)
+	if !ok {
+		t.Fatalf("text = %#v, want map[string]any", body["text"])
+	}
+	format, ok := text["format"].(map[string]any)
+	if !ok {
+		t.Fatalf("text.format = %#v, want map[string]any", text["format"])
+	}
+	if format["type"] != "json_schema" {
+		t.Errorf("text.format.type = %v, want json_schema", format["type"])
+	}
+	if format["name"] == "" {
+		t.Error("text.format.name must be set (Responses API requires it)")
+	}
+	if got, ok := format["schema"].(map[string]any); !ok || got["type"] != "object" {
+		t.Errorf("text.format.schema = %#v, want the original schema", format["schema"])
+	}
+}
+
 func TestBuildResponsesRequestBodyPreservesReasoningToolState(t *testing.T) {
 	state := []json.RawMessage{
 		json.RawMessage(`{"id":"rs_1","type":"reasoning","encrypted_content":"opaque"}`),

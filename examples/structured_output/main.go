@@ -35,8 +35,14 @@ type Recipe struct {
 	Steps       []string `json:"steps"`
 }
 
-// jsonSchema mirrors Recipe. Providers that support "json_schema" enforce it;
-// others fall back to best-effort JSON via the "json_object" format.
+// jsonSchema mirrors Recipe. OpenAI, Azure OpenAI, OpenAI-compatible
+// providers (Ollama, Mistral, ...), Gemini, and the Responses API send this
+// to the model as a native structured-output constraint. Anthropic has no
+// equivalent API parameter, so it falls back to best-effort JSON driven only
+// by the system prompt below — which is why that prompt is explicit about
+// returning ONLY JSON. Every provider's reply is still validated against
+// this schema afterward (see sdk/agent's OutputSchema when going through
+// Agent.Chat instead of calling a Provider directly, as this example does).
 var jsonSchema = map[string]any{
 	"type": "object",
 	"properties": map[string]any{
@@ -62,8 +68,9 @@ func main() {
 	fmt.Printf("Provider: %s (%s)\n", name, provider.Model())
 
 	// Request strict JSON. ResponseFormat "json_schema" carries the schema in
-	// Metadata["json_schema"]; providers without schema support degrade to
-	// plain "json_object" behavior, so a clear system prompt still matters.
+	// Metadata["json_schema"] (see the jsonSchema comment above for which
+	// providers actually enforce it) — the explicit system prompt below is
+	// what carries the load on a provider (Anthropic) that doesn't.
 	resp, err := provider.Chat(ctx, &model.ChatRequest{
 		ResponseFormat: "json_schema",
 		Metadata:       map[string]any{"json_schema": jsonSchema},

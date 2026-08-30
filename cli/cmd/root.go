@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -53,6 +54,8 @@ func Execute() error {
 		return runREPL()
 	case "serve":
 		return runServe()
+	case "auth":
+		return runAuthCmd()
 	case "run":
 		return runAgent()
 	case "pipe":
@@ -151,6 +154,31 @@ func stripGlobalFlags() error {
 			if err := os.Setenv("CHRONOS_TRACE", value); err != nil {
 				return fmt.Errorf("set CHRONOS_TRACE: %w", err)
 			}
+		case arg == "--stream" || arg == "-s" || arg == "--no-stream":
+			value := strconv.FormatBool(arg == "--stream" || arg == "-s")
+			if err := os.Setenv("CHRONOS_STREAM", value); err != nil {
+				return fmt.Errorf("set CHRONOS_STREAM: %w", err)
+			}
+		case arg == "--output-schema":
+			if i+1 >= len(rest) || strings.TrimSpace(rest[i+1]) == "" {
+				return fmt.Errorf("global flag %s requires a JSON Schema file path", arg)
+			}
+			if err := os.Setenv("CHRONOS_OUTPUT_SCHEMA", rest[i+1]); err != nil {
+				return fmt.Errorf("set CHRONOS_OUTPUT_SCHEMA: %w", err)
+			}
+			i++
+		case strings.HasPrefix(arg, "--output-schema="):
+			value := strings.TrimPrefix(arg, "--output-schema=")
+			if value == "" {
+				return fmt.Errorf("global flag --output-schema requires a JSON Schema file path")
+			}
+			if err := os.Setenv("CHRONOS_OUTPUT_SCHEMA", value); err != nil {
+				return fmt.Errorf("set CHRONOS_OUTPUT_SCHEMA: %w", err)
+			}
+		case arg == "--json":
+			if err := os.Setenv("CHRONOS_JSON", "true"); err != nil {
+				return fmt.Errorf("set CHRONOS_JSON: %w", err)
+			}
 		default:
 			kept = append(kept, arg)
 		}
@@ -175,10 +203,19 @@ Global options:
                             Auto-approve approval-gated tools for this CLI process
   --debug, --no-debug       Enable or disable agent execution logs on stderr
   --trace, --no-trace       Enable or disable persisted model/tool/graph spans
+  --stream, --no-stream, -s
+                            Enable or disable token streaming for "run"/"team run"
+  --output-schema <file>    Path to a JSON Schema file; the loaded agent must
+                            return JSON conforming to it (overrides any
+                            output_schema: in its YAML config)
+  --json                    Print "run"/"team run" output as one JSON object
+                            on stdout instead of human-readable text
 
 Commands:
   repl                      Start interactive REPL (loads agent from YAML config)
   serve [addr]              Start ChronosOS control plane server (default :8420)
+  auth token [--role <r>] [--tenant <id>] [--ttl <dur>]
+                            Mint a dev credential matching CHRONOS_AUTH (apikey or jwt)
   run [--agent <id>] [--stream|--no-stream] <msg>  Run an agent in headless mode
   pipe                      Non-interactive mode: reads from stdin, writes to stdout
   agent list                List agents defined in config
@@ -213,6 +250,9 @@ Environment:
   CHRONOS_PERMISSION_MODE prompt | auto_approve | deny
   CHRONOS_DEBUG           true to enable debug logs
   CHRONOS_TRACE           true to persist execution spans
+  CHRONOS_STREAM          true | false to force token streaming on/off
+  CHRONOS_OUTPUT_SCHEMA   Path to a JSON Schema file (same as --output-schema)
+  CHRONOS_JSON            true to print "run"/"team run" output as JSON (same as --json)
 
 Storage (default: SQLite — fully backward compatible):
   CHRONOS_STORAGE_BACKEND  sqlite (default) | postgres | redis
@@ -227,6 +267,15 @@ Cross-replica scheduling & rate limiting (serve):
                         for postgres; set true to opt SQLite in, false to opt
                         postgres out. Redis has no SQL-backed shared limiter,
                         so it keeps per-replica in-process limits.
+
+Serve + YAML agents:
+  chronos -c agents.yaml serve :8420   Load agents.yaml; any agent with
+                                        durable: true (requires a graph:
+                                        block) is registered with the
+                                        dashboard and /api/dashboard/runs so
+                                        its sessions are visible/resumable
+                                        from ChronosOS. No config found is
+                                        not an error — serve still starts.
 
 Serve auth (opt-in; default is no auth):
   CHRONOS_AUTH          none | jwt | apikey (default: none)
@@ -461,7 +510,34 @@ func applyCLIRuntimeOverrides(a *agent.Agent) error {
 			return fmt.Errorf("CLI permission mode: %w", err)
 		}
 	}
+	if schemaPath := strings.TrimSpace(os.Getenv("CHRONOS_OUTPUT_SCHEMA")); schemaPath != "" {
+		schema, err := loadOutputSchemaFile(schemaPath)
+		if err != nil {
+			return err
+		}
+		a.OutputSchema = schema
+	}
 	return nil
+}
+
+// loadOutputSchemaFile reads and parses a --output-schema file into the
+// map[string]any shape Agent.OutputSchema/WithOutputSchema expects — the
+// same JSON Schema contract as YAML's output_schema:, letting a CLI
+// invocation request structured output ad hoc without a pre-configured
+// agent.
+func loadOutputSchemaFile(path string) (map[string]any, error) {
+	// #nosec G304 G703 -- path is an operator-supplied CLI argument
+	// (--output-schema), intentional file access like the adjacent
+	// eval-suite/config readers.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read --output-schema file %q: %w", path, err)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(data, &schema); err != nil {
+		return nil, fmt.Errorf("parse --output-schema file %q as JSON: %w", path, err)
+	}
+	return schema, nil
 }
 
 func installInteractiveApprovalHandlers(agents ...*agent.Agent) {
@@ -644,6 +720,12 @@ func runServe() error {
 	}
 	opts = append(opts, sharedOpts...)
 
+	graphOpts, err := buildServeGraphOptions()
+	if err != nil {
+		return err
+	}
+	opts = append(opts, graphOpts...)
+
 	srv := chronosos.NewWithOptions(addr, store, opts...)
 	log.Printf("Starting ChronosOS on %s (auth: %s)", addr, mode)
 	if v, ok := parseBool(os.Getenv(envSwagger)); !ok || v {
@@ -676,11 +758,11 @@ func swaggerHost(addr string) string {
 }
 
 func runAgent() error {
-	// Parse: chronos run [--agent <id>] [--stream|--no-stream] <message...>
+	// Parse: chronos run [--agent <id>] <message...>
+	// --stream/--no-stream/-s are global flags (see stripGlobalFlags) and work
+	// anywhere on the command line, not just here after "run".
 	args := os.Args[2:]
 	agentID := ""
-	streaming := false
-	streamSet := false
 	var msgParts []string
 
 	for i := 0; i < len(args); i++ {
@@ -691,12 +773,6 @@ func runAgent() error {
 			}
 			agentID = args[i+1]
 			i++
-		case "--stream", "-s":
-			streaming = true
-			streamSet = true
-		case "--no-stream":
-			streaming = false
-			streamSet = true
 		default:
 			msgParts = append(msgParts, args[i])
 		}
@@ -707,6 +783,23 @@ func runAgent() error {
 	}
 	message := strings.Join(msgParts, " ")
 
+	streaming := false
+	streamSet := false
+	if v, configured := os.LookupEnv("CHRONOS_STREAM"); configured {
+		streaming = strings.EqualFold(v, "true")
+		streamSet = true
+	}
+	// --json (CHRONOS_JSON) is a global flag: the CLI's own printed output
+	// becomes one machine-readable JSON object on stdout instead of the
+	// human-readable lines below, mirroring `chronos pipe`'s per-line JSON
+	// protocol. Token streaming is disabled in this mode regardless of
+	// --stream/CHRONOS_STREAM/YAML stream: — partial tokens on stdout would
+	// corrupt the single JSON object a script is expecting.
+	jsonOutput := strings.EqualFold(os.Getenv("CHRONOS_JSON"), "true")
+	if jsonOutput {
+		streaming = false
+	}
+
 	var a *agent.Agent
 	var err error
 	if agentID != "" {
@@ -715,18 +808,21 @@ func runAgent() error {
 		a, err = loadDefaultAgent()
 	}
 	if err != nil {
+		if jsonOutput {
+			return encodeJSONLine(os.Stdout, map[string]any{"error": err.Error(), "message": message})
+		}
 		fmt.Fprintf(os.Stderr, "Warning: could not load agent from config: %v\n", err)
 		fmt.Printf("Message: %s\n", message)
 		fmt.Println("Create .chronos/agents.yaml to configure agents. Run 'chronos help' for details.")
 		return nil
 	}
-	if !streamSet && a.StreamConfigured {
+	if !streamSet && a.StreamConfigured && !jsonOutput {
 		streaming = a.Stream
 	}
 
 	// When no agent was explicitly chosen and the config defines more than one,
 	// tell the user which one ran and how to target the others.
-	if agentID == "" {
+	if agentID == "" && !jsonOutput {
 		if fc, cfgErr := loadAgentConfig(); cfgErr == nil && len(fc.Agents) > 1 {
 			others := make([]string, 0, len(fc.Agents)-1)
 			for i := range fc.Agents {
@@ -739,8 +835,10 @@ func runAgent() error {
 		}
 	}
 
-	fmt.Printf("Agent: %s (model: %s)\n", a.Name, a.Model.Name())
-	fmt.Printf("Message: %s\n\n", message)
+	if !jsonOutput {
+		fmt.Printf("Agent: %s (model: %s)\n", a.Name, a.Model.Name())
+		fmt.Printf("Message: %s\n\n", message)
+	}
 
 	if streaming {
 		return runAgentStream(a, message)
@@ -748,14 +846,46 @@ func runAgent() error {
 
 	resp, err := a.Chat(context.Background(), message)
 	if err != nil {
+		if jsonOutput {
+			_ = encodeJSONLine(os.Stdout, map[string]any{"error": err.Error(), "agent": a.ID, "message": message})
+		}
 		return fmt.Errorf("chat: %w", err)
 	}
+
+	if jsonOutput {
+		out := map[string]any{
+			"agent":   a.ID,
+			"model":   a.Model.Name(),
+			"message": message,
+			"content": resp.Content,
+			"usage": map[string]any{
+				"prompt_tokens":     resp.Usage.PromptTokens,
+				"completion_tokens": resp.Usage.CompletionTokens,
+			},
+		}
+		if resp.Reasoning != "" && a.ReasoningConfig.Summary {
+			out["reasoning"] = resp.Reasoning
+		}
+		return encodeJSONLine(os.Stdout, out)
+	}
+
 	if resp.Reasoning != "" && a.ReasoningConfig.Summary {
 		fmt.Fprintf(os.Stderr, "[reasoning summary]\n%s\n[/reasoning summary]\n", resp.Reasoning)
 	}
 	fmt.Println(resp.Content)
 	if resp.Usage.PromptTokens > 0 || resp.Usage.CompletionTokens > 0 {
 		fmt.Printf("\n[tokens: %d prompt + %d completion]\n", resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
+	}
+	return nil
+}
+
+// encodeJSONLine writes v to w as a single-line JSON object, the shared
+// shape `chronos run`/`chronos team run --json` and `chronos pipe` use for
+// machine-readable output.
+func encodeJSONLine(w io.Writer, v any) error {
+	enc := json.NewEncoder(w)
+	if err := enc.Encode(v); err != nil {
+		return fmt.Errorf("encode JSON output: %w", err)
 	}
 	return nil
 }
@@ -1209,27 +1339,29 @@ func buildHierarchyTeam(tc *agent.TeamConfig, agents map[string]*agent.Agent, me
 }
 
 func teamRun() error {
-	// Parse: chronos team run [--stream|--no-stream] <team_id> <message...>
-	streaming := false
-	streamSet := false
-	var positional []string
-	for _, arg := range os.Args[3:] {
-		switch arg {
-		case "--stream", "-s":
-			streaming = true
-			streamSet = true
-		case "--no-stream":
-			streaming = false
-			streamSet = true
-		default:
-			positional = append(positional, arg)
-		}
-	}
+	// Parse: chronos team run <team_id> <message...>
+	// --stream/--no-stream/-s are global flags (see stripGlobalFlags) and work
+	// anywhere on the command line, not just here after "team run".
+	positional := os.Args[3:]
 	if len(positional) < 2 {
 		return fmt.Errorf("usage: chronos team run [--stream|--no-stream] <team_id> <message>")
 	}
 	teamID := positional[0]
 	message := strings.Join(positional[1:], " ")
+
+	streaming := false
+	streamSet := false
+	if v, configured := os.LookupEnv("CHRONOS_STREAM"); configured {
+		streaming = strings.EqualFold(v, "true")
+		streamSet = true
+	}
+	// See runAgent's identical --json handling: token streaming is disabled
+	// in this mode since partial output would corrupt the single JSON object
+	// printed at the end.
+	jsonOutput := strings.EqualFold(os.Getenv("CHRONOS_JSON"), "true")
+	if jsonOutput {
+		streaming = false
+	}
 
 	ctx := context.Background()
 
@@ -1241,7 +1373,7 @@ func teamRun() error {
 	if err != nil {
 		return err
 	}
-	if !streamSet {
+	if !streamSet && !jsonOutput {
 		streaming = configuredTeamStreaming(fc, tc)
 	}
 
@@ -1250,35 +1382,37 @@ func teamRun() error {
 		return err
 	}
 
-	fmt.Printf("Team: %s (%s strategy)\n", tc.Name, tc.Strategy)
-	fmt.Printf("Agents: %s\n", strings.Join(tc.Agents, ", "))
-	if tc.Coordinator != "" {
-		fmt.Printf("Coordinator: %s\n", tc.Coordinator)
+	if !jsonOutput {
+		fmt.Printf("Team: %s (%s strategy)\n", tc.Name, tc.Strategy)
+		fmt.Printf("Agents: %s\n", strings.Join(tc.Agents, ", "))
+		if tc.Coordinator != "" {
+			fmt.Printf("Coordinator: %s\n", tc.Coordinator)
+		}
+		fmt.Printf("Streaming: %t\n", streaming)
+		for _, agentID := range tc.Agents {
+			cfg, findErr := fc.FindAgent(agentID)
+			if findErr != nil {
+				continue
+			}
+			debug, tracing := cfg.Debug, cfg.Tracing
+			strategy := normalizedReasoningStrategy(cfg.Reasoning.Strategy)
+			native, effort, summary := cfg.Reasoning.Native, cfg.Reasoning.Effort, cfg.Reasoning.Summary
+			if built := t.Agents[agentID]; built != nil {
+				debug = built.Debug
+				tracing = built.Tracer != nil
+				strategy = reasoningStrategyLabel(built.Reasoning)
+				native = built.ReasoningConfig.Enabled
+				effort = built.ReasoningConfig.Effort
+				summary = built.ReasoningConfig.Summary
+			}
+			fmt.Printf("Runtime[%s]: debug=%t tracing=%t reasoning=%s native=%t effort=%s summary=%t\n",
+				agentID, debug, tracing, strategy, native, effort, summary)
+			if tracing {
+				fmt.Printf("Trace store[%s]: %s\n", agentID, storageLabel(cfg.Storage))
+			}
+		}
+		fmt.Printf("Message: %s\n\n", message)
 	}
-	fmt.Printf("Streaming: %t\n", streaming)
-	for _, agentID := range tc.Agents {
-		cfg, findErr := fc.FindAgent(agentID)
-		if findErr != nil {
-			continue
-		}
-		debug, tracing := cfg.Debug, cfg.Tracing
-		strategy := normalizedReasoningStrategy(cfg.Reasoning.Strategy)
-		native, effort, summary := cfg.Reasoning.Native, cfg.Reasoning.Effort, cfg.Reasoning.Summary
-		if built := t.Agents[agentID]; built != nil {
-			debug = built.Debug
-			tracing = built.Tracer != nil
-			strategy = reasoningStrategyLabel(built.Reasoning)
-			native = built.ReasoningConfig.Enabled
-			effort = built.ReasoningConfig.Effort
-			summary = built.ReasoningConfig.Summary
-		}
-		fmt.Printf("Runtime[%s]: debug=%t tracing=%t reasoning=%s native=%t effort=%s summary=%t\n",
-			agentID, debug, tracing, strategy, native, effort, summary)
-		if tracing {
-			fmt.Printf("Trace store[%s]: %s\n", agentID, storageLabel(cfg.Storage))
-		}
-	}
-	fmt.Printf("Message: %s\n\n", message)
 
 	if streaming {
 		return teamRunStream(ctx, t, message)
@@ -1286,7 +1420,21 @@ func teamRun() error {
 
 	result, err := t.Run(ctx, graph.State{"message": message})
 	if err != nil {
+		if jsonOutput {
+			_ = encodeJSONLine(os.Stdout, map[string]any{"error": err.Error(), "team": tc.ID, "message": message})
+		}
 		return fmt.Errorf("team run: %w", err)
+	}
+
+	if jsonOutput {
+		out := map[string]any{"team": tc.ID, "message": message}
+		for k, v := range result {
+			if strings.HasPrefix(k, "_") {
+				continue
+			}
+			out[k] = v
+		}
+		return encodeJSONLine(os.Stdout, out)
 	}
 
 	if resp, ok := result["response"]; ok {

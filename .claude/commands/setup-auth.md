@@ -18,17 +18,22 @@ The security requirements are: $ARGUMENTS
 
 ```bash
 # === Authentication ===
-# Enable auth (required for JWT/API-key to take effect)
-export CHRONOS_AUTH=true
+# CHRONOS_AUTH selects the mode: none (default) | jwt | apikey
+export CHRONOS_AUTH=jwt
 
-# JWT Configuration
+# JWT Configuration (jwt mode). There is no CHRONOS_JWT_EXPIRY — a JWT's
+# expiry is the "exp" claim baked into the token itself at mint time.
 export CHRONOS_JWT_SECRET="your-secret-key-min-32-chars-long"
 export CHRONOS_JWT_ISSUER="chronos"
 export CHRONOS_JWT_AUDIENCE="chronos-api"
-export CHRONOS_JWT_EXPIRY="24h"
 
-# API Key Authentication (comma-separated list)
-export CHRONOS_API_KEYS="key-1-xxxxxxxx,key-2-yyyyyyyy"
+# API Key Authentication (apikey mode) — comma-separated "key:role:tenant"
+# entries; role and tenant are optional.
+export CHRONOS_API_KEYS="key-1-xxxxxxxx:admin:tenant-a,key-2-yyyyyyyy"
+
+# Mint a credential matching whichever mode is active above, instead of
+# hand-picking a key or hand-signing a JWT:
+#   chronos auth token --role admin --tenant tenant-a
 
 # === Authorization ===
 # Enable RBAC
@@ -44,14 +49,14 @@ export CHRONOS_SWAGGER=false    # disable in production
 go run ./cli/main.go serve :8420
 ```
 
-4. API key usage — clients include the key in the Authorization header:
+4. Client usage — API keys and JWTs use different headers:
 
 ```bash
-# Using API key
-curl -H "Authorization: Bearer key-1-xxxxxxxx" \
+# Using an API key (apikey mode) — X-Api-Key, not Authorization
+curl -H "X-Api-Key: key-1-xxxxxxxx" \
      http://localhost:8420/api/sessions
 
-# Using JWT
+# Using a JWT (jwt mode)
 curl -H "Authorization: Bearer eyJhbGci..." \
      http://localhost:8420/api/sessions
 ```
@@ -94,10 +99,10 @@ func main() {
 agents:
   - id: "secure-agent"
     name: "Secure Agent"
-    permission_mode: "strict"   # prompt | auto | strict
-    # prompt: ask user before risky tools (default)
-    # auto:   allow all tools without confirmation
-    # strict: deny tools not explicitly in the allow list
+    permission_mode: "prompt"   # prompt | auto_approve | deny
+    # prompt:       ask before approval-gated tools (default)
+    # auto_approve: skip approval prompts; explicit tool `deny` still wins
+    # deny:         reject approval-gated tools without prompting
     tools:
       - name: "file_read"
         permission: "allow"     # explicitly allowed
@@ -126,7 +131,7 @@ approvalSvc.OnApprovalRequired(func(ctx context.Context, req approval.Request) (
 8. Production security checklist:
 
 ```
-[ ] CHRONOS_AUTH=true
+[ ] CHRONOS_AUTH=jwt or apikey (never left at the default "none")
 [ ] JWT secret is at least 32 characters, randomly generated
 [ ] API keys are rotated regularly
 [ ] CHRONOS_SWAGGER=false in production
@@ -172,8 +177,8 @@ volumes:
 # Should return 401 without auth
 curl -s -o /dev/null -w "%{http_code}" http://localhost:8420/api/sessions
 
-# Should return 200 with valid key
+# Should return 200 with a valid key (apikey mode)
 curl -s -o /dev/null -w "%{http_code}" \
-     -H "Authorization: Bearer key-1-xxxxxxxx" \
+     -H "X-Api-Key: key-1-xxxxxxxx" \
      http://localhost:8420/api/sessions
 ```

@@ -6,7 +6,16 @@ Ask an LLM for strict JSON and decode it into a typed Go struct.
 
 - `"json_object"` — the model returns valid JSON (no schema enforcement).
 - `"json_schema"` — the model returns JSON conforming to the schema in
-  `Metadata["json_schema"]`.
+  `Metadata["json_schema"]`. Enforced as a native request parameter by
+  OpenAI, Azure OpenAI, OpenAI-compatible providers (Ollama, Mistral, ...),
+  Gemini, and the Responses API. Anthropic has no equivalent parameter, so
+  it falls back to whatever the system prompt asks for.
+
+Going through `sdk/agent`'s `WithOutputSchema`/`output_schema:` instead of a
+bare `Provider.Chat` call (as this example does) additionally validates the
+reply against the schema after the fact, on every provider — see
+[Structured (JSON) Output](/guides/agents#structured-json-output) in the
+Agents guide.
 
 This example requests a `Recipe` as JSON, then decodes the reply into the
 `Recipe` struct (tolerating stray Markdown code fences).
