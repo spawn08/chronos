@@ -250,6 +250,43 @@ func TestApplyCLIRuntimeOverridesLoadsOutputSchema(t *testing.T) {
 	})
 }
 
+// TestStripGlobalJSONFlag proves --json is position-independent like every
+// other global flag.
+func TestStripGlobalJSONFlag(t *testing.T) {
+	oldArgs := os.Args
+	oldJSON, hadJSON := os.LookupEnv("CHRONOS_JSON")
+	t.Cleanup(func() {
+		os.Args = oldArgs
+		restoreEnv("CHRONOS_JSON", oldJSON, hadJSON)
+	})
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "before the subcommand", args: []string{"chronos", "--json", "run", "hello"}},
+		{name: "after the subcommand", args: []string{"chronos", "run", "hello", "--json"}},
+		{name: "before a nested subcommand", args: []string{"chronos", "--json", "team", "run", "myteam", "hello"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_ = os.Unsetenv("CHRONOS_JSON")
+			os.Args = append([]string(nil), tt.args...)
+			if err := stripGlobalFlags(); err != nil {
+				t.Fatalf("stripGlobalFlags(%v): %v", tt.args, err)
+			}
+			if got := os.Getenv("CHRONOS_JSON"); got != "true" {
+				t.Fatalf("CHRONOS_JSON = %q, want true", got)
+			}
+			for _, arg := range os.Args {
+				if arg == "--json" {
+					t.Fatalf("--json was not stripped from os.Args: %#v", os.Args)
+				}
+			}
+		})
+	}
+}
+
 func TestStripGlobalFlagsRejectsInvalidValues(t *testing.T) {
 	oldArgs := os.Args
 	t.Cleanup(func() { os.Args = oldArgs })

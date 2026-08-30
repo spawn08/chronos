@@ -93,6 +93,24 @@ chronos --output-schema schema.json run --agent extractor "Extract: Alice is 30"
 
 `schema.json` must be plain JSON (a JSON Schema document), not YAML. See [Structured (JSON) Output](/guides/agents#structured-json-output) in the Agents guide for how the schema is enforced (request-side for OpenAI/Azure/OpenAI-compatible/Gemini/the Responses API, response-side validation on every provider) and `CHRONOS_OUTPUT_SCHEMA=<file>` for the environment equivalent.
 
+`--output-schema` is about what the **model** returns. It's a separate concern from `--json` below, which is about what the **CLI itself prints** to your terminal — you can use either independently, or both together.
+
+## Machine-readable CLI output
+
+By default `chronos run`/`chronos team run` print human-readable text ("Agent: ...", "Message: ...", the response, a token-count footer). `--json` (or `CHRONOS_JSON=true`) replaces all of that with exactly **one JSON object on stdout**, so scripts don't have to scrape text:
+
+```bash
+chronos --json run --agent extractor "Extract: Alice is 30"
+# {"agent":"extractor","model":"gpt-4o","message":"Extract: Alice is 30","content":"...","usage":{"prompt_tokens":12,"completion_tokens":8}}
+
+chronos --json team run pipeline "run it"
+# {"team":"pipeline","message":"run it","response":"..."}
+```
+
+Like every other global flag, `--json` works anywhere on the command line. It also forces token streaming off (regardless of `--stream`/`CHRONOS_STREAM`/YAML `stream:`) — partial tokens on stdout would corrupt the single JSON object a script is expecting. On failure, the JSON object carries an `"error"` key and the process still exits non-zero; diagnostics beyond that stay on stderr, so stdout is always either one clean JSON object or nothing.
+
+This is a different, more general mechanism than `chronos pipe`'s own per-line `{"agent":..., "content":...}` protocol (which predates `--json` and is unaffected by it) — `pipe` reads one message per stdin line and always emits JSON, with no flag needed.
+
 ## Native reasoning and thinking
 
 Reasoning has two independent controls:
@@ -164,6 +182,7 @@ CHRONOS_DEBUG=true             # false explicitly disables YAML debug
 CHRONOS_TRACE=true             # false explicitly disables YAML tracing
 CHRONOS_STREAM=true            # false explicitly disables YAML/default streaming
 CHRONOS_OUTPUT_SCHEMA=schema.json
+CHRONOS_JSON=true              # print "run"/"team run" output as JSON
 ```
 
 ## Precedence

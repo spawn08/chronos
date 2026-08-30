@@ -84,6 +84,7 @@ Global options can appear before or after the subcommand:
 | `--trace`, `--no-trace` | Enable or disable persisting model, tool, and graph spans in configured storage |
 | `--stream`, `--no-stream`, `-s` | Force token streaming on/off for `run`/`team run` |
 | `--output-schema <file>` | Path to a JSON Schema file; overrides any `output_schema:` in the loaded agent's YAML |
+| `--json` | Print `run`/`team run` output as one JSON object on stdout instead of human-readable text |
 
 ## Commands
 
