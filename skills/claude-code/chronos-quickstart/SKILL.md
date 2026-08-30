@@ -121,8 +121,11 @@ Run with the Chronos CLI:
 # Install CLI
 go install github.com/spawn08/chronos/cli@latest
 
-# Run once
-chronos run -c agents.yaml -a assistant -m "What is Chronos?"
+# Run once (the message is a plain positional argument, not a -m flag)
+chronos run -c agents.yaml -a assistant "What is Chronos?"
+
+# Machine-readable output for scripts
+chronos --json run -c agents.yaml -a assistant "What is Chronos?"
 
 # Interactive REPL
 chronos agent chat -c agents.yaml -a assistant

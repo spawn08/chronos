@@ -183,11 +183,11 @@ mcp_servers:
 
 8. Run and verify:
 ```bash
-# Verify MCP tools are discovered
-go run ./cli/main.go agent info -c agents.yaml -a mcp-agent
+# Verify MCP tools are discovered (agent id is positional, not -a; "info" doesn't exist, use "show")
+go run ./cli/main.go agent show -c agents.yaml mcp-agent
 
 # Run with MCP tools
-go run ./cli/main.go agent chat -c agents.yaml -a mcp-agent
+go run ./cli/main.go agent chat -c agents.yaml mcp-agent
 ```
 
 9. Troubleshooting:

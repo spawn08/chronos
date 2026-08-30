@@ -115,7 +115,7 @@ teams:
 5. Show how to run the team:
 ```bash
 # Run team with a task
-go run ./cli/main.go team run -c agents.yaml -t research-team -m "Research the latest AI frameworks"
+go run ./cli/main.go team run -c agents.yaml research-team "Research the latest AI frameworks"
 
 # List available teams
 go run ./cli/main.go team list -c agents.yaml

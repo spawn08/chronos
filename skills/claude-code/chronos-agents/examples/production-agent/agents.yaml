@@ -115,9 +115,9 @@ agents:
       preserve_recent_turns: 6
 
     # ── Security ──
-    permission_mode: "prompt"         # prompt | auto | strict
-    # "prompt" = ask before risky tools
-    # "strict" = only explicitly allowed tools (most secure)
+    permission_mode: "prompt"         # prompt | auto_approve | deny
+    # "prompt" = ask before approval-gated tools (default, most secure)
+    # "deny"   = reject approval-gated tools without prompting
 
     # ── Observability ──
     stream: true

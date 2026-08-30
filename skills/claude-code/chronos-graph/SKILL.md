@@ -187,6 +187,49 @@ func myNode(ctx context.Context, state graph.State) (graph.State, error) {
 }
 ```
 
+## YAML Graphs (no Go code required)
+
+Every pattern above can also be declared in an agent's YAML config via a `graph:` block, instead of Go's `graph.New(...).AddNode(...)` builder. This is the same durable graph underneath — `Agent.Run`/`Resume` behave identically — just expressed declaratively. Node `type` is one of `model` (calls the agent's LLM with a templated prompt), `tool` (calls a registered tool), `subagent` (delegates to another agent in the same file), or `passthrough` (merges a static `set:` map into state — the building block for an interrupt gate).
+
+**Linear pipeline + human-in-the-loop**, the YAML equivalent of the two patterns above:
+```yaml
+agents:
+  - id: approval-flow
+    model: {provider: openai, model: gpt-4o}
+    storage: {backend: sqlite, dsn: chronos.db}
+    durable: true   # registers this graph with `chronos serve`'s dashboard
+    graph:
+      entry: prepare
+      finish: execute
+      nodes:
+        - {id: prepare, type: tool, tool: prepare_action}
+        - {id: review, type: passthrough, interrupt: true, set: {reviewed: true}}
+        - {id: execute, type: tool, tool: execute_action}
+      edges:
+        - {from: prepare, to: review}
+        - {from: review, to: execute}
+```
+
+**Conditional branch** — routes on a state key instead of a Go `EdgeCondition` closure:
+```yaml
+    graph:
+      entry: analyze
+      nodes:
+        - {id: analyze, type: model, prompt: "Score this: {{.state.input}}", output_key: score}
+        - {id: approve, type: passthrough, set: {decision: approved}}
+        - {id: reject, type: passthrough, set: {decision: rejected}}
+      edges:
+        - from: analyze
+          conditional: true
+          route_key: score
+          routes: {high: approve, low: reject}
+          default: reject
+```
+
+A dynamic retry-loop with a counter (`state["retries"]++`) has no pure-YAML equivalent — `passthrough` only sets static values — so keep that pattern in Go, or back a `tool` node with a custom Go handler (`WithToolHandler`) that does the counting.
+
+Full schema reference, `subagent` delegation, and `chronos serve`/dashboard integration: see `website/docs/guides/yaml-dashboard.md` and the runnable `examples/yaml_dashboard/`.
+
 ## Key Concepts
 - **State** is a `map[string]any` flowing through nodes — add/modify keys as data flows
 - **Checkpoint**: state is persisted at each node, enabling crash recovery

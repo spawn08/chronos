@@ -94,7 +94,7 @@ For sandboxed execution (CI/automated):
       - { name: "shell_auto", permission: "allow" }
       - { name: "file_read", permission: "allow" }
       - { name: "file_write", permission: "allow" }
-    permission_mode: "auto"
+    permission_mode: "auto_approve"
 deployment:
   sandbox: { backend: "container", image: "golang:1.24-alpine", network: "none", timeout: "15m" }
 ```
@@ -286,7 +286,7 @@ teams:
     error_strategy: "fail_fast"
 ```
 
-Run: `chronos team run -c agents.yaml -t support -m "I need help with my invoice"`
+Run: `chronos team run -c agents.yaml support "I need help with my invoice"` (team id and message are both positional; there is no `-t`/`-m` flag)
 
 ---
 
@@ -521,10 +521,12 @@ tools:
 
 ### CLI Commands
 ```bash
-chronos run -c agents.yaml -a <id> -m "message"
-chronos agent chat -c agents.yaml -a <id>
+chronos run -c agents.yaml -a <id> "message"      # message is positional, no -m flag
+chronos --json run -c agents.yaml -a <id> "message"  # one JSON object on stdout instead of text
 chronos agent list -c agents.yaml
-chronos agent info -c agents.yaml -a <id>
+chronos agent show -c agents.yaml <id>            # id is positional; no "agent info" subcommand
+chronos agent chat -c agents.yaml <id>            # id is positional here too, not -a
 chronos deploy agents.yaml "task"
 chronos serve :8420
+chronos auth token --role admin                   # mint a dev credential for a running server's CHRONOS_AUTH mode
 ```

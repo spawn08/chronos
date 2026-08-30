@@ -35,7 +35,7 @@ agents:
 
 ```bash
 # Start the control plane server
-export CHRONOS_AUTH=true
+export CHRONOS_AUTH=jwt   # none (default) | jwt | apikey
 export CHRONOS_SWAGGER=true
 go run ./cli/main.go serve :8420
 ```
@@ -113,7 +113,7 @@ The monitor displays:
 
 ```bash
 # Server configuration
-export CHRONOS_AUTH=true                    # enable authentication
+export CHRONOS_AUTH=jwt                    # none (default) | jwt | apikey
 export CHRONOS_SWAGGER=true                # enable Swagger UI at /swagger/
 export CHRONOS_CORS_ORIGINS="https://app.example.com"
 export CHRONOS_SHARED_STATE=true           # enable shared state across agents
@@ -134,7 +134,7 @@ export DATABASE_URL="postgres://user:pass@host:5432/chronos?sslmode=require"
 go run ./cli/main.go serve :8420
 
 # In another terminal, run an agent
-go run ./cli/main.go run -c agents.yaml -a my-agent -m "test query"
+go run ./cli/main.go run -c agents.yaml -a my-agent "test query"
 
 # Check traces
 curl http://localhost:8420/api/sessions | jq .

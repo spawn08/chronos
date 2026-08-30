@@ -69,7 +69,7 @@ teams:
     error_strategy: "fail_fast"
 ```
 
-Run: `chronos team run -c agents.yaml -t research-pipeline -m "AI trends in 2025"`
+Run: `chronos team run -c agents.yaml research-pipeline "AI trends in 2025"` (team id and message are both positional; there is no `-t`/`-m` flag)
 
 ---
 
@@ -271,6 +271,7 @@ team.DirectChannel(agentA, agentB, bufSize)
 
 ### CLI
 ```bash
-chronos team run -c agents.yaml -t <team-id> -m "task"
+chronos team run -c agents.yaml <team-id> "task"       # team id and message are positional
+chronos --json team run -c agents.yaml <team-id> "task"  # one JSON object on stdout
 chronos team list -c agents.yaml
 ```
