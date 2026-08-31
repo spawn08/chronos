@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 env:
-  GO_VERSION: "1.25.13"
+  GO_VERSION: "1.26.7"
 
 jobs:
   # ────────────────────────────────────────────────────────────
@@ -46,7 +46,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        go-version: ["1.25.13"]
+        go-version: ["1.26.7"]
     steps:
       - name: Checkout
         uses: actions/checkout@v7
