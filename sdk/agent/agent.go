@@ -671,6 +671,14 @@ func (a *Agent) streamLoop(ctx context.Context, req *model.ChatRequest, messages
 			a.emitError(ctx, out, fmt.Errorf("agent %q: exceeded max tool-calling iterations (%d) with unsatisfied tool calls", a.ID, maxIter))
 			return
 		}
+		// Tool calls are reassembled internally from provider fragments. Surface
+		// the completed calls before execution so interactive clients can show
+		// delegation and tool activity while the stream is still running.
+		sendStream(ctx, out, &model.ChatResponse{
+			Role:      model.RoleAssistant,
+			Delta:     true,
+			ToolCalls: append([]model.ToolCall(nil), resp.ToolCalls...),
+		})
 		messages, err = a.executeToolCalls(ctx, messages, resp)
 		if err != nil {
 			a.emitError(ctx, out, err)

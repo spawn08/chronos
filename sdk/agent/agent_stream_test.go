@@ -178,17 +178,25 @@ func TestChatStream_ToolCallThenStream(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ChatStream returned error: %v", err)
 	}
-	text, _, streamErr := collectStream(t, ch)
-	if streamErr != nil {
-		t.Fatalf("stream error: %v", streamErr)
+	var text strings.Builder
+	var streamedTools []model.ToolCall
+	for chunk := range ch {
+		if chunk.Err != nil {
+			t.Fatalf("stream error: %v", chunk.Err)
+		}
+		text.WriteString(chunk.Content)
+		streamedTools = append(streamedTools, chunk.ToolCalls...)
 	}
 	if !called {
 		t.Error("tool was not executed")
 	}
-	if text != "done: x" {
-		t.Errorf("text = %q, want %q", text, "done: x")
+	if text.String() != "done: x" {
+		t.Errorf("text = %q, want %q", text.String(), "done: x")
 	}
 	if prov.calls != 2 {
 		t.Errorf("expected 2 model calls (tool round + answer), got %d", prov.calls)
+	}
+	if len(streamedTools) != 1 || streamedTools[0].Name != "echo" || streamedTools[0].Arguments != `{"v":"x"}` {
+		t.Errorf("streamed tool calls = %+v, want completed echo call", streamedTools)
 	}
 }
