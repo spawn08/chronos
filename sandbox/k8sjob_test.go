@@ -1,7 +1,10 @@
+//go:build sandbox_k8s
+
 package sandbox
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -133,5 +136,21 @@ func TestK8sJobSandbox_Close(t *testing.T) {
 	sb := newK8sJobSandbox(fake.NewSimpleClientset(), K8sJobConfig{Image: "alpine"})
 	if err := sb.Close(); err != nil {
 		t.Errorf("Close: %v", err)
+	}
+}
+
+func TestK8sJobSandbox_NewRequiresImage(t *testing.T) {
+	// An empty image is rejected before any cluster discovery, so this check is
+	// environment-independent (unlike a real config load).
+	sb, err := NewK8sJobSandbox(K8sJobConfig{})
+	if err == nil {
+		t.Fatal("expected error for empty image")
+		return
+	}
+	if sb != nil {
+		t.Errorf("expected nil sandbox, got %v", sb)
+	}
+	if !strings.Contains(err.Error(), "image is required") {
+		t.Errorf("error = %v, want an image-required error", err)
 	}
 }

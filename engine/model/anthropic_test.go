@@ -219,6 +219,24 @@ func TestAnthropic_BuildRequestBody_ToolCalls(t *testing.T) {
 	}
 }
 
+func TestAnthropic_BuildRequestBody_EmptyToolCallArguments(t *testing.T) {
+	p := NewAnthropic("test")
+	req := &ChatRequest{Messages: []Message{{
+		Role: RoleAssistant,
+		ToolCalls: []ToolCall{{
+			ID: "tc1", Name: "no_args", Arguments: "",
+		}},
+	}}}
+
+	body := p.buildRequestBody(req, false)
+	messages := body["messages"].([]map[string]any)
+	content := messages[0]["content"].([]map[string]any)
+	input, ok := content[0]["input"].(map[string]any)
+	if !ok || input == nil || len(input) != 0 {
+		t.Fatalf("empty tool input = %#v, want an empty object", content[0]["input"])
+	}
+}
+
 func TestAnthropic_BuildRequestBody_WithTools(t *testing.T) {
 	p := NewAnthropic("test")
 	req := &ChatRequest{

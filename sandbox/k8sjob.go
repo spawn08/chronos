@@ -1,3 +1,5 @@
+//go:build sandbox_k8s
+
 package sandbox
 
 import (

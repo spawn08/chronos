@@ -1,9 +1,12 @@
+//go:build sandbox_wasm
+
 package sandbox
 
 import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -62,5 +65,37 @@ func TestWASMSandbox_CloseIdempotent(t *testing.T) {
 func TestWASMSandbox_ConfigRequiresPath(t *testing.T) {
 	if _, err := NewWASMSandboxWithConfig(WASMConfig{}); err == nil {
 		t.Fatal("expected error when wasm_path is empty")
+	}
+}
+
+func TestNewFromConfig_WASM_MissingModule(t *testing.T) {
+	// A nonexistent module path fails at construction with a read error, so a
+	// bad configuration surfaces immediately rather than at execution time.
+	_, err := NewFromConfig(Config{Backend: BackendWASM, WASMPath: "/path/to/module.wasm"})
+	if err == nil {
+		t.Fatal("expected error for missing wasm module")
+		return
+	}
+	if !strings.Contains(err.Error(), "read module") {
+		t.Errorf("error = %v, want a read-module error", err)
+	}
+}
+
+func TestWASMSandbox_NewMissingModule(t *testing.T) {
+	// A nonexistent module path fails at construction with a read error whose
+	// message names the offending path.
+	sb, err := NewWASMSandbox("/path/to/mod.wasm")
+	if err == nil {
+		t.Fatal("expected read error at construction")
+		return
+	}
+	if sb != nil {
+		t.Errorf("expected nil sandbox, got %v", sb)
+	}
+	if !strings.Contains(err.Error(), "read module") {
+		t.Errorf("error = %v, want a read-module error", err)
+	}
+	if !strings.Contains(err.Error(), "/path/to/mod.wasm") {
+		t.Errorf("error should contain module path: %v", err)
 	}
 }

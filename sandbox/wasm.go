@@ -1,3 +1,5 @@
+//go:build sandbox_wasm
+
 package sandbox
 
 import (

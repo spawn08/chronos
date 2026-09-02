@@ -123,8 +123,12 @@ func (a *Anthropic) buildRequestBody(req *ChatRequest, stream bool) map[string]a
 				content = append(content, map[string]any{"type": "text", "text": req.Messages[i].Content})
 			}
 			for _, tc := range req.Messages[i].ToolCalls {
-				var args any
-				_ = json.Unmarshal([]byte(tc.Arguments), &args)
+				args := map[string]any{}
+				if strings.TrimSpace(tc.Arguments) != "" {
+					if err := json.Unmarshal([]byte(tc.Arguments), &args); err != nil || args == nil {
+						args = map[string]any{}
+					}
+				}
 				content = append(content, map[string]any{
 					"type":  "tool_use",
 					"id":    tc.ID,

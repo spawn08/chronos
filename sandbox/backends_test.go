@@ -48,19 +48,6 @@ func TestNewFromConfig_WASM_NoPath(t *testing.T) {
 	}
 }
 
-func TestNewFromConfig_WASM_MissingModule(t *testing.T) {
-	// A nonexistent module path fails at construction with a read error, so a
-	// bad configuration surfaces immediately rather than at execution time.
-	_, err := NewFromConfig(Config{Backend: BackendWASM, WASMPath: "/path/to/module.wasm"})
-	if err == nil {
-		t.Fatal("expected error for missing wasm module")
-		return
-	}
-	if !strings.Contains(err.Error(), "read module") {
-		t.Errorf("error = %v, want a read-module error", err)
-	}
-}
-
 func TestNewFromConfig_K8s_NoImage(t *testing.T) {
 	_, err := NewFromConfig(Config{Backend: BackendK8sJob})
 	if err == nil {
@@ -112,41 +99,6 @@ func TestParseBackend(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("ParseBackend(%q)=%q, want %q", tt.input, got, tt.want)
 		}
-	}
-}
-
-func TestWASMSandbox_NewMissingModule(t *testing.T) {
-	// A nonexistent module path fails at construction with a read error whose
-	// message names the offending path.
-	sb, err := NewWASMSandbox("/path/to/mod.wasm")
-	if err == nil {
-		t.Fatal("expected read error at construction")
-		return
-	}
-	if sb != nil {
-		t.Errorf("expected nil sandbox, got %v", sb)
-	}
-	if !strings.Contains(err.Error(), "read module") {
-		t.Errorf("error = %v, want a read-module error", err)
-	}
-	if !strings.Contains(err.Error(), "/path/to/mod.wasm") {
-		t.Errorf("error should contain module path: %v", err)
-	}
-}
-
-func TestK8sJobSandbox_NewRequiresImage(t *testing.T) {
-	// An empty image is rejected before any cluster discovery, so this check is
-	// environment-independent (unlike a real config load).
-	sb, err := NewK8sJobSandbox(K8sJobConfig{})
-	if err == nil {
-		t.Fatal("expected error for empty image")
-		return
-	}
-	if sb != nil {
-		t.Errorf("expected nil sandbox, got %v", sb)
-	}
-	if !strings.Contains(err.Error(), "image is required") {
-		t.Errorf("error = %v, want an image-required error", err)
 	}
 }
 
