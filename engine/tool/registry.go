@@ -49,6 +49,7 @@ type Definition struct {
 	Permission           Permission     `json:"permission"`
 	RequiresConfirmation bool           `json:"requires_confirmation,omitempty"`
 	RequiresUserInput    bool           `json:"requires_user_input,omitempty"`
+	ParallelSafe         bool           `json:"parallel_safe,omitempty"`
 	Handler              Handler        `json:"-"`
 }
 

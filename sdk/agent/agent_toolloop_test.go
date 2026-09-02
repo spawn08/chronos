@@ -5,10 +5,54 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/spawn08/chronos/engine/model"
 	"github.com/spawn08/chronos/engine/tool"
 )
+
+func TestExecuteToolCallsRunsParallelSafeToolsConcurrently(t *testing.T) {
+	a, err := New("parallel", "Parallel").WithModel(&recordingProvider{}).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan string, 2)
+	release := make(chan struct{})
+	for _, name := range []string{"one", "two"} {
+		toolName := name
+		a.Tools.Register(&tool.Definition{
+			Name:         toolName,
+			Permission:   tool.PermAllow,
+			ParallelSafe: true,
+			Handler: func(context.Context, map[string]any) (any, error) {
+				started <- toolName
+				<-release
+				return toolName, nil
+			},
+		})
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := a.executeToolCalls(context.Background(), nil, &model.ChatResponse{ToolCalls: []model.ToolCall{
+			{ID: "1", Name: "one", Arguments: `{}`},
+			{ID: "2", Name: "two", Arguments: `{}`},
+		}})
+		done <- err
+	}()
+
+	for i := 0; i < 2; i++ {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			close(release)
+			t.Fatal("parallel-safe tool calls did not start concurrently")
+		}
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("executeToolCalls() error = %v", err)
+	}
+}
 
 // recordingProvider returns a scripted sequence of responses and records a
 // snapshot of every request it receives, so tests can assert that message

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spawn08/chronos/engine/graph"
@@ -890,73 +891,120 @@ func (a *Agent) executeToolCalls(ctx context.Context, messages []model.Message, 
 	})
 
 	a.debugLog("handling %d tool calls", len(resp.ToolCalls))
-	for _, tc := range resp.ToolCalls {
-		var args map[string]any
-		_ = json.Unmarshal([]byte(tc.Arguments), &args)
-		a.debugLog("calling tool %q", tc.Name)
-
-		// Include the model's tool-call id so stream consumers can correlate the
-		// call with its result (and other concurrent calls) unambiguously.
-		a.publish(ctx, stream.Event{Type: stream.EventToolCall, Data: map[string]any{
-			"agent": a.ID, "id": tc.ID, "tool": tc.Name, "args": args,
-		}})
-
-		// Fire tool call hooks
-		toolEvt := &hooks.Event{Type: hooks.EventToolCallBefore, Name: tc.Name, Input: args}
-		if err := a.Hooks.Before(ctx, toolEvt); err != nil {
-			return messages, fmt.Errorf("hook before tool %q: %w", tc.Name, err)
+	results := make([]toolExecution, len(resp.ToolCalls))
+	if a.toolCallsParallelSafe(resp.ToolCalls) {
+		limit := a.MaxConcurrentSubAgents
+		if limit <= 0 {
+			limit = 5
 		}
-
-		var toolSpan *storage.Trace
-		if a.Tracer != nil {
-			sessionID := storage.SessionFromContext(ctx)
-			if sessionID == "" {
-				sessionID = a.ID
-			}
-			span, spanErr := a.Tracer.StartSpan(ctx, sessionID, "tool:"+tc.Name, "tool_call")
-			if spanErr == nil {
-				toolSpan = span
-			}
+		semaphore := make(chan struct{}, limit)
+		var wg sync.WaitGroup
+		for i, tc := range resp.ToolCalls {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				select {
+				case semaphore <- struct{}{}:
+					defer func() { <-semaphore }()
+				case <-ctx.Done():
+					results[i].err = ctx.Err()
+					return
+				}
+				results[i] = a.executeToolCall(ctx, tc)
+			}()
 		}
-
-		result, err := a.Tools.Execute(ctx, tc.Name, args)
-		if toolSpan != nil {
-			if err != nil {
-				_ = a.Tracer.EndSpan(ctx, toolSpan, nil, err.Error())
-			} else {
-				_ = a.Tracer.EndSpan(ctx, toolSpan, result, "")
-			}
+		wg.Wait()
+	} else {
+		for i, tc := range resp.ToolCalls {
+			results[i] = a.executeToolCall(ctx, tc)
 		}
-
-		toolEvt.Type = hooks.EventToolCallAfter
-		toolEvt.Output = result
-		toolEvt.Error = err
-		_ = a.Hooks.After(ctx, toolEvt)
-
-		toolResultData := map[string]any{"agent": a.ID, "id": tc.ID, "tool": tc.Name}
-		if err != nil {
-			toolResultData["error"] = err.Error()
-		} else {
-			toolResultData["result"] = result
+	}
+	for _, result := range results {
+		if result.err != nil {
+			return messages, result.err
 		}
-		a.publish(ctx, stream.Event{Type: stream.EventToolResult, Data: toolResultData})
-
-		var content string
-		if err != nil {
-			content = fmt.Sprintf("Error: %s", err.Error())
-		} else {
-			resultJSON, _ := json.Marshal(result)
-			content = string(resultJSON)
-		}
-
-		messages = append(messages, model.Message{
-			Role:       model.RoleTool,
-			Content:    content,
-			ToolCallID: tc.ID,
-			Name:       tc.Name,
-		})
+		messages = append(messages, result.message)
 	}
 	return messages, nil
+}
+
+type toolExecution struct {
+	message model.Message
+	err     error
+}
+
+func (a *Agent) toolCallsParallelSafe(calls []model.ToolCall) bool {
+	if len(calls) < 2 {
+		return false
+	}
+	for _, call := range calls {
+		definition, ok := a.Tools.Get(call.Name)
+		if !ok || !definition.ParallelSafe {
+			return false
+		}
+	}
+	return true
+}
+
+func (a *Agent) executeToolCall(ctx context.Context, tc model.ToolCall) toolExecution {
+	var args map[string]any
+	_ = json.Unmarshal([]byte(tc.Arguments), &args)
+	a.debugLog("calling tool %q", tc.Name)
+	a.publish(ctx, stream.Event{Type: stream.EventToolCall, Data: map[string]any{
+		"agent": a.ID, "id": tc.ID, "tool": tc.Name, "args": args,
+	}})
+
+	toolEvt := &hooks.Event{Type: hooks.EventToolCallBefore, Name: tc.Name, Input: args}
+	if err := a.Hooks.Before(ctx, toolEvt); err != nil {
+		return toolExecution{err: fmt.Errorf("hook before tool %q: %w", tc.Name, err)}
+	}
+
+	var toolSpan *storage.Trace
+	if a.Tracer != nil {
+		sessionID := storage.SessionFromContext(ctx)
+		if sessionID == "" {
+			sessionID = a.ID
+		}
+		span, spanErr := a.Tracer.StartSpan(ctx, sessionID, "tool:"+tc.Name, "tool_call")
+		if spanErr == nil {
+			toolSpan = span
+		}
+	}
+
+	result, err := a.Tools.Execute(ctx, tc.Name, args)
+	if toolSpan != nil {
+		if err != nil {
+			_ = a.Tracer.EndSpan(ctx, toolSpan, nil, err.Error())
+		} else {
+			_ = a.Tracer.EndSpan(ctx, toolSpan, result, "")
+		}
+	}
+
+	toolEvt.Type = hooks.EventToolCallAfter
+	toolEvt.Output = result
+	toolEvt.Error = err
+	_ = a.Hooks.After(ctx, toolEvt)
+	toolResultData := map[string]any{"agent": a.ID, "id": tc.ID, "tool": tc.Name}
+	if err != nil {
+		toolResultData["error"] = err.Error()
+	} else {
+		toolResultData["result"] = result
+	}
+	a.publish(ctx, stream.Event{Type: stream.EventToolResult, Data: toolResultData})
+
+	content := ""
+	if err != nil {
+		content = fmt.Sprintf("Error: %s", err.Error())
+	} else {
+		resultJSON, _ := json.Marshal(result)
+		content = string(resultJSON)
+	}
+	return toolExecution{message: model.Message{
+		Role:       model.RoleTool,
+		Content:    content,
+		ToolCallID: tc.ID,
+		Name:       tc.Name,
+	}}
 }
 
 // Execute runs the agent on a text task and returns the text response.

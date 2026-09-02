@@ -67,9 +67,10 @@ func NewSpawnSubAgentTool(svc *SubAgentService, runner Runner) *tool.Definition 
 	}
 
 	return &tool.Definition{
-		Name:        SpawnToolName,
-		Description: description,
-		Permission:  tool.PermAllow,
+		Name:         SpawnToolName,
+		Description:  description,
+		Permission:   tool.PermAllow,
+		ParallelSafe: true,
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
