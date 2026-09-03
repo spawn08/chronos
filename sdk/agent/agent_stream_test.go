@@ -18,18 +18,20 @@ type streamProvider struct {
 	scripts  [][]*model.ChatResponse // one slice of deltas per model call
 	startErr error
 	calls    int
+	requests []*model.ChatRequest
 }
 
 func (p *streamProvider) Chat(_ context.Context, _ *model.ChatRequest) (*model.ChatResponse, error) {
 	return nil, errors.New("not used")
 }
 
-func (p *streamProvider) StreamChat(_ context.Context, _ *model.ChatRequest) (<-chan *model.ChatResponse, error) {
+func (p *streamProvider) StreamChat(_ context.Context, req *model.ChatRequest) (<-chan *model.ChatResponse, error) {
 	if p.startErr != nil {
 		return nil, p.startErr
 	}
 	idx := p.calls
 	p.calls++
+	p.requests = append(p.requests, req)
 	ch := make(chan *model.ChatResponse, 8)
 	go func() {
 		defer close(ch)
@@ -154,7 +156,7 @@ func TestChatStream_ToolCallThenStream(t *testing.T) {
 	// First round: model requests a tool. Second round: streams the answer.
 	prov := &streamProvider{scripts: [][]*model.ChatResponse{
 		{
-			{Role: model.RoleAssistant, ToolCalls: []model.ToolCall{{ID: "1", Name: "echo", Arguments: `{"v":"x"}`}}, StopReason: model.StopReasonToolCall},
+			{Role: model.RoleAssistant, ToolCalls: []model.ToolCall{{ID: "1", Name: "echo", Arguments: `{"v":"x"}`}}, Usage: model.Usage{PromptTokens: 10, CompletionTokens: 1}, StopReason: model.StopReasonToolCall},
 		},
 		{
 			{Role: model.RoleAssistant, Content: "done: ", Delta: true},
@@ -180,12 +182,16 @@ func TestChatStream_ToolCallThenStream(t *testing.T) {
 	}
 	var text strings.Builder
 	var streamedTools []model.ToolCall
+	var usage model.Usage
 	for chunk := range ch {
 		if chunk.Err != nil {
 			t.Fatalf("stream error: %v", chunk.Err)
 		}
 		text.WriteString(chunk.Content)
 		streamedTools = append(streamedTools, chunk.ToolCalls...)
+		if chunk.Usage.PromptTokens > 0 {
+			usage = chunk.Usage
+		}
 	}
 	if !called {
 		t.Error("tool was not executed")
@@ -198,5 +204,52 @@ func TestChatStream_ToolCallThenStream(t *testing.T) {
 	}
 	if len(streamedTools) != 1 || streamedTools[0].Name != "echo" || streamedTools[0].Arguments != `{"v":"x"}` {
 		t.Errorf("streamed tool calls = %+v, want completed echo call", streamedTools)
+	}
+	if usage.PromptTokens != 14 || usage.CompletionTokens != 3 || usage.ContextTokens != 6 {
+		t.Errorf("usage = %+v, want aggregate 14/3 and final-call context 6", usage)
+	}
+}
+
+func TestChatStreamWithSessionPreservesConversation(t *testing.T) {
+	prov := &streamProvider{scripts: [][]*model.ChatResponse{
+		{
+			{Role: model.RoleAssistant, Content: "Paris", Delta: true},
+			{Role: model.RoleAssistant, Usage: model.Usage{PromptTokens: 4, CompletionTokens: 1}, StopReason: model.StopReasonEnd},
+		},
+		{
+			{Role: model.RoleAssistant, Content: "France", Delta: true},
+			{Role: model.RoleAssistant, Usage: model.Usage{PromptTokens: 8, CompletionTokens: 1}, StopReason: model.StopReasonEnd},
+		},
+	}}
+	a, _ := New("a1", "Test").WithModel(prov).WithStorage(newTestStorage()).Build()
+
+	first, err := a.ChatStreamWithSession(context.Background(), "session-1", "Remember Paris")
+	if err != nil {
+		t.Fatalf("first ChatStreamWithSession: %v", err)
+	}
+	if text, _, streamErr := collectStream(t, first); streamErr != nil || text != "Paris" {
+		t.Fatalf("first stream = %q, %v; want Paris", text, streamErr)
+	}
+
+	second, err := a.ChatStreamWithSession(context.Background(), "session-1", "Which country?")
+	if err != nil {
+		t.Fatalf("second ChatStreamWithSession: %v", err)
+	}
+	if _, _, streamErr := collectStream(t, second); streamErr != nil {
+		t.Fatalf("second stream: %v", streamErr)
+	}
+
+	if len(prov.requests) != 2 {
+		t.Fatalf("requests = %d, want 2", len(prov.requests))
+	}
+	var conversation []string
+	for _, msg := range prov.requests[1].Messages {
+		if msg.Role == model.RoleUser || msg.Role == model.RoleAssistant {
+			conversation = append(conversation, msg.Role+":"+msg.Content)
+		}
+	}
+	want := []string{"user:Remember Paris", "assistant:Paris", "user:Which country?"}
+	if strings.Join(conversation, "|") != strings.Join(want, "|") {
+		t.Fatalf("second request conversation = %q, want %q", conversation, want)
 	}
 }

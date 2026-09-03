@@ -197,6 +197,9 @@ type ChatResponse struct {
 type Usage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
+	// ContextTokens is the token usage of the final model call in an agent turn.
+	// PromptTokens and CompletionTokens may be aggregated across tool rounds.
+	ContextTokens int `json:"context_tokens,omitempty"`
 }
 
 // Provider is the interface all LLM backends must implement.

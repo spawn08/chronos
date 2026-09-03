@@ -352,6 +352,137 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 	return resp, nil
 }
 
+// ChatStreamWithSession streams a message within a persistent, multi-turn
+// session. It uses the same event-ledger history and context budgeting as
+// ChatWithSession, and persists the completed assistant response before the
+// stream closes.
+func (a *Agent) ChatStreamWithSession(ctx context.Context, sessionID, userMessage string) (<-chan *model.ChatResponse, error) {
+	if a.Model == nil {
+		return nil, fmt.Errorf("agent %q has no model", a.ID)
+	}
+	if a.Storage == nil {
+		return nil, fmt.Errorf("agent %q has no storage (required for session chat)", a.ID)
+	}
+
+	ctx = storage.WithSession(ctx, sessionID)
+	_ = a.Hooks.Before(ctx, &hooks.Event{Type: hooks.EventSessionStart, Name: sessionID})
+
+	if _, err := a.Storage.GetSession(ctx, sessionID); err != nil {
+		sess := &storage.Session{
+			ID:        sessionID,
+			AgentID:   a.ID,
+			Status:    "active",
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		}
+		if createErr := a.Storage.CreateSession(ctx, sess); createErr != nil {
+			return nil, fmt.Errorf("create session: %w", createErr)
+		}
+	}
+
+	events, err := a.Storage.ListEvents(ctx, sessionID, 0)
+	if err != nil {
+		return nil, fmt.Errorf("load session events: %w", err)
+	}
+	cs := chatSessionFromEvents(events)
+	cs.ID = sessionID
+	cs.AgentID = a.ID
+	cs.mu.Lock()
+
+	userMsg := model.Message{Role: model.RoleUser, Content: userMessage}
+	cs.Messages = append(cs.Messages, userMsg)
+	seqNum := int64(len(events) + 1)
+	if err := persistMessage(ctx, a.Storage, sessionID, seqNum, userMsg); err != nil {
+		cs.mu.Unlock()
+		return nil, fmt.Errorf("persist user message: %w", err)
+	}
+
+	systemMsgs := a.buildSystemContext(ctx, userMessage)
+	counter := model.NewTokenCounter(a.Model.Model())
+	contextLimit := a.resolveContextLimit()
+	systemTokens := counter.CountTokens(systemMsgs)
+	summarizer := model.NewSummarizer(a.Model, counter, model.SummarizationConfig{
+		Threshold:           a.ContextCfg.SummarizeThreshold,
+		PreserveRecentTurns: a.ContextCfg.PreserveRecentTurns,
+	})
+	if summarizer.NeedsSummarization(systemTokens, cs.Messages, contextLimit) {
+		_ = a.Hooks.Before(ctx, &hooks.Event{
+			Type: hooks.EventContextOverflow,
+			Name: sessionID,
+			Metadata: map[string]any{
+				"estimated_tokens": systemTokens + counter.CountTokens(cs.Messages),
+				"context_limit":    contextLimit,
+			},
+		})
+		result, sumErr := summarizer.Summarize(ctx, cs.Summary, cs.Messages)
+		if sumErr != nil {
+			cs.mu.Unlock()
+			return nil, fmt.Errorf("summarize: %w", sumErr)
+		}
+		cs.Summary = result.Summary
+		cs.Messages = result.PreservedMessages
+		seqNum++
+		if err := persistSummary(ctx, a.Storage, sessionID, seqNum, cs.Summary); err != nil {
+			cs.mu.Unlock()
+			return nil, fmt.Errorf("persist summary: %w", err)
+		}
+		_ = a.Hooks.After(ctx, &hooks.Event{
+			Type: hooks.EventSummarization,
+			Name: sessionID,
+			Metadata: map[string]any{
+				"summary_length":     len(cs.Summary),
+				"preserved_messages": len(cs.Messages),
+			},
+		})
+	}
+
+	messages := make([]model.Message, 0, len(systemMsgs)+len(cs.Messages)+1)
+	messages = append(messages, systemMsgs...)
+	protectedPrefix := len(systemMsgs)
+	if cs.Summary != "" {
+		messages = append(messages, model.Message{
+			Role:    model.RoleSystem,
+			Content: "Previous conversation summary:\n" + cs.Summary,
+		})
+		protectedPrefix++
+	}
+	messages = append(messages, cs.Messages...)
+	messages = enforceContextBudget(counter, messages, protectedPrefix, contextLimit)
+
+	if result := a.Guardrails.CheckInput(ctx, userMessage); result != nil {
+		cs.mu.Unlock()
+		return nil, fmt.Errorf("input guardrail failed: %s", result.Reason)
+	}
+
+	req := &model.ChatRequest{Messages: messages}
+	applyOutputSchema(req, a.OutputSchema)
+	for _, t := range a.Tools.List() {
+		req.Tools = append(req.Tools, model.ToolDefinition{
+			Type: "function",
+			Function: model.FunctionDef{
+				Name:        t.Name,
+				Description: t.Description,
+				Parameters:  t.Parameters,
+			},
+		})
+	}
+
+	out := make(chan *model.ChatResponse, 64)
+	go func() {
+		defer close(out)
+		defer cs.mu.Unlock()
+		resp, _, streamErr := a.streamLoop(ctx, req, messages, out)
+		if streamErr != nil || resp == nil {
+			return
+		}
+		assistantMsg := model.Message{Role: model.RoleAssistant, Content: resp.Content}
+		if err := persistMessage(ctx, a.Storage, sessionID, seqNum+1, assistantMsg); err != nil {
+			a.emitError(ctx, out, fmt.Errorf("persist assistant message: %w", err))
+		}
+	}()
+	return out, nil
+}
+
 // buildSystemContext constructs the system-level messages (prompt, instructions,
 // memories, knowledge) without the conversation history.
 func (a *Agent) buildSystemContext(ctx context.Context, userQuery string) []model.Message {

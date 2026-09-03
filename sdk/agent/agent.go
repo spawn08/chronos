@@ -639,7 +639,7 @@ func (a *Agent) ChatStream(ctx context.Context, userMessage string) (<-chan *mod
 	out := make(chan *model.ChatResponse, 64)
 	go func() {
 		defer close(out)
-		a.streamLoop(ctx, req, messages, out)
+		_, _, _ = a.streamLoop(ctx, req, messages, out)
 	}()
 	return out, nil
 }
@@ -647,15 +647,16 @@ func (a *Agent) ChatStream(ctx context.Context, userMessage string) (<-chan *mod
 // streamLoop drives the streaming model call and the tool-calling rounds,
 // forwarding text deltas to out and reassembling each round's full response so it
 // can decide whether more tool calls are pending.
-func (a *Agent) streamLoop(ctx context.Context, req *model.ChatRequest, messages []model.Message, out chan<- *model.ChatResponse) {
+func (a *Agent) streamLoop(ctx context.Context, req *model.ChatRequest, messages []model.Message, out chan<- *model.ChatResponse) (*model.ChatResponse, []model.Message, error) {
 	a.publish(ctx, stream.Event{Type: stream.EventModelCall, Data: map[string]any{
 		"agent": a.ID, "model": a.Model.Name(), "messages": len(req.Messages), "stream": true,
 	}})
 
 	resp, err := a.streamOnce(ctx, req, out)
 	if err != nil {
-		a.emitError(ctx, out, fmt.Errorf("agent %q stream: %w", a.ID, err))
-		return
+		err = fmt.Errorf("agent %q stream: %w", a.ID, err)
+		a.emitError(ctx, out, err)
+		return nil, messages, err
 	}
 
 	var totalUsage model.Usage
@@ -669,8 +670,9 @@ func (a *Agent) streamLoop(ctx context.Context, req *model.ChatRequest, messages
 	for resp != nil && resp.StopReason == model.StopReasonToolCall && len(resp.ToolCalls) > 0 {
 		iteration++
 		if iteration > maxIter {
-			a.emitError(ctx, out, fmt.Errorf("agent %q: exceeded max tool-calling iterations (%d) with unsatisfied tool calls", a.ID, maxIter))
-			return
+			err = fmt.Errorf("agent %q: exceeded max tool-calling iterations (%d) with unsatisfied tool calls", a.ID, maxIter)
+			a.emitError(ctx, out, err)
+			return nil, messages, err
 		}
 		// Tool calls are reassembled internally from provider fragments. Surface
 		// the completed calls before execution so interactive clients can show
@@ -683,13 +685,14 @@ func (a *Agent) streamLoop(ctx context.Context, req *model.ChatRequest, messages
 		messages, err = a.executeToolCalls(ctx, messages, resp)
 		if err != nil {
 			a.emitError(ctx, out, err)
-			return
+			return nil, messages, err
 		}
 		followReq := &model.ChatRequest{Messages: messages, Tools: req.Tools, Reasoning: req.Reasoning}
 		resp, err = a.streamOnce(ctx, followReq, out)
 		if err != nil {
-			a.emitError(ctx, out, fmt.Errorf("agent %q stream: %w", a.ID, err))
-			return
+			err = fmt.Errorf("agent %q stream: %w", a.ID, err)
+			a.emitError(ctx, out, err)
+			return nil, messages, err
 		}
 		accumulateUsage(&totalUsage, resp.Usage)
 	}
@@ -703,14 +706,16 @@ func (a *Agent) streamLoop(ctx context.Context, req *model.ChatRequest, messages
 	// Post-emission validation: guardrails and schema run on the fully streamed text.
 	if resp.Content != "" {
 		if result := a.Guardrails.CheckOutput(ctx, resp.Content); result != nil {
-			a.emitError(ctx, out, fmt.Errorf("output guardrail failed: %s", result.Reason))
-			return
+			err = fmt.Errorf("output guardrail failed: %s", result.Reason)
+			a.emitError(ctx, out, err)
+			return nil, messages, err
 		}
 	}
 	if a.OutputSchema != nil && resp.Content != "" {
 		if valErr := validateAgainstSchema(resp.Content, a.OutputSchema); valErr != nil {
-			a.emitError(ctx, out, fmt.Errorf("output schema validation failed: %w", valErr))
-			return
+			err = fmt.Errorf("output schema validation failed: %w", valErr)
+			a.emitError(ctx, out, err)
+			return nil, messages, err
 		}
 	}
 
@@ -720,11 +725,13 @@ func (a *Agent) streamLoop(ctx context.Context, req *model.ChatRequest, messages
 	}
 
 	// Emit the final summary chunk carrying usage and stop reason.
+	totalUsage.ContextTokens = resp.Usage.PromptTokens + resp.Usage.CompletionTokens
 	sendStream(ctx, out, &model.ChatResponse{
 		Role:       model.RoleAssistant,
 		Usage:      totalUsage,
 		StopReason: resp.StopReason,
 	})
+	return resp, messages, nil
 }
 
 // streamOnce issues a single streaming model call. It forwards each text delta to
