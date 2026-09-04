@@ -166,8 +166,12 @@ func TestAnthropic_BuildRequestBody_SystemMessage(t *testing.T) {
 		},
 	}
 	body := p.buildRequestBody(req, false)
-	if body["system"] != "You are helpful." {
-		t.Errorf("system=%v", body["system"])
+	blocks, ok := body["system"].([]map[string]any)
+	if !ok || len(blocks) != 1 || blocks[0]["text"] != "You are helpful." {
+		t.Errorf("system=%v, want cached text block", body["system"])
+	}
+	if _, hasCache := blocks[0]["cache_control"]; !hasCache {
+		t.Error("expected cache_control on the static system prefix")
 	}
 	msgs, _ := body["messages"].([]map[string]any)
 	// System messages are skipped from messages
@@ -184,8 +188,12 @@ func TestAnthropic_BuildRequestBody_SystemOnlyStillHasUserMessage(t *testing.T) 
 			{Role: RoleSystem, Content: "Be brief."},
 		},
 	}, false)
-	if body["system"] != "You are helpful.\n\nBe brief." {
-		t.Errorf("system=%v", body["system"])
+	blocks, ok := body["system"].([]map[string]any)
+	if !ok || len(blocks) != 2 {
+		t.Fatalf("system=%v, want two blocks (cached prefix + dynamic remainder)", body["system"])
+	}
+	if blocks[0]["text"] != "You are helpful." || blocks[1]["text"] != "Be brief." {
+		t.Errorf("system texts = %#v", blocks)
 	}
 	msgs, _ := body["messages"].([]map[string]any)
 	if len(msgs) != 1 || msgs[0]["role"] != RoleUser {
@@ -233,6 +241,41 @@ func TestAnthropic_BuildRequestBody_ToolCalls(t *testing.T) {
 	content, _ := msgs[0]["content"].([]map[string]any)
 	if len(content) < 2 {
 		t.Errorf("expected >=2 content blocks, got %d", len(content))
+	}
+}
+
+func TestAnthropic_BuildRequestBody_PreservesThinkingBlocks(t *testing.T) {
+	p := NewAnthropic("test")
+	req := &ChatRequest{
+		Messages: []Message{{
+			Role:    RoleAssistant,
+			Content: "calling tool",
+			ToolCalls: []ToolCall{
+				{ID: "tc1", Name: "fn", Arguments: `{"x":1}`},
+			},
+			ProviderState: []map[string]any{{
+				"type":      "thinking",
+				"thinking":  "need a tool",
+				"signature": "sig_abc",
+			}},
+		}},
+		Reasoning: &ReasoningConfig{Enabled: true, Effort: "medium"},
+		Tools: []ToolDefinition{{
+			Type:     "function",
+			Function: FunctionDef{Name: "fn"},
+		}},
+	}
+	body := p.buildRequestBody(req, false)
+	if body["thinking"] == nil {
+		t.Fatal("native thinking missing from tool-using request")
+	}
+	msgs := body["messages"].([]map[string]any)
+	content := msgs[0]["content"].([]map[string]any)
+	if content[0]["type"] != "thinking" || content[0]["signature"] != "sig_abc" {
+		t.Fatalf("thinking block not preserved: %#v", content)
+	}
+	if content[len(content)-1]["type"] != "tool_use" {
+		t.Fatalf("tool_use should follow thinking: %#v", content)
 	}
 }
 
@@ -340,12 +383,14 @@ func TestAnthropic_ConvertResponse_StopSequence(t *testing.T) {
 		ID:         "msg_05",
 		StopReason: "stop_sequence",
 		Content: []struct {
-			Type     string `json:"type"`
-			Text     string `json:"text,omitempty"`
-			Thinking string `json:"thinking,omitempty"`
-			ID       string `json:"id,omitempty"`
-			Name     string `json:"name,omitempty"`
-			Input    any    `json:"input,omitempty"`
+			Type      string `json:"type"`
+			Text      string `json:"text,omitempty"`
+			Thinking  string `json:"thinking,omitempty"`
+			Signature string `json:"signature,omitempty"`
+			Data      string `json:"data,omitempty"`
+			ID        string `json:"id,omitempty"`
+			Name      string `json:"name,omitempty"`
+			Input     any    `json:"input,omitempty"`
 		}{
 			{Type: "text", Text: "done."},
 		},
@@ -389,5 +434,80 @@ func TestNewAnthropicWithConfig_DefaultsApplied(t *testing.T) {
 	}
 	if p.config.Model == "" {
 		t.Error("Model should have a default")
+	}
+}
+
+func TestAnthropic_PromptCacheBreakpoints(t *testing.T) {
+	p := NewAnthropic("test")
+	body := p.buildRequestBody(&ChatRequest{
+		Messages: []Message{
+			{Role: RoleSystem, Content: "static"},
+			{Role: RoleSystem, Content: "dynamic memory"},
+			{Role: RoleUser, Content: "hello"},
+		},
+		Tools: []ToolDefinition{
+			{Type: "function", Function: FunctionDef{Name: "alpha", Parameters: map[string]any{"type": "object"}}},
+			{Type: "function", Function: FunctionDef{Name: "beta", Parameters: map[string]any{"type": "object"}}},
+		},
+	}, false)
+
+	tools := body["tools"].([]map[string]any)
+	if tools[0]["cache_control"] != nil {
+		t.Fatal("only the last tool should carry cache_control")
+	}
+	if tools[1]["cache_control"] == nil {
+		t.Fatal("expected cache_control on the last tool")
+	}
+
+	msgs := body["messages"].([]map[string]any)
+	content := msgs[len(msgs)-1]["content"].([]map[string]any)
+	if content[len(content)-1]["cache_control"] == nil {
+		t.Fatal("expected cache_control on the last message content block")
+	}
+
+	disabled := p.buildRequestBody(&ChatRequest{
+		DisablePromptCache: true,
+		Messages: []Message{
+			{Role: RoleSystem, Content: "static"},
+			{Role: RoleUser, Content: "hello"},
+		},
+		Tools: []ToolDefinition{
+			{Type: "function", Function: FunctionDef{Name: "alpha", Parameters: map[string]any{"type": "object"}}},
+		},
+	}, false)
+	if disabled["system"] != "static" {
+		t.Errorf("disabled system=%v, want plain string", disabled["system"])
+	}
+	dtools := disabled["tools"].([]map[string]any)
+	if dtools[0]["cache_control"] != nil {
+		t.Fatal("DisablePromptCache still attached cache_control to tools")
+	}
+}
+
+func TestAnthropic_Chat_ParsesCacheUsage(t *testing.T) {
+	srv := buildAnthropicServer(t, 200, `{
+		"id": "msg_cache",
+		"type": "message",
+		"role": "assistant",
+		"content": [{"type":"text","text":"ok"}],
+		"stop_reason": "end_turn",
+		"usage": {
+			"input_tokens": 40,
+			"output_tokens": 5,
+			"cache_creation_input_tokens": 1200,
+			"cache_read_input_tokens": 8000
+		}
+	}`)
+	defer srv.Close()
+
+	p := NewAnthropicWithConfig(ProviderConfig{APIKey: "test", BaseURL: srv.URL, Model: "claude-3-opus"})
+	resp, err := p.Chat(t.Context(), &ChatRequest{
+		Messages: []Message{{Role: RoleUser, Content: "Hi"}},
+	})
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if resp.Usage.PromptTokens != 40 || resp.Usage.CacheCreationTokens != 1200 || resp.Usage.CacheReadTokens != 8000 {
+		t.Fatalf("usage = %+v", resp.Usage)
 	}
 }

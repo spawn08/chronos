@@ -224,6 +224,7 @@ func (g *Gemini) convertResponse(raw *geminiResponse) *ChatResponse {
 		cr.Usage = Usage{
 			PromptTokens:     raw.UsageMetadata.PromptTokenCount,
 			CompletionTokens: raw.UsageMetadata.CandidatesTokenCount,
+			CacheReadTokens:  raw.UsageMetadata.CachedContentTokenCount,
 		}
 	}
 
@@ -304,7 +305,8 @@ type geminiResponse struct {
 		FinishReason string `json:"finishReason"`
 	} `json:"candidates"`
 	UsageMetadata *struct {
-		PromptTokenCount     int `json:"promptTokenCount"`
-		CandidatesTokenCount int `json:"candidatesTokenCount"`
+		PromptTokenCount        int `json:"promptTokenCount"`
+		CandidatesTokenCount    int `json:"candidatesTokenCount"`
+		CachedContentTokenCount int `json:"cachedContentTokenCount"`
 	} `json:"usageMetadata"`
 }

@@ -154,6 +154,11 @@ type ChatRequest struct {
 	ResponseFormat string           `json:"response_format,omitempty"`
 	Metadata       map[string]any   `json:"metadata,omitempty"`
 	Reasoning      *ReasoningConfig `json:"reasoning,omitempty"`
+	// DisablePromptCache skips provider cache breakpoints (Anthropic
+	// cache_control on tools, the static system prefix, and the last
+	// message). Caching is on by default so repeated prefixes bill at the
+	// provider's cache-read discount.
+	DisablePromptCache bool `json:"disable_prompt_cache,omitempty"`
 }
 
 // jsonSchemaFromMetadata extracts the JSON Schema stashed in
@@ -200,6 +205,12 @@ type Usage struct {
 	// ContextTokens is the token usage of the final model call in an agent turn.
 	// PromptTokens and CompletionTokens may be aggregated across tool rounds.
 	ContextTokens int `json:"context_tokens,omitempty"`
+	// CacheCreationTokens is the provider cache-write (Anthropic
+	// cache_creation_input_tokens). Billed at a write premium.
+	CacheCreationTokens int `json:"cache_creation_tokens,omitempty"`
+	// CacheReadTokens is the provider cache-hit count (Anthropic
+	// cache_read_input_tokens, OpenAI prompt_tokens_details.cached_tokens).
+	CacheReadTokens int `json:"cache_read_tokens,omitempty"`
 }
 
 // Provider is the interface all LLM backends must implement.

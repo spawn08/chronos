@@ -46,9 +46,6 @@ func (a *Anthropic) Name() string  { return "anthropic" }
 func (a *Anthropic) Model() string { return a.config.Model }
 
 func (a *Anthropic) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
-	if err := validateReasoningToolCompatibility(a.Name(), req); err != nil {
-		return nil, fmt.Errorf("anthropic chat: %w", err)
-	}
 	body := a.buildRequestBody(req, false)
 
 	resp, err := a.http.post(ctx, "/v1/messages", body)
@@ -69,9 +66,6 @@ func (a *Anthropic) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, 
 }
 
 func (a *Anthropic) StreamChat(ctx context.Context, req *ChatRequest) (<-chan *ChatResponse, error) {
-	if err := validateReasoningToolCompatibility(a.Name(), req); err != nil {
-		return nil, fmt.Errorf("anthropic stream: %w", err)
-	}
 	body := a.buildRequestBody(req, true)
 
 	resp, err := a.http.postStream(ctx, "/v1/messages", body)
@@ -119,26 +113,8 @@ func (a *Anthropic) buildRequestBody(req *ChatRequest, stream bool) map[string]a
 				"tool_use_id": req.Messages[i].ToolCallID,
 				"content":     req.Messages[i].Content,
 			}}
-		case len(req.Messages[i].ToolCalls) > 0:
-			content := make([]map[string]any, 0, len(req.Messages[i].ToolCalls)+1)
-			if req.Messages[i].Content != "" {
-				content = append(content, map[string]any{"type": "text", "text": req.Messages[i].Content})
-			}
-			for _, tc := range req.Messages[i].ToolCalls {
-				args := map[string]any{}
-				if strings.TrimSpace(tc.Arguments) != "" {
-					if err := json.Unmarshal([]byte(tc.Arguments), &args); err != nil || args == nil {
-						args = map[string]any{}
-					}
-				}
-				content = append(content, map[string]any{
-					"type":  "tool_use",
-					"id":    tc.ID,
-					"name":  tc.Name,
-					"input": args,
-				})
-			}
-			msg["content"] = content
+		case len(req.Messages[i].ToolCalls) > 0 || len(anthropicThinkingBlocks(req.Messages[i].ProviderState)) > 0:
+			msg["content"] = anthropicAssistantBlocks(req.Messages[i])
 		default:
 			msg["content"] = req.Messages[i].Content
 		}
@@ -162,8 +138,23 @@ func (a *Anthropic) buildRequestBody(req *ChatRequest, stream bool) map[string]a
 	if req.MaxTokens > 0 {
 		body["max_tokens"] = req.MaxTokens
 	}
-	if system := strings.Join(systemParts, "\n\n"); system != "" {
-		body["system"] = system
+	if len(systemParts) > 0 {
+		if !promptCacheEnabled(req) {
+			body["system"] = strings.Join(systemParts, "\n\n")
+		} else {
+			blocks := []map[string]any{{
+				"type":          "text",
+				"text":          systemParts[0],
+				"cache_control": ephemeralCache(),
+			}}
+			if len(systemParts) > 1 {
+				blocks = append(blocks, map[string]any{
+					"type": "text",
+					"text": strings.Join(systemParts[1:], "\n\n"),
+				})
+			}
+			body["system"] = blocks
+		}
 	}
 	if req.Temperature > 0 {
 		body["temperature"] = req.Temperature
@@ -175,10 +166,7 @@ func (a *Anthropic) buildRequestBody(req *ChatRequest, stream bool) map[string]a
 		body["stop_sequences"] = req.Stop
 	}
 	if req.Reasoning != nil && req.Reasoning.Enabled {
-		budget := req.Reasoning.BudgetTokens
-		if budget <= 0 {
-			budget = 1024
-		}
+		budget := anthropicThinkingBudget(req.Reasoning)
 		body["thinking"] = map[string]any{"type": "enabled", "budget_tokens": budget}
 		if maxTokens, _ := body["max_tokens"].(int); maxTokens <= budget {
 			body["max_tokens"] = budget + 4096
@@ -193,32 +181,109 @@ func (a *Anthropic) buildRequestBody(req *ChatRequest, stream bool) map[string]a
 				"input_schema": t.Function.Parameters,
 			}
 		}
+		if promptCacheEnabled(req) {
+			attachEphemeralCache(tools[len(tools)-1])
+		}
 		body["tools"] = tools
 	}
 	if stream {
 		body["stream"] = true
 	}
+	if promptCacheEnabled(req) {
+		if msgs, ok := body["messages"].([]map[string]any); ok && len(msgs) > 0 {
+			cacheLastContentBlock(msgs[len(msgs)-1])
+		}
+	}
 	return body
+}
+
+func anthropicThinkingBudget(cfg *ReasoningConfig) int {
+	if cfg == nil {
+		return 1024
+	}
+	if cfg.BudgetTokens > 0 {
+		return cfg.BudgetTokens
+	}
+	switch strings.ToLower(cfg.Effort) {
+	case "low":
+		return 1024
+	case "high":
+		return 10000
+	default:
+		return 4096
+	}
+}
+
+func anthropicThinkingBlocks(state any) []map[string]any {
+	switch v := state.(type) {
+	case []map[string]any:
+		return v
+	case []any:
+		out := make([]map[string]any, 0, len(v))
+		for _, item := range v {
+			block, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			out = append(out, block)
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func anthropicAssistantBlocks(msg Message) []map[string]any {
+	thoughts := anthropicThinkingBlocks(msg.ProviderState)
+	content := make([]map[string]any, 0, len(thoughts)+len(msg.ToolCalls)+1)
+	content = append(content, thoughts...)
+	if msg.Content != "" {
+		content = append(content, map[string]any{"type": "text", "text": msg.Content})
+	}
+	for _, tc := range msg.ToolCalls {
+		args := map[string]any{}
+		if strings.TrimSpace(tc.Arguments) != "" {
+			if err := json.Unmarshal([]byte(tc.Arguments), &args); err != nil || args == nil {
+				args = map[string]any{}
+			}
+		}
+		content = append(content, map[string]any{
+			"type":  "tool_use",
+			"id":    tc.ID,
+			"name":  tc.Name,
+			"input": args,
+		})
+	}
+	return content
 }
 
 func (a *Anthropic) convertResponse(raw *anthropicResponse) *ChatResponse {
 	cr := &ChatResponse{
-		ID:   raw.ID,
-		Role: RoleAssistant,
-		Usage: Usage{
-			PromptTokens:     raw.Usage.InputTokens,
-			CompletionTokens: raw.Usage.OutputTokens,
-		},
+		ID:    raw.ID,
+		Role:  RoleAssistant,
+		Usage: usageFromAnthropic(raw.Usage),
 	}
 
 	var textParts []string
 	var reasoningParts []string
+	var thinkingBlocks []map[string]any
 	for _, block := range raw.Content {
 		switch block.Type {
 		case "text":
 			textParts = append(textParts, block.Text)
-		case "thinking":
-			reasoningParts = append(reasoningParts, block.Thinking)
+		case "thinking", "redacted_thinking":
+			item := map[string]any{"type": block.Type}
+			if block.Thinking != "" {
+				item["thinking"] = block.Thinking
+				reasoningParts = append(reasoningParts, block.Thinking)
+			}
+			if block.Signature != "" {
+				item["signature"] = block.Signature
+			}
+			if block.Data != "" {
+				item["data"] = block.Data
+			}
+			thinkingBlocks = append(thinkingBlocks, item)
 		case "tool_use":
 			argsJSON, _ := json.Marshal(block.Input)
 			cr.ToolCalls = append(cr.ToolCalls, ToolCall{
@@ -230,6 +295,9 @@ func (a *Anthropic) convertResponse(raw *anthropicResponse) *ChatResponse {
 	}
 	cr.Content = strings.Join(textParts, "")
 	cr.Reasoning = strings.Join(reasoningParts, "")
+	if len(thinkingBlocks) > 0 {
+		cr.ProviderState = thinkingBlocks
+	}
 
 	switch raw.StopReason {
 	case "end_turn", "stop_sequence":
@@ -247,6 +315,14 @@ func (a *Anthropic) convertResponse(raw *anthropicResponse) *ChatResponse {
 func (a *Anthropic) readSSEStream(ctx context.Context, resp *http.Response, ch chan<- *ChatResponse) {
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxSSELineBytes)
+	var thinkingBlocks []map[string]any
+	var currentThinking map[string]any
+	flushThinking := func() {
+		if currentThinking != nil {
+			thinkingBlocks = append(thinkingBlocks, currentThinking)
+			currentThinking = nil
+		}
+	}
 	for scanner.Scan() {
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "data:") {
@@ -261,6 +337,7 @@ func (a *Anthropic) readSSEStream(ctx context.Context, resp *http.Response, ch c
 				Type        string `json:"type"`
 				Text        string `json:"text"`
 				Thinking    string `json:"thinking"`
+				Signature   string `json:"signature"`
 				PartialJSON string `json:"partial_json"`
 				StopReason  string `json:"stop_reason"`
 			} `json:"delta"`
@@ -269,17 +346,12 @@ func (a *Anthropic) readSSEStream(ctx context.Context, resp *http.Response, ch c
 				ID    string `json:"id"`
 				Name  string `json:"name"`
 				Input any    `json:"input"`
+				Data  string `json:"data"`
 			} `json:"content_block"`
 			Message struct {
-				Usage struct {
-					InputTokens  int `json:"input_tokens"`
-					OutputTokens int `json:"output_tokens"`
-				} `json:"usage"`
+				Usage anthropicUsage `json:"usage"`
 			} `json:"message"`
-			Usage struct {
-				InputTokens  int `json:"input_tokens"`
-				OutputTokens int `json:"output_tokens"`
-			} `json:"usage"`
+			Usage anthropicUsage `json:"usage"`
 		}
 		if err := json.Unmarshal([]byte(data), &event); err != nil {
 			continue
@@ -287,17 +359,21 @@ func (a *Anthropic) readSSEStream(ctx context.Context, resp *http.Response, ch c
 
 		switch event.Type {
 		case "message_start":
-			// Prompt token usage arrives up front.
-			if event.Message.Usage.InputTokens > 0 {
-				if !sendCtx(ctx, ch, &ChatResponse{Role: RoleAssistant, Delta: true,
-					Usage: Usage{PromptTokens: event.Message.Usage.InputTokens}}) {
+			// Prompt token usage arrives up front, including cache hits.
+			if usage := usageFromAnthropic(event.Message.Usage); usage.PromptTokens > 0 || usage.CacheReadTokens > 0 || usage.CacheCreationTokens > 0 {
+				if !sendCtx(ctx, ch, &ChatResponse{Role: RoleAssistant, Delta: true, Usage: usage}) {
 					return
 				}
 			}
 		case "content_block_start":
-			// A tool_use block begins: emit the tool call identity so callers can
-			// start assembling arguments from subsequent input_json_delta events.
-			if event.ContentBlock.Type == "tool_use" {
+			switch event.ContentBlock.Type {
+			case "thinking", "redacted_thinking":
+				flushThinking()
+				currentThinking = map[string]any{"type": event.ContentBlock.Type}
+				if event.ContentBlock.Data != "" {
+					currentThinking["data"] = event.ContentBlock.Data
+				}
+			case "tool_use":
 				args := ""
 				if event.ContentBlock.Input != nil {
 					if b, err := json.Marshal(event.ContentBlock.Input); err == nil && string(b) != "{}" && string(b) != "null" {
@@ -322,8 +398,16 @@ func (a *Anthropic) readSSEStream(ctx context.Context, resp *http.Response, ch c
 					return
 				}
 			case "thinking_delta":
+				if currentThinking != nil && event.Delta.Thinking != "" {
+					prev, _ := currentThinking["thinking"].(string)
+					currentThinking["thinking"] = prev + event.Delta.Thinking
+				}
 				if !sendCtx(ctx, ch, &ChatResponse{Reasoning: event.Delta.Thinking, Role: RoleAssistant, Delta: true}) {
 					return
+				}
+			case "signature_delta":
+				if currentThinking != nil && event.Delta.Signature != "" {
+					currentThinking["signature"] = event.Delta.Signature
 				}
 			case "input_json_delta":
 				// Streamed fragment of a tool call's JSON arguments.
@@ -334,6 +418,8 @@ func (a *Anthropic) readSSEStream(ctx context.Context, resp *http.Response, ch c
 					return
 				}
 			}
+		case "content_block_stop":
+			flushThinking()
 		case "message_delta":
 			cr := &ChatResponse{Role: RoleAssistant, Delta: true}
 			if event.Usage.OutputTokens > 0 {
@@ -348,6 +434,10 @@ func (a *Anthropic) readSSEStream(ctx context.Context, resp *http.Response, ch c
 				}
 			}
 		case "message_stop":
+			flushThinking()
+			if len(thinkingBlocks) > 0 {
+				sendCtx(ctx, ch, &ChatResponse{Role: RoleAssistant, Delta: true, ProviderState: thinkingBlocks})
+			}
 			return
 		}
 	}
@@ -377,16 +467,31 @@ type anthropicResponse struct {
 	Type    string `json:"type"`
 	Role    string `json:"role"`
 	Content []struct {
-		Type     string `json:"type"`
-		Text     string `json:"text,omitempty"`
-		Thinking string `json:"thinking,omitempty"`
-		ID       string `json:"id,omitempty"`
-		Name     string `json:"name,omitempty"`
-		Input    any    `json:"input,omitempty"`
+		Type      string `json:"type"`
+		Text      string `json:"text,omitempty"`
+		Thinking  string `json:"thinking,omitempty"`
+		Signature string `json:"signature,omitempty"`
+		Data      string `json:"data,omitempty"`
+		ID        string `json:"id,omitempty"`
+		Name      string `json:"name,omitempty"`
+		Input     any    `json:"input,omitempty"`
 	} `json:"content"`
-	StopReason string `json:"stop_reason"`
-	Usage      struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-	} `json:"usage"`
+	StopReason string         `json:"stop_reason"`
+	Usage      anthropicUsage `json:"usage"`
+}
+
+type anthropicUsage struct {
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+}
+
+func usageFromAnthropic(u anthropicUsage) Usage {
+	return Usage{
+		PromptTokens:        u.InputTokens,
+		CompletionTokens:    u.OutputTokens,
+		CacheCreationTokens: u.CacheCreationInputTokens,
+		CacheReadTokens:     u.CacheReadInputTokens,
+	}
 }

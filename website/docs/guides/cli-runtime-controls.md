@@ -145,7 +145,7 @@ Provider mapping:
 
 Reasoning is carried separately from final answer text in `ChatResponse.Reasoning`. The CLI displays provider-approved reasoning summaries on stderr only when both `native: true` and `summary: true`; normal answer text remains on stdout. Providers can legitimately return no summary for simple or tool-only rounds. Setting `native: false` disables `effort`, `budget_tokens`, and native summary output. Prompt strategies (`cot` and `reflection`) modify answer content and are not native reasoning summaries.
 
-Anthropic and Gemini native reasoning is currently rejected when the request also contains tools because those providers require signed thought blocks to be preserved across tool rounds. Chronos fails closed instead of sending an invalid follow-up request. Azure OpenAI native reasoning with tools is sent through the Responses API and preserves encrypted reasoning state between rounds.
+Anthropic native reasoning with tools preserves signed thinking blocks on `ProviderState` and sends them back on later tool rounds. Gemini native reasoning is currently rejected when the request also contains tools because signed thought blocks cannot yet be preserved. Azure OpenAI native reasoning with tools is sent through the Responses API and preserves encrypted reasoning state between rounds.
 
 ## Debug logs and traces
 

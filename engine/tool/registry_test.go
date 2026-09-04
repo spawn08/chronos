@@ -3,6 +3,7 @@ package tool
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -31,6 +32,24 @@ func TestRegister_And_List(t *testing.T) {
 	tools := r.List()
 	if len(tools) != 2 {
 		t.Fatalf("expected 2 tools, got %d", len(tools))
+	}
+}
+
+func TestRegistry_ListIsStableByName(t *testing.T) {
+	r := NewRegistry()
+	for _, name := range []string{"zeta", "alpha", "mu"} {
+		r.Register(&Definition{
+			Name:    name,
+			Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil },
+		})
+	}
+	got := make([]string, 0, 3)
+	for _, tool := range r.List() {
+		got = append(got, tool.Name)
+	}
+	want := []string{"alpha", "mu", "zeta"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("List() order = %v, want %v", got, want)
 	}
 }
 

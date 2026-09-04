@@ -183,10 +183,7 @@ func convertOpenAIResponse(oai *openAIChatResponse) *ChatResponse {
 		ID:      oai.ID,
 		Content: choice.Message.Content,
 		Role:    RoleAssistant,
-		Usage: Usage{
-			PromptTokens:     oai.Usage.PromptTokens,
-			CompletionTokens: oai.Usage.CompletionTokens,
-		},
+		Usage:   usageFromOpenAI(oai.Usage),
 	}
 	if len(choice.Message.ToolCalls) > 0 {
 		cr.StopReason = StopReasonToolCall
@@ -237,13 +234,10 @@ func readOpenAISSEStream(ctx context.Context, resp *http.Response, ch chan<- *Ch
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			continue
 		}
-		usage := Usage{
-			PromptTokens:     chunk.Usage.PromptTokens,
-			CompletionTokens: chunk.Usage.CompletionTokens,
-		}
+		usage := usageFromOpenAI(chunk.Usage)
 		if len(chunk.Choices) == 0 {
 			// Usage-only chunk (from stream_options.include_usage).
-			if usage.PromptTokens > 0 || usage.CompletionTokens > 0 {
+			if usage.PromptTokens > 0 || usage.CompletionTokens > 0 || usage.CacheReadTokens > 0 {
 				if !sendCtx(ctx, ch, &ChatResponse{ID: chunk.ID, Role: RoleAssistant, Delta: true, Usage: usage}) {
 					return
 				}
@@ -311,8 +305,21 @@ type openAIChatResponse struct {
 			} `json:"tool_calls,omitempty"`
 		} `json:"delta"`
 	} `json:"choices"`
-	Usage struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-	} `json:"usage"`
+	Usage openAIUsage `json:"usage"`
+}
+
+type openAIUsage struct {
+	PromptTokens        int `json:"prompt_tokens"`
+	CompletionTokens    int `json:"completion_tokens"`
+	PromptTokensDetails struct {
+		CachedTokens int `json:"cached_tokens"`
+	} `json:"prompt_tokens_details"`
+}
+
+func usageFromOpenAI(u openAIUsage) Usage {
+	return Usage{
+		PromptTokens:     u.PromptTokens,
+		CompletionTokens: u.CompletionTokens,
+		CacheReadTokens:  u.PromptTokensDetails.CachedTokens,
+	}
 }

@@ -26,3 +26,35 @@ func TestAnthropic_readSSEStream_TextDeltaAndStop(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+func TestAnthropic_readSSEStream_ThinkingSignature(t *testing.T) {
+	payload := strings.Join([]string{
+		`data: {"type":"content_block_start","content_block":{"type":"thinking"}}`,
+		`data: {"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"plan "}}`,
+		`data: {"type":"content_block_delta","delta":{"type":"signature_delta","signature":"sig_1"}}`,
+		`data: {"type":"content_block_stop"}`,
+		`data: {"type":"message_stop"}`,
+	}, "\n\n") + "\n\n"
+	resp := &http.Response{Body: io.NopCloser(strings.NewReader(payload))}
+	ch := make(chan *ChatResponse, 8)
+	a := NewAnthropic("sk-test")
+	go func() {
+		a.readSSEStream(context.Background(), resp, ch)
+		close(ch)
+	}()
+	var reasoning string
+	var state any
+	for c := range ch {
+		reasoning += c.Reasoning
+		if c.ProviderState != nil {
+			state = c.ProviderState
+		}
+	}
+	if reasoning != "plan " {
+		t.Errorf("reasoning = %q, want %q", reasoning, "plan ")
+	}
+	blocks, ok := state.([]map[string]any)
+	if !ok || len(blocks) != 1 || blocks[0]["signature"] != "sig_1" || blocks[0]["thinking"] != "plan " {
+		t.Fatalf("ProviderState = %#v", state)
+	}
+}

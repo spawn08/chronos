@@ -4,6 +4,7 @@ package tool
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -153,6 +154,7 @@ func (r *Registry) List() []*Definition {
 	for _, t := range r.tools {
 		out = append(out, t)
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
 

@@ -21,8 +21,11 @@ type responsesAPIResponse struct {
 		Reason string `json:"reason"`
 	} `json:"incomplete_details,omitempty"`
 	Usage struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
+		InputTokens        int `json:"input_tokens"`
+		OutputTokens       int `json:"output_tokens"`
+		InputTokensDetails struct {
+			CachedTokens int `json:"cached_tokens"`
+		} `json:"input_tokens_details"`
 	} `json:"usage"`
 }
 
@@ -154,6 +157,7 @@ func convertResponsesResponse(raw *responsesAPIResponse) *ChatResponse {
 		Usage: Usage{
 			PromptTokens:     raw.Usage.InputTokens,
 			CompletionTokens: raw.Usage.OutputTokens,
+			CacheReadTokens:  raw.Usage.InputTokensDetails.CachedTokens,
 		},
 		ProviderState: raw.Output,
 	}

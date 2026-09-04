@@ -65,6 +65,28 @@ func TestGemini_Chat_Success(t *testing.T) {
 	}
 }
 
+func TestGemini_Chat_ParsesCachedContentTokens(t *testing.T) {
+	srv := buildGeminiServer(t, 200, `{
+		"candidates": [{
+			"content": {"parts": [{"text": "ok"}], "role": "model"},
+			"finishReason": "STOP"
+		}],
+		"usageMetadata": {"promptTokenCount": 20, "candidatesTokenCount": 2, "cachedContentTokenCount": 16}
+	}`)
+	defer srv.Close()
+
+	p := NewGeminiWithConfig(ProviderConfig{APIKey: "test-key", BaseURL: srv.URL, Model: "gemini-2.0-flash"})
+	resp, err := p.Chat(t.Context(), &ChatRequest{
+		Messages: []Message{{Role: RoleUser, Content: "Hi"}},
+	})
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if resp.Usage.CacheReadTokens != 16 {
+		t.Fatalf("CacheReadTokens=%d, want 16", resp.Usage.CacheReadTokens)
+	}
+}
+
 func TestGemini_Chat_Error(t *testing.T) {
 	srv := buildGeminiServer(t, 400, `{"error":{"code":400,"message":"Bad request"}}`)
 	defer srv.Close()

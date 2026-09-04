@@ -180,8 +180,10 @@ type bedrockResponse struct {
 	} `json:"content"`
 	StopReason string `json:"stop_reason"`
 	Usage      struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
+		InputTokens              int `json:"input_tokens"`
+		OutputTokens             int `json:"output_tokens"`
+		CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+		CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 	} `json:"usage"`
 }
 
@@ -197,8 +199,10 @@ func (b *Bedrock) convertResponse(raw *bedrockResponse) *ChatResponse {
 		ID:   raw.ID,
 		Role: RoleAssistant,
 		Usage: Usage{
-			PromptTokens:     raw.Usage.InputTokens,
-			CompletionTokens: raw.Usage.OutputTokens,
+			PromptTokens:        raw.Usage.InputTokens,
+			CompletionTokens:    raw.Usage.OutputTokens,
+			CacheCreationTokens: raw.Usage.CacheCreationInputTokens,
+			CacheReadTokens:     raw.Usage.CacheReadInputTokens,
 		},
 	}
 

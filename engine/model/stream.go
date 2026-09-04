@@ -74,12 +74,7 @@ func AggregateStream(ctx context.Context, ch <-chan *ChatResponse) (*ChatRespons
 			}
 			content.WriteString(cr.Content)
 			reasoning.WriteString(cr.Reasoning)
-			if cr.Usage.PromptTokens > 0 {
-				final.Usage.PromptTokens = cr.Usage.PromptTokens
-			}
-			if cr.Usage.CompletionTokens > 0 {
-				final.Usage.CompletionTokens = cr.Usage.CompletionTokens
-			}
+			final.Usage.Merge(cr.Usage)
 			if cr.StopReason != "" {
 				final.StopReason = cr.StopReason
 			}

@@ -1463,8 +1463,8 @@ func TestChat_InstrumentsEveryToolRoundAndAggregatesUsage(t *testing.T) {
 			t.Errorf("round %d correlation = %q before, %q after", i, hook.before[i], hook.after[i])
 		}
 	}
-	if resp.Usage.PromptTokens != 9 || resp.Usage.CompletionTokens != 12 || resp.Usage.ContextTokens != 21 {
-		t.Errorf("usage = %+v, want prompt=9 completion=12 context=21", resp.Usage)
+	if resp.Usage.PromptTokens != 9 || resp.Usage.CompletionTokens != 12 || resp.Usage.ContextTokens != 11 {
+		t.Errorf("usage = %+v, want prompt=9 completion=12 context=11 (final call)", resp.Usage)
 	}
 }
 

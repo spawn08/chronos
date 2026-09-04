@@ -49,6 +49,21 @@ func TestAnthropicThinkingRequest(t *testing.T) {
 	}
 }
 
+func TestAnthropicThinkingBudgetFromEffort(t *testing.T) {
+	provider := NewAnthropicWithConfig(ProviderConfig{Model: "claude-test"})
+	body := provider.buildRequestBody(&ChatRequest{
+		Messages:  []Message{{Role: RoleUser, Content: "solve"}},
+		Reasoning: &ReasoningConfig{Enabled: true, Effort: "high"},
+	}, false)
+	thinking, ok := body["thinking"].(map[string]any)
+	if !ok {
+		t.Fatalf("thinking config missing: %#v", body)
+	}
+	if thinking["budget_tokens"] != 10000 {
+		t.Fatalf("thinking budget from effort = %#v, want 10000", thinking["budget_tokens"])
+	}
+}
+
 func TestGeminiThinkingRequest(t *testing.T) {
 	provider := NewGeminiWithConfig(ProviderConfig{Model: "gemini-test"})
 	body := provider.buildRequestBody(&ChatRequest{
@@ -85,6 +100,10 @@ func TestAnthropicReasoningResponse(t *testing.T) {
 	if resp.Reasoning != "checked the alternatives" || resp.Content != "final answer" {
 		t.Fatalf("response = %#v", resp)
 	}
+	blocks, ok := resp.ProviderState.([]map[string]any)
+	if !ok || len(blocks) != 1 || blocks[0]["type"] != "thinking" {
+		t.Fatalf("ProviderState = %#v", resp.ProviderState)
+	}
 }
 
 func TestSignedReasoningProvidersRejectTools(t *testing.T) {
@@ -96,19 +115,12 @@ func TestSignedReasoningProvidersRejectTools(t *testing.T) {
 			Function: FunctionDef{Name: "lookup"},
 		}},
 	}
-	providers := []Provider{
-		NewAnthropicWithConfig(ProviderConfig{Model: "claude-test"}),
-		NewGeminiWithConfig(ProviderConfig{Model: "gemini-test"}),
+	provider := NewGeminiWithConfig(ProviderConfig{Model: "gemini-test"})
+	if _, err := provider.Chat(t.Context(), req); err == nil || !strings.Contains(err.Error(), "signed thinking blocks") {
+		t.Fatalf("Chat error = %v", err)
 	}
-	for _, provider := range providers {
-		t.Run(provider.Name(), func(t *testing.T) {
-			if _, err := provider.Chat(t.Context(), req); err == nil || !strings.Contains(err.Error(), "signed thinking blocks") {
-				t.Fatalf("Chat error = %v", err)
-			}
-			if _, err := provider.StreamChat(t.Context(), req); err == nil || !strings.Contains(err.Error(), "signed thinking blocks") {
-				t.Fatalf("StreamChat error = %v", err)
-			}
-		})
+	if _, err := provider.StreamChat(t.Context(), req); err == nil || !strings.Contains(err.Error(), "signed thinking blocks") {
+		t.Fatalf("StreamChat error = %v", err)
 	}
 }
 

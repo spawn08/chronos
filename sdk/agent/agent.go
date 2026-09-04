@@ -540,8 +540,9 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 		}
 		accumulateUsage(&totalUsage, resp.Usage)
 	}
+	lastWindow := resp.Usage.WindowTokens()
 	resp.Usage = totalUsage
-	resp.Usage.ContextTokens = totalUsage.PromptTokens + totalUsage.CompletionTokens
+	resp.Usage.ContextTokens = lastWindow
 
 	// Check output guardrails
 	if resp != nil && resp.Content != "" {
@@ -732,7 +733,7 @@ func (a *Agent) streamLoop(ctx context.Context, req *model.ChatRequest, messages
 	}
 
 	// Emit the final summary chunk carrying usage and stop reason.
-	totalUsage.ContextTokens = resp.Usage.PromptTokens + resp.Usage.CompletionTokens
+	totalUsage.ContextTokens = resp.Usage.WindowTokens()
 	sendStream(ctx, out, &model.ChatResponse{
 		Role:       model.RoleAssistant,
 		Usage:      totalUsage,
@@ -820,8 +821,7 @@ func sendStream(ctx context.Context, out chan<- *model.ChatResponse, cr *model.C
 
 // accumulateUsage adds a round's token counts into the running total.
 func accumulateUsage(total *model.Usage, u model.Usage) {
-	total.PromptTokens += u.PromptTokens
-	total.CompletionTokens += u.CompletionTokens
+	total.Add(u)
 }
 
 // handleToolCalls executes the tool calls in resp, appends the assistant

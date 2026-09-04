@@ -350,7 +350,7 @@ func validateFileConfig(fc *FileConfig) error {
 			return fmt.Errorf("agent %q tracing requires persistent storage; configure storage.backend as sqlite or postgres", cfg.ID)
 		}
 		providerName := strings.ToLower(strings.TrimSpace(cfg.Model.Provider))
-		if cfg.Reasoning.Native && len(cfg.Tools) > 0 && (providerName == "anthropic" || providerName == "gemini" || providerName == "google") {
+		if cfg.Reasoning.Native && len(cfg.Tools) > 0 && (providerName == "gemini" || providerName == "google") {
 			return fmt.Errorf("agent %q: %s native reasoning with tools is not supported because signed thinking blocks cannot be preserved", cfg.ID, providerName)
 		}
 		for j := range cfg.Tools {

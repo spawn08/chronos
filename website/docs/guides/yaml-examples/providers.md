@@ -68,7 +68,7 @@ reasoning:
   summary: true
 ```
 
-Anthropic native reasoning with tools currently fails closed because signed thinking blocks cannot yet be preserved across tool rounds. Use prompt strategy reasoning when tools are present.
+Anthropic native reasoning with tools preserves signed thinking blocks across tool rounds. Gemini native reasoning with tools currently fails closed; use prompt strategy reasoning when Gemini tools are present.
 
 ## Google Gemini (AI Studio)
 

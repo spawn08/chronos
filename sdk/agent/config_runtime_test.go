@@ -106,6 +106,10 @@ func TestLoadFileRejectsUnknownAndInvalidRuntimeFields(t *testing.T) {
 			name: "tracing without persistent storage",
 			yaml: "agents:\n  - id: dev\n    name: Dev\n    model:\n      provider: openai\n    storage:\n      backend: none\n    tracing: true\n",
 		},
+		{
+			name: "gemini native reasoning with tools",
+			yaml: "agents:\n  - id: dev\n    name: Dev\n    model:\n      provider: gemini\n    reasoning:\n      native: true\n    tools:\n      - name: file_read\n",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -117,6 +121,32 @@ func TestLoadFileRejectsUnknownAndInvalidRuntimeFields(t *testing.T) {
 				t.Fatal("expected validation error")
 			}
 		})
+	}
+}
+
+func TestLoadFileAllowsAnthropicNativeReasoningWithTools(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agents.yaml")
+	yaml := []byte(`agents:
+  - id: coder
+    name: Coder
+    model:
+      provider: anthropic
+      model: claude-sonnet-4-6
+    reasoning:
+      native: true
+      effort: high
+    tools:
+      - name: file_read
+`)
+	if err := os.WriteFile(path, yaml, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadFile(path)
+	if err != nil {
+		t.Fatalf("LoadFile: %v", err)
+	}
+	if !cfg.Agents[0].Reasoning.Native || cfg.Agents[0].Reasoning.Effort != "high" {
+		t.Fatalf("reasoning = %#v", cfg.Agents[0].Reasoning)
 	}
 }
 
