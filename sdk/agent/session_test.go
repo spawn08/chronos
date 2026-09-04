@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/spawn08/chronos/engine/model"
@@ -84,6 +85,122 @@ func TestPersistSummary(t *testing.T) {
 		t.Errorf("unexpected type: %q", evts[0].Type)
 	}
 }
+
+func TestCompactSession_NoModel(t *testing.T) {
+	a := &Agent{ID: "a1"}
+	err := a.CompactSession(context.Background(), "sess")
+	if err == nil || !strings.Contains(err.Error(), "no model") {
+		t.Fatalf("expected 'no model' error, got %v", err)
+	}
+}
+
+func TestCompactSession_NoStorage(t *testing.T) {
+	a, err := New("a1", "T").WithModel(&fakeChatProvider{content: "summary"}).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = a.CompactSession(context.Background(), "sess")
+	if err == nil || !strings.Contains(err.Error(), "no storage") {
+		t.Fatalf("expected 'no storage' error, got %v", err)
+	}
+}
+
+func TestCompactSession_EmptySessionIsNoop(t *testing.T) {
+	store := newTestStorage()
+	a, err := New("a1", "T").WithModel(&fakeChatProvider{content: "summary"}).WithStorage(store).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.CompactSession(context.Background(), "no-such-session"); err != nil {
+		t.Fatalf("expected no-op nil error for an empty session, got %v", err)
+	}
+}
+
+func TestCompactSession_SummarizesRegardlessOfContextSize(t *testing.T) {
+	store := newTestStorage()
+	sid := "compact-sess"
+	store.sessions[sid] = &storage.Session{ID: sid, AgentID: "a1", Status: "active"}
+	store.events[sid] = []*storage.Event{
+		{ID: "e1", SessionID: sid, SeqNum: 1, Type: "chat_message", Payload: map[string]any{"role": "user", "content": "investigate the 7 bottlenecks"}},
+		{ID: "e2", SessionID: sid, SeqNum: 2, Type: "chat_message", Payload: map[string]any{"role": "assistant", "content": "found bottleneck 1"}},
+		{ID: "e3", SessionID: sid, SeqNum: 3, Type: "chat_message", Payload: map[string]any{"role": "user", "content": "keep going"}},
+		{ID: "e4", SessionID: sid, SeqNum: 4, Type: "chat_message", Payload: map[string]any{"role": "assistant", "content": "found bottleneck 2"}},
+	}
+
+	// PreserveRecentTurns: 1 keeps only the last 2 messages verbatim, so with
+	// 4 messages here there's still something older to actually summarize.
+	// This session's real conversation is tiny either way, nowhere near any
+	// context-window threshold, so the automatic inline compaction in
+	// ChatWithSession would never fire on its own. CompactSession must
+	// summarize anyway, since it's being asked to recover from an unrelated
+	// failure (a budget cap), not a context-window limit.
+	a, err := New("a1", "T").
+		WithModel(&fakeChatProvider{content: "rolled-up summary"}).
+		WithStorage(store).
+		WithContextConfig(ContextConfig{PreserveRecentTurns: 1}).
+		Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := a.CompactSession(context.Background(), sid); err != nil {
+		t.Fatalf("CompactSession: %v", err)
+	}
+
+	events := store.events[sid]
+	last := events[len(events)-1]
+	if last.Type != "chat_summary" {
+		t.Fatalf("expected a chat_summary event to be appended, last event type = %q", last.Type)
+	}
+	payload := last.Payload.(map[string]any)
+	if payload["summary"] != "rolled-up summary" {
+		t.Errorf("summary = %v, want %q", payload["summary"], "rolled-up summary")
+	}
+}
+
+func TestCompactSession_SummarizeErrorPropagates(t *testing.T) {
+	store := newTestStorage()
+	sid := "compact-err-sess"
+	store.sessions[sid] = &storage.Session{ID: sid, AgentID: "a1", Status: "active"}
+	store.events[sid] = []*storage.Event{
+		{ID: "e1", SessionID: sid, SeqNum: 1, Type: "chat_message", Payload: map[string]any{"role": "user", "content": "hi"}},
+		{ID: "e2", SessionID: sid, SeqNum: 2, Type: "chat_message", Payload: map[string]any{"role": "assistant", "content": "hello"}},
+		{ID: "e3", SessionID: sid, SeqNum: 3, Type: "chat_message", Payload: map[string]any{"role": "user", "content": "continue"}},
+	}
+
+	a, err := New("a1", "T").
+		WithModel(&fakeChatProvider{err: errors.New("model unavailable")}).
+		WithStorage(store).
+		WithContextConfig(ContextConfig{PreserveRecentTurns: 1}).
+		Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = a.CompactSession(context.Background(), sid)
+	if err == nil || !strings.Contains(err.Error(), "summarize") {
+		t.Fatalf("expected summarize error, got %v", err)
+	}
+}
+
+// fakeChatProvider is a minimal model.Provider stub for CompactSession tests
+// that don't need the multi-reply sequencing seqTestProvider provides.
+type fakeChatProvider struct {
+	content string
+	err     error
+}
+
+func (f *fakeChatProvider) Chat(context.Context, *model.ChatRequest) (*model.ChatResponse, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &model.ChatResponse{Content: f.content, StopReason: model.StopReasonEnd}, nil
+}
+func (f *fakeChatProvider) StreamChat(context.Context, *model.ChatRequest) (<-chan *model.ChatResponse, error) {
+	return nil, errors.New("not implemented")
+}
+func (f *fakeChatProvider) Name() string  { return "fake" }
+func (f *fakeChatProvider) Model() string { return "fake-model" }
 
 func TestChatWithSession_NoModel(t *testing.T) {
 	a := &Agent{ID: "a1"}

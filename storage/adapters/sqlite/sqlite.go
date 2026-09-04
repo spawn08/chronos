@@ -179,6 +179,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 	m.Add(1, "initial schema", schema, "")
 	m.Add(2, "tenant scoping", schemaTenant, "")
 	m.Add(3, "session files (vfs)", schemaSessionFiles, "")
+	m.Add(4, "tenant-scoped session ids", schemaSessionTenantKey, "")
 	if err := m.Migrate(ctx); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
@@ -198,6 +199,27 @@ CREATE TABLE IF NOT EXISTS session_files (
 	updated_at DATETIME NOT NULL,
 	PRIMARY KEY (tenant_id, session_id, path)
 );
+`
+
+// schemaSessionTenantKey allows separate tenants to use the same session ID.
+// SQLite cannot alter a primary key in place, so migrate the existing table.
+const schemaSessionTenantKey = `
+CREATE TABLE sessions_v4 (
+	id TEXT NOT NULL,
+	tenant_id TEXT NOT NULL DEFAULT 'default',
+	agent_id TEXT NOT NULL,
+	status TEXT NOT NULL DEFAULT 'running',
+	metadata TEXT,
+	created_at DATETIME NOT NULL,
+	updated_at DATETIME NOT NULL,
+	PRIMARY KEY (tenant_id, id)
+);
+INSERT INTO sessions_v4 (id, tenant_id, agent_id, status, metadata, created_at, updated_at)
+	SELECT id, tenant_id, agent_id, status, metadata, created_at, updated_at FROM sessions;
+DROP TABLE sessions;
+ALTER TABLE sessions_v4 RENAME TO sessions;
+CREATE INDEX IF NOT EXISTS idx_sessions_agent ON sessions(agent_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_tenant_agent ON sessions(tenant_id, agent_id);
 `
 
 func (s *Store) Close() error { return s.db.Close() }
@@ -276,6 +298,31 @@ func (s *Store) ListSessions(ctx context.Context, agentID string, limit, offset 
 		out = append(out, sess)
 	}
 	return out, rows.Err()
+}
+
+// DeleteSession permanently removes a session and all session-scoped records.
+// Every delete is constrained by the context tenant, so a caller cannot remove
+// another tenant's records even when both tenants use the same session ID.
+func (s *Store) DeleteSession(ctx context.Context, sessionID string) error {
+	tenant := storage.TenantFromContext(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin delete session: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	for _, table := range []string{"events", "checkpoints", "traces", "audit_logs", "memory", "session_files"} {
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE tenant_id=? AND session_id=?`, table), tenant, sessionID); err != nil {
+			return fmt.Errorf("delete session from %s: %w", table, err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE tenant_id=? AND id=?`, tenant, sessionID); err != nil {
+		return fmt.Errorf("delete session: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit delete session: %w", err)
+	}
+	return nil
 }
 
 // --- Memory ---

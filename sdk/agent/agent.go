@@ -8,6 +8,7 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/spawn08/chronos/engine/graph"
@@ -87,6 +88,8 @@ type Agent struct {
 // defaultRecallTopK is the number of memories recalled per turn when
 // RecallConfig.TopK is unset. It mirrors memory.Manager's own default.
 const defaultRecallTopK = 5
+
+var modelCallSequence atomic.Uint64
 
 // RecallConfig controls automatic semantic long-term recall. Recall is enabled
 // by default (zero value) and fires only when the agent has a MemoryManager with
@@ -502,63 +505,16 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 		return nil, buildErr
 	}
 
-	// Fire model call hooks, passing provider and request for retry hook
-	modelEvt := &hooks.Event{
-		Type:  hooks.EventModelCallBefore,
-		Name:  a.Model.Name(),
-		Input: req,
-		Metadata: map[string]any{
-			"provider": a.Model,
-			"request":  req,
-		},
-	}
-	if err := a.Hooks.Before(ctx, modelEvt); err != nil {
-		return nil, fmt.Errorf("hook before model call: %w", err)
-	}
-
-	a.publish(ctx, stream.Event{Type: stream.EventModelCall, Data: map[string]any{
-		"agent": a.ID, "model": a.Model.Name(), "messages": len(req.Messages),
-	}})
-
-	var modelSpan *storage.Trace
-	if a.Tracer != nil {
-		var spanErr error
-		sessionID := storage.SessionFromContext(ctx)
-		if sessionID == "" {
-			sessionID = a.ID
-		}
-		modelSpan, spanErr = a.Tracer.StartSpan(ctx, sessionID, "model:"+a.Model.Name(), "model_call")
-		if spanErr != nil {
-			modelSpan = nil
-		}
-	}
-
 	a.debugLog("sending %d messages to model %q (tools=%d)", len(req.Messages), a.Model.Name(), len(req.Tools))
-	resp, err := a.Model.Chat(ctx, req)
-
-	modelEvt.Type = hooks.EventModelCallAfter
-	modelEvt.Output = resp
-	modelEvt.Error = err
-	_ = a.Hooks.After(ctx, modelEvt)
-
-	// If retry hook succeeded, use its output
-	if err != nil && modelEvt.Error == nil {
-		resp, _ = modelEvt.Output.(*model.ChatResponse)
-		err = nil
-	}
+	resp, err := a.modelCall(ctx, req, false, func() (*model.ChatResponse, error) {
+		return a.Model.Chat(ctx, req)
+	})
 
 	if err != nil {
-		if modelSpan != nil {
-			_ = a.Tracer.EndSpan(ctx, modelSpan, nil, err.Error())
-		}
 		a.publish(ctx, stream.Event{Type: stream.EventError, Data: map[string]any{
 			"agent": a.ID, "error": err.Error(),
 		}})
 		return nil, fmt.Errorf("agent %q chat: %w", a.ID, err)
-	}
-
-	if modelSpan != nil {
-		_ = a.Tracer.EndSpan(ctx, modelSpan, map[string]any{"stop_reason": string(resp.StopReason)}, "")
 	}
 
 	a.publish(ctx, stream.Event{Type: stream.EventModelResponse, Data: map[string]any{
@@ -571,6 +527,7 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 		maxIter = 25
 	}
 	iteration := 0
+	totalUsage := resp.Usage
 	for resp.StopReason == model.StopReasonToolCall && len(resp.ToolCalls) > 0 {
 		iteration++
 		if iteration > maxIter {
@@ -580,7 +537,10 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 		if err != nil {
 			return nil, err
 		}
+		accumulateUsage(&totalUsage, resp.Usage)
 	}
+	resp.Usage = totalUsage
+	resp.Usage.ContextTokens = totalUsage.PromptTokens + totalUsage.CompletionTokens
 
 	// Check output guardrails
 	if resp != nil && resp.Content != "" {
@@ -602,6 +562,56 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 	}
 
 	return resp, nil
+}
+
+// modelCall is the shared lifecycle boundary for every model round.
+func (a *Agent) modelCall(ctx context.Context, req *model.ChatRequest, streaming bool, call func() (*model.ChatResponse, error)) (*model.ChatResponse, error) {
+	modelEvt := &hooks.Event{
+		Type:  hooks.EventModelCallBefore,
+		Name:  a.Model.Name(),
+		Input: req,
+		Metadata: map[string]any{
+			"provider":       a.Model,
+			"request":        req,
+			"stream":         streaming,
+			"correlation_id": fmt.Sprintf("%s:%d", a.ID, modelCallSequence.Add(1)),
+		},
+	}
+	if err := a.Hooks.Before(ctx, modelEvt); err != nil {
+		return nil, fmt.Errorf("hook before model call: %w", err)
+	}
+
+	a.publish(ctx, stream.Event{Type: stream.EventModelCall, Data: map[string]any{
+		"agent": a.ID, "model": a.Model.Name(), "messages": len(req.Messages), "stream": streaming,
+	}})
+
+	var modelSpan *storage.Trace
+	if a.Tracer != nil {
+		sessionID := storage.SessionFromContext(ctx)
+		if sessionID == "" {
+			sessionID = a.ID
+		}
+		modelSpan, _ = a.Tracer.StartSpan(ctx, sessionID, "model:"+a.Model.Name(), "model_call")
+	}
+
+	resp, err := call()
+	modelEvt.Type = hooks.EventModelCallAfter
+	modelEvt.Output = resp
+	modelEvt.Error = err
+	_ = a.Hooks.After(ctx, modelEvt)
+	if err != nil && modelEvt.Error == nil {
+		resp, _ = modelEvt.Output.(*model.ChatResponse)
+		err = nil
+	}
+
+	if modelSpan != nil {
+		if err != nil {
+			_ = a.Tracer.EndSpan(ctx, modelSpan, nil, err.Error())
+		} else {
+			_ = a.Tracer.EndSpan(ctx, modelSpan, map[string]any{"stop_reason": string(resp.StopReason), "stream": streaming}, "")
+		}
+	}
+	return resp, err
 }
 
 // ChatStream sends a single user message and streams the model's response token
@@ -648,10 +658,6 @@ func (a *Agent) ChatStream(ctx context.Context, userMessage string) (<-chan *mod
 // forwarding text deltas to out and reassembling each round's full response so it
 // can decide whether more tool calls are pending.
 func (a *Agent) streamLoop(ctx context.Context, req *model.ChatRequest, messages []model.Message, out chan<- *model.ChatResponse) (*model.ChatResponse, []model.Message, error) {
-	a.publish(ctx, stream.Event{Type: stream.EventModelCall, Data: map[string]any{
-		"agent": a.ID, "model": a.Model.Name(), "messages": len(req.Messages), "stream": true,
-	}})
-
 	resp, err := a.streamOnce(ctx, req, out)
 	if err != nil {
 		err = fmt.Errorf("agent %q stream: %w", a.ID, err)
@@ -740,95 +746,56 @@ func (a *Agent) streamLoop(ctx context.Context, req *model.ChatRequest, messages
 // for the caller's tool-loop decision.
 func (a *Agent) streamOnce(ctx context.Context, req *model.ChatRequest, out chan<- *model.ChatResponse) (*model.ChatResponse, error) {
 	a.debugLog("streaming %d messages to model %q (tools=%d)", len(req.Messages), a.Model.Name(), len(req.Tools))
-	modelEvt := &hooks.Event{
-		Type:  hooks.EventModelCallBefore,
-		Name:  a.Model.Name(),
-		Input: req,
-		Metadata: map[string]any{
-			"provider": a.Model,
-			"request":  req,
-			"stream":   true,
-		},
-	}
-	if err := a.Hooks.Before(ctx, modelEvt); err != nil {
-		return nil, fmt.Errorf("hook before streaming model call: %w", err)
-	}
-
-	var modelSpan *storage.Trace
-	if a.Tracer != nil {
-		sessionID := storage.SessionFromContext(ctx)
-		if sessionID == "" {
-			sessionID = a.ID
-		}
-		span, spanErr := a.Tracer.StartSpan(ctx, sessionID, "model:"+a.Model.Name(), "model_call")
-		if spanErr == nil {
-			modelSpan = span
-		}
-	}
-
-	ch, err := a.Model.StreamChat(ctx, req)
-	if err != nil {
-		modelEvt.Type = hooks.EventModelCallAfter
-		modelEvt.Error = err
-		_ = a.Hooks.After(ctx, modelEvt)
-		if modelSpan != nil {
-			_ = a.Tracer.EndSpan(ctx, modelSpan, nil, err.Error())
-		}
-		return nil, err
-	}
-
-	agg := make(chan *model.ChatResponse, 64)
-	go func() {
-		defer close(agg)
-		for cr := range ch {
-			if cr == nil {
-				continue
-			}
-			// Forward provider-approved reasoning separately when explicitly
-			// requested. It is never mixed into final answer content.
-			if cr.Reasoning != "" && cr.Err == nil && a.ReasoningConfig.Summary {
-				sendStream(ctx, out, &model.ChatResponse{
-					Role:      model.RoleAssistant,
-					Reasoning: cr.Reasoning,
-					Delta:     true,
-				})
-			}
-			// Forward live text to the consumer; tool-call fragments and usage
-			// are carried through to the aggregator only.
-			if cr.Content != "" && cr.Err == nil {
-				sendStream(ctx, out, &model.ChatResponse{
-					Role:    model.RoleAssistant,
-					Content: cr.Content,
-					Delta:   true,
-				})
-				// Mirror the token delta onto the broker so SSE consumers (e.g.
-				// the AG-UI stream) render text as it streams.
-				a.publish(ctx, stream.Event{Type: stream.EventModelDelta, Data: map[string]any{
-					"agent": a.ID, "content": cr.Content,
-				}})
-			}
-			select {
-			case agg <- cr:
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-
-	resp, err := model.AggregateStream(ctx, agg)
-	modelEvt.Type = hooks.EventModelCallAfter
-	modelEvt.Output = resp
-	modelEvt.Error = err
-	_ = a.Hooks.After(ctx, modelEvt)
-	if modelSpan != nil {
+	streamedContent := false
+	resp, err := a.modelCall(ctx, req, true, func() (*model.ChatResponse, error) {
+		ch, err := a.Model.StreamChat(ctx, req)
 		if err != nil {
-			_ = a.Tracer.EndSpan(ctx, modelSpan, nil, err.Error())
-		} else {
-			_ = a.Tracer.EndSpan(ctx, modelSpan, map[string]any{
-				"stop_reason": string(resp.StopReason),
-				"stream":      true,
-			}, "")
+			return nil, err
 		}
+
+		agg := make(chan *model.ChatResponse, 64)
+		go func() {
+			defer close(agg)
+			for cr := range ch {
+				if cr == nil {
+					continue
+				}
+				// Forward provider-approved reasoning separately when explicitly
+				// requested. It is never mixed into final answer content.
+				if cr.Reasoning != "" && cr.Err == nil && a.ReasoningConfig.Summary {
+					sendStream(ctx, out, &model.ChatResponse{
+						Role:      model.RoleAssistant,
+						Reasoning: cr.Reasoning,
+						Delta:     true,
+					})
+				}
+				// Forward live text to the consumer; tool-call fragments and usage
+				// are carried through to the aggregator only.
+				if cr.Content != "" && cr.Err == nil {
+					streamedContent = true
+					sendStream(ctx, out, &model.ChatResponse{
+						Role:    model.RoleAssistant,
+						Content: cr.Content,
+						Delta:   true,
+					})
+					// Mirror the token delta onto the broker so SSE consumers (e.g.
+					// the AG-UI stream) render text as it streams.
+					a.publish(ctx, stream.Event{Type: stream.EventModelDelta, Data: map[string]any{
+						"agent": a.ID, "content": cr.Content,
+					}})
+				}
+				select {
+				case agg <- cr:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+
+		return model.AggregateStream(ctx, agg)
+	})
+	if err == nil && !streamedContent && resp.Content != "" {
+		sendStream(ctx, out, &model.ChatResponse{Role: model.RoleAssistant, Content: resp.Content, Delta: true})
 	}
 	return resp, err
 }
@@ -872,7 +839,10 @@ func (a *Agent) handleToolCalls(ctx context.Context, messages []model.Message, r
 
 	// Pass the tool definitions on the follow-up call so the model can request
 	// more tools on the next round.
-	followUp, err := a.Model.Chat(ctx, &model.ChatRequest{Messages: messages, Tools: req.Tools, Reasoning: req.Reasoning})
+	followReq := &model.ChatRequest{Messages: messages, Tools: req.Tools, Reasoning: req.Reasoning}
+	followUp, err := a.modelCall(ctx, followReq, false, func() (*model.ChatResponse, error) {
+		return a.Model.Chat(ctx, followReq)
+	})
 	if err != nil {
 		return nil, messages, err
 	}

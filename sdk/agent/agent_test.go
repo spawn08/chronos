@@ -1409,6 +1409,162 @@ func TestChat_WithTools(t *testing.T) {
 	}
 }
 
+type modelCallHook struct {
+	before []string
+	after  []string
+	reject error
+}
+
+func (h *modelCallHook) Before(_ context.Context, evt *hooks.Event) error {
+	if evt.Type == hooks.EventModelCallBefore {
+		h.before = append(h.before, evt.Metadata["correlation_id"].(string))
+		return h.reject
+	}
+	return nil
+}
+
+func (h *modelCallHook) After(_ context.Context, evt *hooks.Event) error {
+	if evt.Type == hooks.EventModelCallAfter {
+		h.after = append(h.after, evt.Metadata["correlation_id"].(string))
+	}
+	return nil
+}
+
+func TestChat_InstrumentsEveryToolRoundAndAggregatesUsage(t *testing.T) {
+	provider := &multiResponseProvider{responses: []*model.ChatResponse{
+		{
+			StopReason: model.StopReasonToolCall,
+			Usage:      model.Usage{PromptTokens: 1, CompletionTokens: 2},
+			ToolCalls:  []model.ToolCall{{ID: "first", Name: "tool", Arguments: `{}`}},
+		},
+		{
+			StopReason: model.StopReasonToolCall,
+			Usage:      model.Usage{PromptTokens: 3, CompletionTokens: 4},
+			ToolCalls:  []model.ToolCall{{ID: "second", Name: "tool", Arguments: `{}`}},
+		},
+		{Content: "done", StopReason: model.StopReasonEnd, Usage: model.Usage{PromptTokens: 5, CompletionTokens: 6}},
+	}}
+	hook := &modelCallHook{}
+	agent := newTestAgent("instrumented", provider)
+	agent.Hooks = hooks.Chain{hook}
+	agent.Tools.Register(&tool.Definition{Name: "tool", Handler: func(context.Context, map[string]any) (any, error) {
+		return "ok", nil
+	}})
+
+	resp, err := agent.Chat(context.Background(), "run tools")
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if len(hook.before) != 3 || len(hook.after) != 3 {
+		t.Fatalf("model hook pairs = %d before, %d after; want 3 each", len(hook.before), len(hook.after))
+	}
+	for i := range hook.before {
+		if hook.before[i] != hook.after[i] {
+			t.Errorf("round %d correlation = %q before, %q after", i, hook.before[i], hook.after[i])
+		}
+	}
+	if resp.Usage.PromptTokens != 9 || resp.Usage.CompletionTokens != 12 || resp.Usage.ContextTokens != 21 {
+		t.Errorf("usage = %+v, want prompt=9 completion=12 context=21", resp.Usage)
+	}
+}
+
+func TestChat_ModelCallHookRejectionSkipsProvider(t *testing.T) {
+	provider := &multiResponseProvider{responses: []*model.ChatResponse{{Content: "unexpected"}}}
+	hook := &modelCallHook{reject: errors.New("rejected")}
+	agent := newTestAgent("rejected", provider)
+	agent.Hooks = hooks.Chain{hook}
+
+	_, err := agent.Chat(context.Background(), "hello")
+	if err == nil || !contains(err.Error(), "hook before model call") {
+		t.Fatalf("Chat error = %v, want hook rejection", err)
+	}
+	if provider.callIdx != 0 {
+		t.Errorf("provider calls = %d, want 0", provider.callIdx)
+	}
+	if len(hook.before) != 1 || len(hook.after) != 0 {
+		t.Errorf("hook events = %d before, %d after; want 1 before, 0 after", len(hook.before), len(hook.after))
+	}
+}
+
+type retryProvider struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (p *retryProvider) Chat(_ context.Context, _ *model.ChatRequest) (*model.ChatResponse, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.calls++
+	if p.calls == 1 {
+		return nil, errors.New("transient")
+	}
+	return &model.ChatResponse{Content: "retried", StopReason: model.StopReasonEnd}, nil
+}
+
+func (p *retryProvider) StreamChat(context.Context, *model.ChatRequest) (<-chan *model.ChatResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (p *retryProvider) Name() string  { return "retry" }
+func (p *retryProvider) Model() string { return "retry-model" }
+
+func TestChat_ModelCallRetryReturnsRetriedResponse(t *testing.T) {
+	provider := &retryProvider{}
+	retry := hooks.NewRetryHook(1)
+	retry.SleepFn = func(time.Duration) {}
+	agent := newTestAgent("retry", provider)
+	agent.Hooks = hooks.Chain{retry}
+
+	resp, err := agent.Chat(context.Background(), "hello")
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if resp.Content != "retried" || provider.calls != 2 {
+		t.Errorf("response = %q, provider calls = %d; want retried response after 2 calls", resp.Content, provider.calls)
+	}
+}
+
+type instrumentationStreamProvider struct{}
+
+func (p *instrumentationStreamProvider) Chat(context.Context, *model.ChatRequest) (*model.ChatResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (p *instrumentationStreamProvider) StreamChat(_ context.Context, _ *model.ChatRequest) (<-chan *model.ChatResponse, error) {
+	ch := make(chan *model.ChatResponse, 2)
+	ch <- &model.ChatResponse{Content: "streamed ", Delta: true}
+	ch <- &model.ChatResponse{Content: "response", StopReason: model.StopReasonEnd, Usage: model.Usage{PromptTokens: 2, CompletionTokens: 3}}
+	close(ch)
+	return ch, nil
+}
+
+func (p *instrumentationStreamProvider) Name() string  { return "stream" }
+func (p *instrumentationStreamProvider) Model() string { return "stream-model" }
+
+func TestChatStream_PreservesStreamingProtocol(t *testing.T) {
+	hook := &modelCallHook{}
+	agent := newTestAgent("stream", &instrumentationStreamProvider{})
+	agent.Hooks = hooks.Chain{hook}
+
+	ch, err := agent.ChatStream(context.Background(), "hello")
+	if err != nil {
+		t.Fatalf("ChatStream: %v", err)
+	}
+	var chunks []*model.ChatResponse
+	for chunk := range ch {
+		chunks = append(chunks, chunk)
+	}
+	if len(chunks) != 3 || chunks[0].Content != "streamed " || chunks[1].Content != "response" || chunks[2].Delta {
+		t.Fatalf("unexpected chunks: %+v", chunks)
+	}
+	if chunks[2].Usage.PromptTokens != 2 || chunks[2].Usage.CompletionTokens != 3 || chunks[2].Usage.ContextTokens != 5 {
+		t.Errorf("final usage = %+v, want prompt=2 completion=3 context=5", chunks[2].Usage)
+	}
+	if len(hook.before) != 1 || len(hook.after) != 1 || hook.before[0] != hook.after[0] {
+		t.Errorf("stream hook correlation = before %v, after %v", hook.before, hook.after)
+	}
+}
+
 func TestChat_ToolError(t *testing.T) {
 	provider := &multiResponseProvider{
 		responses: []*model.ChatResponse{

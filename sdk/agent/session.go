@@ -111,6 +111,58 @@ func persistSummary(ctx context.Context, store storage.Storage, sessionID string
 	})
 }
 
+// CompactSession forces a summarization pass over sessionID's history right
+// now, regardless of how close the conversation is to the model's context
+// window — unlike the automatic compaction ChatWithSession performs inline,
+// which only triggers once NeedsSummarization crosses SummarizeThreshold.
+// This lets a caller recovering from an out-of-band failure that has nothing
+// to do with context size (e.g. a cost/budget cap) shrink the session's
+// history and keep using the same session instead of discarding the
+// conversation outright. It is a no-op if the session has no messages.
+func (a *Agent) CompactSession(ctx context.Context, sessionID string) error {
+	if a.Model == nil {
+		return fmt.Errorf("agent %q has no model", a.ID)
+	}
+	if a.Storage == nil {
+		return fmt.Errorf("agent %q has no storage (required for session chat)", a.ID)
+	}
+
+	events, err := a.Storage.ListEvents(ctx, sessionID, 0)
+	if err != nil {
+		return fmt.Errorf("load session events: %w", err)
+	}
+	cs := chatSessionFromEvents(events)
+	if len(cs.Messages) == 0 {
+		return nil
+	}
+
+	counter := model.NewTokenCounter(a.Model.Model())
+	summarizer := model.NewSummarizer(a.Model, counter, model.SummarizationConfig{
+		Threshold:           a.ContextCfg.SummarizeThreshold,
+		PreserveRecentTurns: a.ContextCfg.PreserveRecentTurns,
+	})
+	result, sumErr := summarizer.Summarize(ctx, cs.Summary, cs.Messages)
+	if sumErr != nil {
+		return fmt.Errorf("summarize: %w", sumErr)
+	}
+
+	seqNum := int64(len(events) + 1)
+	if persistErr := persistSummary(ctx, a.Storage, sessionID, seqNum, result.Summary); persistErr != nil {
+		return fmt.Errorf("persist summary: %w", persistErr)
+	}
+
+	_ = a.Hooks.After(ctx, &hooks.Event{
+		Type: hooks.EventSummarization,
+		Name: sessionID,
+		Metadata: map[string]any{
+			"summary_length":     len(result.Summary),
+			"preserved_messages": len(result.PreservedMessages),
+			"forced":             true,
+		},
+	})
+	return nil
+}
+
 // ChatWithSession sends a message within a persistent, multi-turn session.
 // When the conversation approaches the model's context window limit, older
 // messages are automatically summarized to stay within budget.

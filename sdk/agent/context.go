@@ -7,8 +7,70 @@ import (
 	"fmt"
 
 	"github.com/spawn08/chronos/engine/model"
+	"github.com/spawn08/chronos/engine/tool"
 	"github.com/spawn08/chronos/storage"
 )
+
+type toolDefinitionsKey struct{}
+
+// WithToolDefinitions limits the schemas advertised for one request. It copies
+// definitions into the context instead of changing the agent's registry, which
+// may be shared by concurrent requests.
+func WithToolDefinitions(ctx context.Context, definitions []*tool.Definition) context.Context {
+	return context.WithValue(ctx, toolDefinitionsKey{}, copyToolDefinitions(definitions))
+}
+
+// ToolDefinitions returns this request's selected schemas, or the supplied
+// registry definitions when no request-local selection was made. Callers get
+// copies so later request-local changes cannot alter the registry.
+func ToolDefinitions(ctx context.Context, definitions []*tool.Definition) []*tool.Definition {
+	if selected, ok := ctx.Value(toolDefinitionsKey{}).([]*tool.Definition); ok {
+		return copyToolDefinitions(selected)
+	}
+	return copyToolDefinitions(definitions)
+}
+
+func copyToolDefinitions(definitions []*tool.Definition) []*tool.Definition {
+	if len(definitions) == 0 {
+		return nil
+	}
+	copyDefinitions := make([]*tool.Definition, 0, len(definitions))
+	for _, definition := range definitions {
+		if definition == nil {
+			continue
+		}
+		copyDefinition := *definition
+		copyDefinition.Parameters = copyParameters(definition.Parameters)
+		copyDefinitions = append(copyDefinitions, &copyDefinition)
+	}
+	return copyDefinitions
+}
+
+func copyParameters(parameters map[string]any) map[string]any {
+	if parameters == nil {
+		return nil
+	}
+	copyParameters := make(map[string]any, len(parameters))
+	for key, value := range parameters {
+		copyParameters[key] = copyParameterValue(value)
+	}
+	return copyParameters
+}
+
+func copyParameterValue(value any) any {
+	switch value := value.(type) {
+	case map[string]any:
+		return copyParameters(value)
+	case []any:
+		copied := make([]any, len(value))
+		for i := range value {
+			copied[i] = copyParameterValue(value[i])
+		}
+		return copied
+	default:
+		return value
+	}
+}
 
 // EvictionResult holds the outcome of evicting a large tool result.
 type EvictionResult struct {

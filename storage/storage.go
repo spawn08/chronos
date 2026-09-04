@@ -125,3 +125,12 @@ type Storage interface {
 	Migrate(ctx context.Context) error
 	Close() error
 }
+
+// SessionDeleter is implemented by storage backends that can permanently
+// remove a session and all session-scoped records. Implementations must scope
+// the deletion to the tenant carried by ctx.
+//
+// It is separate from Storage to avoid breaking existing storage adapters.
+type SessionDeleter interface {
+	DeleteSession(ctx context.Context, id string) error
+}
