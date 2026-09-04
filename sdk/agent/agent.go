@@ -525,7 +525,7 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 	// Handle tool calls with iteration limit
 	maxIter := a.MaxIterations
 	if maxIter <= 0 {
-		maxIter = 25
+		maxIter = 90
 	}
 	iteration := 0
 	totalUsage := resp.Usage

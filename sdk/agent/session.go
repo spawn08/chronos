@@ -358,7 +358,7 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 	// message history and passing the tool definitions on every follow-up.
 	maxIter := a.MaxIterations
 	if maxIter <= 0 {
-		maxIter = 25
+		maxIter = 90
 	}
 	iteration := 0
 	for resp.StopReason == model.StopReasonToolCall && len(resp.ToolCalls) > 0 {
