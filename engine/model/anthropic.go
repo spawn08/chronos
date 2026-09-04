@@ -214,23 +214,58 @@ func anthropicThinkingBudget(cfg *ReasoningConfig) int {
 	}
 }
 
+func anthropicThinkingText(value any) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case map[string]any:
+		if s, ok := v["thinking"].(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
 func anthropicThinkingBlocks(state any) []map[string]any {
+	var raw []map[string]any
 	switch v := state.(type) {
 	case []map[string]any:
-		return v
+		raw = v
 	case []any:
-		out := make([]map[string]any, 0, len(v))
 		for _, item := range v {
 			block, ok := item.(map[string]any)
 			if !ok {
 				continue
 			}
-			out = append(out, block)
+			raw = append(raw, block)
 		}
-		return out
 	default:
 		return nil
 	}
+	out := make([]map[string]any, 0, len(raw))
+	for _, block := range raw {
+		typ, _ := block["type"].(string)
+		switch typ {
+		case "redacted_thinking":
+			data, _ := block["data"].(string)
+			if data == "" {
+				continue
+			}
+			out = append(out, map[string]any{"type": "redacted_thinking", "data": data})
+		case "thinking":
+			thinking := anthropicThinkingText(block["thinking"])
+			sig, _ := block["signature"].(string)
+			if thinking == "" && sig == "" {
+				continue
+			}
+			item := map[string]any{"type": "thinking", "thinking": thinking}
+			if sig != "" {
+				item["signature"] = sig
+			}
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 func anthropicAssistantBlocks(msg Message) []map[string]any {
@@ -271,19 +306,20 @@ func (a *Anthropic) convertResponse(raw *anthropicResponse) *ChatResponse {
 		switch block.Type {
 		case "text":
 			textParts = append(textParts, block.Text)
-		case "thinking", "redacted_thinking":
-			item := map[string]any{"type": block.Type}
-			if block.Thinking != "" {
-				item["thinking"] = block.Thinking
-				reasoningParts = append(reasoningParts, block.Thinking)
-			}
+		case "thinking":
+			item := map[string]any{"type": "thinking", "thinking": block.Thinking}
 			if block.Signature != "" {
 				item["signature"] = block.Signature
 			}
-			if block.Data != "" {
-				item["data"] = block.Data
+			if block.Thinking != "" {
+				reasoningParts = append(reasoningParts, block.Thinking)
 			}
 			thinkingBlocks = append(thinkingBlocks, item)
+		case "redacted_thinking":
+			if block.Data == "" {
+				continue
+			}
+			thinkingBlocks = append(thinkingBlocks, map[string]any{"type": "redacted_thinking", "data": block.Data})
 		case "tool_use":
 			argsJSON, _ := json.Marshal(block.Input)
 			cr.ToolCalls = append(cr.ToolCalls, ToolCall{
@@ -318,10 +354,13 @@ func (a *Anthropic) readSSEStream(ctx context.Context, resp *http.Response, ch c
 	var thinkingBlocks []map[string]any
 	var currentThinking map[string]any
 	flushThinking := func() {
-		if currentThinking != nil {
-			thinkingBlocks = append(thinkingBlocks, currentThinking)
-			currentThinking = nil
+		if currentThinking == nil {
+			return
 		}
+		if normalized := anthropicThinkingBlocks([]map[string]any{currentThinking}); len(normalized) > 0 {
+			thinkingBlocks = append(thinkingBlocks, normalized[0])
+		}
+		currentThinking = nil
 	}
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -342,11 +381,13 @@ func (a *Anthropic) readSSEStream(ctx context.Context, resp *http.Response, ch c
 				StopReason  string `json:"stop_reason"`
 			} `json:"delta"`
 			ContentBlock struct {
-				Type  string `json:"type"`
-				ID    string `json:"id"`
-				Name  string `json:"name"`
-				Input any    `json:"input"`
-				Data  string `json:"data"`
+				Type      string `json:"type"`
+				ID        string `json:"id"`
+				Name      string `json:"name"`
+				Input     any    `json:"input"`
+				Data      string `json:"data"`
+				Thinking  string `json:"thinking"`
+				Signature string `json:"signature"`
 			} `json:"content_block"`
 			Message struct {
 				Usage anthropicUsage `json:"usage"`
@@ -370,6 +411,12 @@ func (a *Anthropic) readSSEStream(ctx context.Context, resp *http.Response, ch c
 			case "thinking", "redacted_thinking":
 				flushThinking()
 				currentThinking = map[string]any{"type": event.ContentBlock.Type}
+				if event.ContentBlock.Type == "thinking" {
+					currentThinking["thinking"] = event.ContentBlock.Thinking
+				}
+				if event.ContentBlock.Signature != "" {
+					currentThinking["signature"] = event.ContentBlock.Signature
+				}
 				if event.ContentBlock.Data != "" {
 					currentThinking["data"] = event.ContentBlock.Data
 				}
@@ -398,11 +445,18 @@ func (a *Anthropic) readSSEStream(ctx context.Context, resp *http.Response, ch c
 					return
 				}
 			case "thinking_delta":
-				if currentThinking != nil && event.Delta.Thinking != "" {
-					prev, _ := currentThinking["thinking"].(string)
-					currentThinking["thinking"] = prev + event.Delta.Thinking
+				chunk := event.Delta.Thinking
+				if chunk == "" {
+					chunk = event.Delta.Text
 				}
-				if !sendCtx(ctx, ch, &ChatResponse{Reasoning: event.Delta.Thinking, Role: RoleAssistant, Delta: true}) {
+				if currentThinking == nil {
+					currentThinking = map[string]any{"type": "thinking", "thinking": ""}
+				}
+				if chunk != "" {
+					prev, _ := currentThinking["thinking"].(string)
+					currentThinking["thinking"] = prev + chunk
+				}
+				if !sendCtx(ctx, ch, &ChatResponse{Reasoning: chunk, Role: RoleAssistant, Delta: true}) {
 					return
 				}
 			case "signature_delta":

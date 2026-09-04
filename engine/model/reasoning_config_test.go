@@ -104,6 +104,9 @@ func TestAnthropicReasoningResponse(t *testing.T) {
 	if !ok || len(blocks) != 1 || blocks[0]["type"] != "thinking" {
 		t.Fatalf("ProviderState = %#v", resp.ProviderState)
 	}
+	if _, ok := blocks[0]["thinking"].(string); !ok {
+		t.Fatalf("thinking field missing: %#v", blocks[0])
+	}
 }
 
 func TestSignedReasoningProvidersRejectTools(t *testing.T) {

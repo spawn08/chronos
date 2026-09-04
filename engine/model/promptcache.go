@@ -27,8 +27,13 @@ func cacheLastContentBlock(msg map[string]any) {
 			"cache_control": ephemeralCache(),
 		}}
 	case []map[string]any:
-		if len(content) > 0 {
-			attachEphemeralCache(content[len(content)-1])
+		for i := len(content) - 1; i >= 0; i-- {
+			typ, _ := content[i]["type"].(string)
+			if typ == "thinking" || typ == "redacted_thinking" {
+				continue
+			}
+			attachEphemeralCache(content[i])
+			return
 		}
 	}
 }

@@ -279,6 +279,49 @@ func TestAnthropic_BuildRequestBody_PreservesThinkingBlocks(t *testing.T) {
 	}
 }
 
+func TestAnthropic_BuildRequestBody_SignatureOnlyThinkingIncludesField(t *testing.T) {
+	p := NewAnthropic("test")
+	req := &ChatRequest{
+		Messages: []Message{{
+			Role: RoleAssistant,
+			ToolCalls: []ToolCall{
+				{ID: "tc1", Name: "fn", Arguments: `{"x":1}`},
+			},
+			ProviderState: []map[string]any{{
+				"type":      "thinking",
+				"signature": "sig_only",
+			}},
+		}},
+	}
+	body := p.buildRequestBody(req, false)
+	content := body["messages"].([]map[string]any)[0]["content"].([]map[string]any)
+	thinking, ok := content[0]["thinking"].(string)
+	if content[0]["type"] != "thinking" || !ok || content[0]["signature"] != "sig_only" {
+		t.Fatalf("thinking block = %#v", content[0])
+	}
+	if thinking != "" {
+		t.Fatalf("empty thinking text = %q", thinking)
+	}
+}
+
+func TestAnthropic_BuildRequestBody_DropsIncompleteThinking(t *testing.T) {
+	p := NewAnthropic("test")
+	req := &ChatRequest{
+		Messages: []Message{{
+			Role:      RoleAssistant,
+			ToolCalls: []ToolCall{{ID: "tc1", Name: "fn", Arguments: `{"x":1}`}},
+			ProviderState: []map[string]any{
+				{"type": "thinking"},
+			},
+		}},
+	}
+	body := p.buildRequestBody(req, false)
+	content := body["messages"].([]map[string]any)[0]["content"].([]map[string]any)
+	if content[0]["type"] == "thinking" {
+		t.Fatalf("incomplete thinking block was sent: %#v", content)
+	}
+}
+
 func TestAnthropic_BuildRequestBody_EmptyToolCallArguments(t *testing.T) {
 	p := NewAnthropic("test")
 	req := &ChatRequest{Messages: []Message{{
