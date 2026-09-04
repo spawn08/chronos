@@ -103,13 +103,13 @@ func (g *Gemini) StreamChat(ctx context.Context, req *ChatRequest) (<-chan *Chat
 }
 
 func (g *Gemini) buildRequestBody(req *ChatRequest) map[string]any {
-	var systemInstruction map[string]any
+	var systemParts []string
 	contents := make([]map[string]any, 0, len(req.Messages))
 
 	for i := range req.Messages {
 		if req.Messages[i].Role == RoleSystem {
-			systemInstruction = map[string]any{
-				"parts": []map[string]string{{"text": req.Messages[i].Content}},
+			if req.Messages[i].Content != "" {
+				systemParts = append(systemParts, req.Messages[i].Content)
 			}
 			continue
 		}
@@ -151,11 +151,20 @@ func (g *Gemini) buildRequestBody(req *ChatRequest) map[string]any {
 		})
 	}
 
+	if len(contents) == 0 {
+		contents = append(contents, map[string]any{
+			"role":  "user",
+			"parts": []map[string]any{{"text": "Continue."}},
+		})
+	}
+
 	body := map[string]any{
 		"contents": contents,
 	}
-	if systemInstruction != nil {
-		body["systemInstruction"] = systemInstruction
+	if len(systemParts) > 0 {
+		body["systemInstruction"] = map[string]any{
+			"parts": []map[string]string{{"text": strings.Join(systemParts, "\n\n")}},
+		}
 	}
 
 	genConfig := map[string]any{}

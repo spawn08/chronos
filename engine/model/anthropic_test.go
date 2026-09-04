@@ -176,6 +176,23 @@ func TestAnthropic_BuildRequestBody_SystemMessage(t *testing.T) {
 	}
 }
 
+func TestAnthropic_BuildRequestBody_SystemOnlyStillHasUserMessage(t *testing.T) {
+	p := NewAnthropic("test")
+	body := p.buildRequestBody(&ChatRequest{
+		Messages: []Message{
+			{Role: RoleSystem, Content: "You are helpful."},
+			{Role: RoleSystem, Content: "Be brief."},
+		},
+	}, false)
+	if body["system"] != "You are helpful.\n\nBe brief." {
+		t.Errorf("system=%v", body["system"])
+	}
+	msgs, _ := body["messages"].([]map[string]any)
+	if len(msgs) != 1 || msgs[0]["role"] != RoleUser {
+		t.Fatalf("expected a fallback user message, got %#v", msgs)
+	}
+}
+
 func TestAnthropic_BuildRequestBody_ToolResult(t *testing.T) {
 	p := NewAnthropic("test")
 	req := &ChatRequest{

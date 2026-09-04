@@ -128,6 +128,23 @@ func TestCompressToolCalls_ZeroLimit(t *testing.T) {
 	}
 }
 
+func TestEnforceContextBudgetKeepsUserTurnAfterToolOrphans(t *testing.T) {
+	counter := model.NewEstimatingCounter()
+	large := strings.Repeat("token ", 2000)
+	messages := []model.Message{
+		{Role: model.RoleSystem, Content: "system"},
+		{Role: model.RoleUser, Content: "do the task"},
+		{Role: model.RoleAssistant, ToolCalls: []model.ToolCall{{ID: "1", Name: "read"}}},
+		{Role: model.RoleTool, Content: large, ToolCallID: "1"},
+		{Role: model.RoleAssistant, ToolCalls: []model.ToolCall{{ID: "2", Name: "read"}}},
+		{Role: model.RoleTool, Content: large, ToolCallID: "2"},
+	}
+	got := enforceContextBudget(counter, messages, 1, 200)
+	if !hasUserOrAssistant(got, 1) {
+		t.Fatalf("budget trim left no user/assistant turn")
+	}
+}
+
 func TestReadStoredResult_NonStringValue(t *testing.T) {
 	store := memory.New()
 	ctx := context.Background()

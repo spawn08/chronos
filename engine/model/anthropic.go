@@ -100,11 +100,13 @@ func (a *Anthropic) buildRequestBody(req *ChatRequest, stream bool) map[string]a
 		modelID = a.config.Model
 	}
 
-	var system string
+	var systemParts []string
 	messages := make([]map[string]any, 0, len(req.Messages))
 	for i := range req.Messages {
 		if req.Messages[i].Role == RoleSystem {
-			system = req.Messages[i].Content
+			if req.Messages[i].Content != "" {
+				systemParts = append(systemParts, req.Messages[i].Content)
+			}
 			continue
 		}
 		msg := map[string]any{"role": req.Messages[i].Role}
@@ -143,6 +145,15 @@ func (a *Anthropic) buildRequestBody(req *ChatRequest, stream bool) map[string]a
 		messages = append(messages, msg)
 	}
 
+	if len(messages) == 0 {
+		// Anthropic rejects an empty messages array (system is a separate
+		// field). Keep the request valid after context trimming.
+		messages = append(messages, map[string]any{
+			"role":    RoleUser,
+			"content": "Continue.",
+		})
+	}
+
 	body := map[string]any{
 		"model":      modelID,
 		"messages":   messages,
@@ -151,7 +162,7 @@ func (a *Anthropic) buildRequestBody(req *ChatRequest, stream bool) map[string]a
 	if req.MaxTokens > 0 {
 		body["max_tokens"] = req.MaxTokens
 	}
-	if system != "" {
+	if system := strings.Join(systemParts, "\n\n"); system != "" {
 		body["system"] = system
 	}
 	if req.Temperature > 0 {

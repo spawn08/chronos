@@ -207,6 +207,25 @@ func TestGemini_BuildRequestBody_SystemInstruction(t *testing.T) {
 	}
 }
 
+func TestGemini_BuildRequestBody_SystemOnlyStillHasUserContent(t *testing.T) {
+	p := NewGemini("test")
+	body := p.buildRequestBody(&ChatRequest{
+		Messages: []Message{
+			{Role: RoleSystem, Content: "Be concise."},
+			{Role: RoleSystem, Content: "Stay on topic."},
+		},
+	})
+	si, _ := body["systemInstruction"].(map[string]any)
+	parts, _ := si["parts"].([]map[string]string)
+	if len(parts) != 1 || parts[0]["text"] != "Be concise.\n\nStay on topic." {
+		t.Errorf("unexpected system instruction: %v", si)
+	}
+	contents, _ := body["contents"].([]map[string]any)
+	if len(contents) != 1 || contents[0]["role"] != "user" {
+		t.Fatalf("expected a fallback user content, got %#v", contents)
+	}
+}
+
 func TestGemini_BuildRequestBody_ToolMessage(t *testing.T) {
 	p := NewGemini("test")
 	req := &ChatRequest{

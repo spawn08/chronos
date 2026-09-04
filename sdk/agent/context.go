@@ -160,17 +160,85 @@ func enforceContextBudget(counter model.TokenCounter, messages []model.Message, 
 	// a per-message sum plus a constant, so this is exact.
 	base := counter.CountTokens(nil)
 	cost := func(m model.Message) int { return counter.CountTokens([]model.Message{m}) - base }
+	original := messages
 	for total > contextLimit && len(messages) > protectedPrefix+1 {
 		// Remove the oldest non-protected (conversation) message.
 		total -= cost(messages[protectedPrefix])
 		messages = append(messages[:protectedPrefix:protectedPrefix], messages[protectedPrefix+1:]...)
-		// Drop any now-leading orphaned tool results.
-		for len(messages) > protectedPrefix && messages[protectedPrefix].Role == model.RoleTool {
+		// Drop leading orphaned tool results, but never the last remaining
+		// conversation message. Wiping that tail leaves a system-only request
+		// which Anthropic/Gemini reject ("messages must contain at least one message").
+		for len(messages) > protectedPrefix+1 && messages[protectedPrefix].Role == model.RoleTool {
 			total -= cost(messages[protectedPrefix])
 			messages = append(messages[:protectedPrefix:protectedPrefix], messages[protectedPrefix+1:]...)
 		}
 	}
+	if !hasUserOrAssistant(messages, protectedPrefix) {
+		messages = restoreLastUserTurn(original, protectedPrefix)
+	}
+	if counter.CountTokens(messages) > contextLimit {
+		if collapsed := collapseToLastUser(original, protectedPrefix); len(collapsed) > 0 {
+			return collapsed
+		}
+	}
 	return messages
+}
+
+func hasUserOrAssistant(messages []model.Message, from int) bool {
+	for i := from; i < len(messages); i++ {
+		switch messages[i].Role {
+		case model.RoleUser, model.RoleAssistant:
+			return true
+		}
+	}
+	return false
+}
+
+func restoreLastUserTurn(messages []model.Message, protectedPrefix int) []model.Message {
+	if protectedPrefix < 0 {
+		protectedPrefix = 0
+	}
+	if protectedPrefix > len(messages) {
+		protectedPrefix = len(messages)
+	}
+	lastUser := -1
+	for i := len(messages) - 1; i >= protectedPrefix; i-- {
+		if messages[i].Role == model.RoleUser {
+			lastUser = i
+			break
+		}
+	}
+	out := make([]model.Message, 0, len(messages))
+	out = append(out, messages[:protectedPrefix]...)
+	if lastUser >= 0 {
+		return append(out, messages[lastUser:]...)
+	}
+	if protectedPrefix < len(messages) {
+		return append(out, messages[len(messages)-1])
+	}
+	return out
+}
+
+func collapseToLastUser(messages []model.Message, protectedPrefix int) []model.Message {
+	if protectedPrefix < 0 {
+		protectedPrefix = 0
+	}
+	if protectedPrefix > len(messages) {
+		protectedPrefix = len(messages)
+	}
+	lastUser := -1
+	for i := len(messages) - 1; i >= protectedPrefix; i-- {
+		if messages[i].Role == model.RoleUser {
+			lastUser = i
+			break
+		}
+	}
+	if lastUser < 0 {
+		return nil
+	}
+	out := make([]model.Message, 0, protectedPrefix+1)
+	out = append(out, messages[:protectedPrefix]...)
+	return append(out, messages[lastUser])
 }
 
 // CompressToolCalls removes older tool call/result pairs from message history,
