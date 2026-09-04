@@ -3,13 +3,67 @@ package agent
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/spawn08/chronos/engine/hooks"
 	"github.com/spawn08/chronos/engine/model"
+	"github.com/spawn08/chronos/engine/stream"
 	"github.com/spawn08/chronos/engine/tool"
 )
+
+type rejectingToolHook struct{ err error }
+
+func (h rejectingToolHook) Before(_ context.Context, event *hooks.Event) error {
+	if event.Type == hooks.EventToolCallBefore {
+		return h.err
+	}
+	return nil
+}
+
+func (rejectingToolHook) After(context.Context, *hooks.Event) error { return nil }
+
+func TestExecuteToolCallsReturnsHookDenialToModel(t *testing.T) {
+	a, err := New("recover", "Recover").WithModel(&recordingProvider{}).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.Hooks = append(a.Hooks, rejectingToolHook{err: errors.New("use file_grep instead")})
+	a.Tools.Register(&tool.Definition{Name: "shell", Permission: tool.PermAllow, Handler: func(context.Context, map[string]any) (any, error) {
+		t.Fatal("denied tool handler executed")
+		return nil, nil
+	}})
+	a.Broker = stream.NewBroker()
+	events := a.Broker.Subscribe("test")
+
+	messages, err := a.executeToolCalls(context.Background(), nil, &model.ChatResponse{ToolCalls: []model.ToolCall{{
+		ID: "call-1", Name: "shell", Arguments: `{"command":"grep pattern file"}`,
+	}}})
+	if err != nil {
+		t.Fatalf("executeToolCalls() error = %v, want recoverable tool result", err)
+	}
+	if len(messages) != 2 || messages[1].Role != model.RoleTool || !strings.Contains(messages[1].Content, "use file_grep instead") {
+		t.Fatalf("tool denial messages = %#v", messages)
+	}
+	select {
+	case event := <-events:
+		if event.Type != stream.EventToolCall {
+			t.Fatalf("first event type = %q, want tool call", event.Type)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("missing tool-call event")
+	}
+	select {
+	case event := <-events:
+		if event.Type != stream.EventToolResult {
+			t.Fatalf("second event type = %q, want tool result", event.Type)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("missing denied tool-result event")
+	}
+}
 
 func TestExecuteToolCallsRunsParallelSafeToolsConcurrently(t *testing.T) {
 	a, err := New("parallel", "Parallel").WithModel(&recordingProvider{}).Build()

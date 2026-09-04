@@ -4,6 +4,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -933,7 +934,19 @@ func (a *Agent) executeToolCall(ctx context.Context, tc model.ToolCall) toolExec
 
 	toolEvt := &hooks.Event{Type: hooks.EventToolCallBefore, Name: tc.Name, Input: args}
 	if err := a.Hooks.Before(ctx, toolEvt); err != nil {
-		return toolExecution{err: fmt.Errorf("hook before tool %q: %w", tc.Name, err)}
+		wrapped := fmt.Errorf("hook before tool %q: %w", tc.Name, err)
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return toolExecution{err: wrapped}
+		}
+		a.publish(ctx, stream.Event{Type: stream.EventToolResult, Data: map[string]any{
+			"agent": a.ID, "id": tc.ID, "tool": tc.Name, "error": wrapped.Error(),
+		}})
+		return toolExecution{message: model.Message{
+			Role:       model.RoleTool,
+			Content:    "Error: " + wrapped.Error(),
+			ToolCallID: tc.ID,
+			Name:       tc.Name,
+		}}
 	}
 
 	var toolSpan *storage.Trace
