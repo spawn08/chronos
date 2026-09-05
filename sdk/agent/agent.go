@@ -73,7 +73,7 @@ type Agent struct {
 	ReasoningConfig  model.ReasoningConfig // provider-native reasoning/thinking settings
 	ReasoningModel   model.Provider        // separate, more capable model for reasoning steps
 	Debug            bool                  // when set, logs detailed execution info
-	MaxIterations    int                   // max tool-calling loop iterations; 0 = default (25)
+	MaxIterations    int                   // max tool-calling loop iterations; 0 = default (90)
 	Stream           bool                  // preferred CLI response mode
 	StreamConfigured bool                  // distinguishes an explicit YAML value from the default
 
@@ -89,6 +89,18 @@ type Agent struct {
 // defaultRecallTopK is the number of memories recalled per turn when
 // RecallConfig.TopK is unset. It mirrors memory.Manager's own default.
 const defaultRecallTopK = 5
+
+// defaultMaxToolIterations bounds the tool-calling loop when MaxIterations is
+// unset. Streaming previously defaulted to 25 while blocking chat used 90,
+// which made the TUI stop mid-task while non-stream calls kept going.
+const defaultMaxToolIterations = 90
+
+func (a *Agent) toolLoopLimit() int {
+	if a != nil && a.MaxIterations > 0 {
+		return a.MaxIterations
+	}
+	return defaultMaxToolIterations
+}
 
 var modelCallSequence atomic.Uint64
 
@@ -523,10 +535,7 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 	}})
 
 	// Handle tool calls with iteration limit
-	maxIter := a.MaxIterations
-	if maxIter <= 0 {
-		maxIter = 90
-	}
+	maxIter := a.toolLoopLimit()
 	iteration := 0
 	totalUsage := resp.Usage
 	for resp.StopReason == model.StopReasonToolCall && len(resp.ToolCalls) > 0 {
@@ -670,10 +679,7 @@ func (a *Agent) streamLoop(ctx context.Context, req *model.ChatRequest, messages
 	var totalUsage model.Usage
 	accumulateUsage(&totalUsage, resp.Usage)
 
-	maxIter := a.MaxIterations
-	if maxIter <= 0 {
-		maxIter = 25
-	}
+	maxIter := a.toolLoopLimit()
 	iteration := 0
 	for resp != nil && resp.StopReason == model.StopReasonToolCall && len(resp.ToolCalls) > 0 {
 		iteration++

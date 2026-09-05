@@ -356,10 +356,7 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 
 	// Handle tool calls across multiple rounds, threading the accumulated
 	// message history and passing the tool definitions on every follow-up.
-	maxIter := a.MaxIterations
-	if maxIter <= 0 {
-		maxIter = 90
-	}
+	maxIter := a.toolLoopLimit()
 	iteration := 0
 	for resp.StopReason == model.StopReasonToolCall && len(resp.ToolCalls) > 0 {
 		iteration++
