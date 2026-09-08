@@ -60,7 +60,21 @@ func NewAzureOpenAIWithConfig(cfg AzureConfig) *AzureOpenAI {
 func (a *AzureOpenAI) Name() string  { return "azure-openai" }
 func (a *AzureOpenAI) Model() string { return a.deployment }
 
+// usesV1API reports whether this resource's configured api-version selects
+// Azure's newer unified "v1" surface (docs call the version string
+// "preview") rather than the classic dated api-versions. The v1 surface
+// serves every deployment from one path with the deployment name in the
+// request body's "model" field; the classic surface scopes the deployment
+// into the URL path itself and 404s if a "preview"-style api-version is
+// sent to it, so the two must not be mixed.
+func (a *AzureOpenAI) usesV1API() bool {
+	return a.apiVersion == "preview"
+}
+
 func (a *AzureOpenAI) chatPath() string {
+	if a.usesV1API() {
+		return fmt.Sprintf("/openai/v1/chat/completions?api-version=%s", a.apiVersion)
+	}
 	return fmt.Sprintf("/openai/deployments/%s/chat/completions?api-version=%s", a.deployment, a.apiVersion)
 }
 
@@ -76,7 +90,9 @@ func (a *AzureOpenAI) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse
 	}
 
 	body := buildOpenAIRequestBody(req, a.deployment, false)
-	delete(body, "model") // Azure uses the deployment name in the URL
+	if !a.usesV1API() {
+		delete(body, "model") // classic surface uses the deployment name in the URL
+	}
 
 	resp, err := a.http.post(ctx, a.chatPath(), body)
 	if err != nil {
@@ -119,7 +135,9 @@ func (a *AzureOpenAI) StreamChat(ctx context.Context, req *ChatRequest) (<-chan 
 	responsesMode := a.usesResponsesAPI(req)
 	path := a.chatPath()
 	body := buildOpenAIRequestBody(req, a.deployment, true)
-	delete(body, "model")
+	if !a.usesV1API() {
+		delete(body, "model") // classic surface uses the deployment name in the URL
+	}
 	if responsesMode {
 		path = a.responsesPath()
 		body = buildResponsesRequestBody(req, a.deployment, true)

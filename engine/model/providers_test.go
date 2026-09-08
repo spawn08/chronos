@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -145,6 +146,52 @@ func TestAzureOpenAI_chatPath(t *testing.T) {
 	}
 	if !strings.Contains(path, "2024-10-21") {
 		t.Errorf("chatPath=%q, want api-version", path)
+	}
+}
+
+// api-version "preview" selects Azure's newer v1 surface, which serves every
+// deployment from one path (deployment name goes in the request body, not
+// the URL) — mixing it with the classic deployment-scoped path 404s.
+func TestAzureOpenAI_chatPath_V1Preview(t *testing.T) {
+	p := NewAzureOpenAIWithConfig(AzureConfig{
+		ProviderConfig: ProviderConfig{APIKey: "k", BaseURL: "https://x", Model: "my-deploy"},
+		Deployment:     "my-deploy",
+		APIVersion:     "preview",
+	})
+	path := p.chatPath()
+	if path != "/openai/v1/chat/completions?api-version=preview" {
+		t.Errorf("chatPath=%q, want the v1 path with no deployment segment", path)
+	}
+}
+
+func TestAzureOpenAI_Chat_V1Preview_SendsModelInBody(t *testing.T) {
+	var gotPath string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.RequestURI()
+		json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(200)
+		fmt.Fprint(w, openAISuccessBody("v1 response"))
+	}))
+	defer srv.Close()
+
+	p := NewAzureOpenAIWithConfig(AzureConfig{
+		ProviderConfig: ProviderConfig{APIKey: "k", BaseURL: srv.URL, Model: "my-deploy"},
+		Deployment:     "my-deploy",
+		APIVersion:     "preview",
+	})
+	resp, err := p.Chat(t.Context(), &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}})
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if resp.Content != "v1 response" {
+		t.Errorf("Content=%q", resp.Content)
+	}
+	if gotPath != "/openai/v1/chat/completions?api-version=preview" {
+		t.Errorf("request path=%q, want the v1 path", gotPath)
+	}
+	if gotBody["model"] != "my-deploy" {
+		t.Errorf("request body model=%v, want my-deploy (v1 surface reads it from the body)", gotBody["model"])
 	}
 }
 
