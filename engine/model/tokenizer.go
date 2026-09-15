@@ -128,10 +128,18 @@ func (c *EstimatingCounter) CountString(s string) int {
 	return int(float64(len(s))/cpt) + 1
 }
 
+// KnownContextLimit returns the catalog context window in tokens for an exact
+// model ID. Unknown IDs, including arbitrary deployment names, return (0, false)
+// so callers can distinguish a known capability from a configured fallback.
+func KnownContextLimit(modelName string) (int, bool) {
+	limit, ok := modelContextLimits[modelName]
+	return limit, ok
+}
+
 // ContextLimit returns the maximum context window (in tokens) for a model.
 // If the model is unknown, it returns the provided fallback value.
 func ContextLimit(modelName string, fallback int) int {
-	if limit, ok := modelContextLimits[modelName]; ok {
+	if limit, ok := KnownContextLimit(modelName); ok {
 		return limit
 	}
 	if fallback > 0 {
@@ -148,6 +156,8 @@ var modelContextLimits = map[string]int{
 	"gpt-5.5":       1000000,
 	"gpt-5.5-pro":   1000000,
 	"gpt-5":         400000,
+	"gpt-5-mini":    400000,
+	"gpt-5-nano":    400000,
 	"gpt-4o":        128000,
 	"gpt-4o-mini":   128000,
 	"gpt-4-turbo":   128000,
@@ -195,6 +205,10 @@ var modelContextLimits = map[string]int{
 	"llama3.2": 131072,
 	"llama3.1": 131072,
 	"llama3":   8192,
+	// Hosted model IDs with endpoint-specific windows, carried over from the
+	// Chronos Code provider catalog rather than inferred from Ollama aliases.
+	"llama-3.3-70b-versatile":   128000,
+	"meta-llama/llama-3.1-405b": 128000,
 
 	// DeepSeek
 	"deepseek-chat":     64000,

@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"net"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/spawn08/chronos/engine/graph"
@@ -521,7 +524,8 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 	a.debugLog("sending %d messages to model %q (tools=%d)", len(req.Messages), a.Model.Name(), len(req.Tools))
 	resp, err := a.modelCall(ctx, req, false, func() (*model.ChatResponse, error) {
 		return a.Model.Chat(ctx, req)
-	})
+	}, nil)
+	messages = req.Messages
 
 	if err != nil {
 		a.publish(ctx, stream.Event{Type: stream.EventError, Data: map[string]any{
@@ -576,7 +580,11 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 }
 
 // modelCall is the shared lifecycle boundary for every model round.
-func (a *Agent) modelCall(ctx context.Context, req *model.ChatRequest, streaming bool, call func() (*model.ChatResponse, error)) (*model.ChatResponse, error) {
+func (a *Agent) modelCall(ctx context.Context, req *model.ChatRequest, streaming bool, call func() (*model.ChatResponse, error), canRetry func() bool) (*model.ChatResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	req.Model = a.Model.Model()
 	modelEvt := &hooks.Event{
 		Type:  hooks.EventModelCallBefore,
 		Name:  a.Model.Name(),
@@ -605,14 +613,41 @@ func (a *Agent) modelCall(ctx context.Context, req *model.ChatRequest, streaming
 		modelSpan, _ = a.Tracer.StartSpan(ctx, sessionID, "model:"+a.Model.Name(), "model_call")
 	}
 
-	resp, err := call()
+	// An explicit blocking RetryHook owns its retry policy; do not multiply it
+	// by SDK retries. Its Chat fallback is unsuitable for streams, which use the
+	// bounded streaming closure instead. Other hooks still unwind once per round.
+	afterHooks := make(hooks.Chain, 0, len(a.Hooks))
+	legacyRetry := false
+	for _, h := range a.Hooks {
+		if _, ok := h.(*hooks.RetryHook); ok {
+			if streaming {
+				continue
+			}
+			legacyRetry = true
+		}
+		afterHooks = append(afterHooks, h)
+	}
+	var resp *model.ChatResponse
+	var err error
+	if legacyRetry {
+		if err = ctx.Err(); err == nil {
+			resp, err = call()
+		}
+	} else {
+		resp, err = retryModelRequest(ctx, call, canRetry)
+	}
 	modelEvt.Type = hooks.EventModelCallAfter
 	modelEvt.Output = resp
 	modelEvt.Error = err
-	_ = a.Hooks.After(ctx, modelEvt)
-	if err != nil && modelEvt.Error == nil {
-		resp, _ = modelEvt.Output.(*model.ChatResponse)
-		err = nil
+	_ = afterHooks.After(ctx, modelEvt)
+	if err != nil && (canRetry == nil || canRetry()) {
+		if modelEvt.Error == nil {
+			resp, _ = modelEvt.Output.(*model.ChatResponse)
+		}
+		err = modelEvt.Error
+	}
+	if ctx.Err() != nil {
+		err = ctx.Err()
 	}
 
 	if modelSpan != nil {
@@ -623,6 +658,55 @@ func (a *Agent) modelCall(ctx context.Context, req *model.ChatRequest, streaming
 		}
 	}
 	return resp, err
+}
+
+// retryModelRequest retries only the already-built provider request, at most
+// once. Provider-internal retries remain bounded by their own configuration:
+// this adds at most a factor of two, never a new agent/tool execution.
+func retryModelRequest(ctx context.Context, call func() (*model.ChatResponse, error), canRetry func() bool) (*model.ChatResponse, error) {
+	for attempt := 0; ; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		resp, err := call()
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if err == nil || attempt == 1 || (canRetry != nil && !canRetry()) || !transientModelError(err) {
+			return resp, err
+		}
+		delay := 100 * time.Millisecond
+		var apiErr *model.APIError
+		if errors.As(err, &apiErr) && apiErr.RetryAfter > delay {
+			delay = apiErr.RetryAfter
+		}
+		// Surface long server delays instead of retrying before Retry-After or
+		// holding an agent turn indefinitely. The caller can schedule recovery.
+		if delay > 2*time.Second {
+			return resp, err
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func transientModelError(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, model.ErrCircuitOpen) {
+		return false
+	}
+	var apiErr *model.APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.StatusCode == 408 || apiErr.StatusCode == 429 || (apiErr.StatusCode >= 500 && apiErr.StatusCode < 600)
+	}
+	var networkErr net.Error
+	return (errors.As(err, &networkErr) && (networkErr.Timeout() || networkErr.Temporary())) ||
+		errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE)
 }
 
 // ChatStream sends a single user message and streams the model's response token
@@ -670,6 +754,7 @@ func (a *Agent) ChatStream(ctx context.Context, userMessage string) (<-chan *mod
 // can decide whether more tool calls are pending.
 func (a *Agent) streamLoop(ctx context.Context, req *model.ChatRequest, messages []model.Message, out chan<- *model.ChatResponse) (*model.ChatResponse, []model.Message, error) {
 	resp, err := a.streamOnce(ctx, req, out)
+	messages = req.Messages
 	if err != nil {
 		err = fmt.Errorf("agent %q stream: %w", a.ID, err)
 		a.emitError(ctx, out, err)
@@ -703,6 +788,7 @@ func (a *Agent) streamLoop(ctx context.Context, req *model.ChatRequest, messages
 		}
 		followReq := &model.ChatRequest{Messages: messages, Tools: req.Tools, Reasoning: req.Reasoning}
 		resp, err = a.streamOnce(ctx, followReq, out)
+		messages = followReq.Messages
 		if err != nil {
 			err = fmt.Errorf("agent %q stream: %w", a.ID, err)
 			a.emitError(ctx, out, err)
@@ -754,7 +840,7 @@ func (a *Agent) streamLoop(ctx context.Context, req *model.ChatRequest, messages
 // for the caller's tool-loop decision.
 func (a *Agent) streamOnce(ctx context.Context, req *model.ChatRequest, out chan<- *model.ChatResponse) (*model.ChatResponse, error) {
 	a.debugLog("streaming %d messages to model %q (tools=%d)", len(req.Messages), a.Model.Name(), len(req.Tools))
-	streamedContent := false
+	var streamedContent atomic.Bool
 	resp, err := a.modelCall(ctx, req, true, func() (*model.ChatResponse, error) {
 		ch, err := a.Model.StreamChat(ctx, req)
 		if err != nil {
@@ -771,6 +857,7 @@ func (a *Agent) streamOnce(ctx context.Context, req *model.ChatRequest, out chan
 				// Forward provider-approved reasoning separately when explicitly
 				// requested. It is never mixed into final answer content.
 				if cr.Reasoning != "" && cr.Err == nil && a.ReasoningConfig.Summary {
+					streamedContent.Store(true)
 					sendStream(ctx, out, &model.ChatResponse{
 						Role:      model.RoleAssistant,
 						Reasoning: cr.Reasoning,
@@ -780,7 +867,7 @@ func (a *Agent) streamOnce(ctx context.Context, req *model.ChatRequest, out chan
 				// Forward live text to the consumer; tool-call fragments and usage
 				// are carried through to the aggregator only.
 				if cr.Content != "" && cr.Err == nil {
-					streamedContent = true
+					streamedContent.Store(true)
 					sendStream(ctx, out, &model.ChatResponse{
 						Role:    model.RoleAssistant,
 						Content: cr.Content,
@@ -801,8 +888,8 @@ func (a *Agent) streamOnce(ctx context.Context, req *model.ChatRequest, out chan
 		}()
 
 		return model.AggregateStream(ctx, agg)
-	})
-	if err == nil && !streamedContent && resp.Content != "" {
+	}, func() bool { return !streamedContent.Load() })
+	if err == nil && !streamedContent.Load() && resp.Content != "" {
 		sendStream(ctx, out, &model.ChatResponse{Role: model.RoleAssistant, Content: resp.Content, Delta: true})
 	}
 	return resp, err
@@ -849,7 +936,8 @@ func (a *Agent) handleToolCalls(ctx context.Context, messages []model.Message, r
 	followReq := &model.ChatRequest{Messages: messages, Tools: req.Tools, Reasoning: req.Reasoning}
 	followUp, err := a.modelCall(ctx, followReq, false, func() (*model.ChatResponse, error) {
 		return a.Model.Chat(ctx, followReq)
-	})
+	}, nil)
+	messages = followReq.Messages
 	if err != nil {
 		return nil, messages, err
 	}

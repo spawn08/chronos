@@ -46,11 +46,12 @@ type SubAgentSpec struct {
 // of the parent's tools.
 //
 // It is a registry and is safe for concurrent use: Register may be called while
-// spawns are in flight, mirroring tool.Registry and skill.Registry. model and
-// tools are set once at construction and never mutated.
+// spawns are in flight, mirroring tool.Registry and skill.Registry. Parent
+// runtime configuration may be changed between runs, not during active builds.
 type SubAgentService struct {
-	model model.Provider
-	tools *tool.Registry
+	parent *agent.Agent
+	model  model.Provider // optional internal override; nil uses the live parent
+	tools  *tool.Registry
 
 	mu         sync.RWMutex
 	registered map[string]SubAgentSpec
@@ -78,7 +79,7 @@ func NewSubAgentService(parent *agent.Agent, opts ...Option) (*SubAgentService, 
 		return nil, fmt.Errorf("harness: subagent service requires a parent agent with a model")
 	}
 	s := &SubAgentService{
-		model:      parent.Model,
+		parent:     parent,
 		tools:      parent.Tools,
 		registered: make(map[string]SubAgentSpec),
 		maxDepth:   DefaultMaxSubAgentDepth,
@@ -138,20 +139,60 @@ func (s *SubAgentService) build(spec SubAgentSpec) (*agent.Agent, error) {
 	if spec.SystemPrompt == "" && len(spec.Instructions) == 0 {
 		return nil, fmt.Errorf("harness: subagent %q needs a system prompt or instructions", spec.Name)
 	}
+	parent := s.parent
+	if parent == nil {
+		// Preserve package-local services built with an explicit model/registry.
+		parent = &agent.Agent{Model: s.model, Tools: s.tools}
+	}
+	provider := s.model
+	if provider == nil {
+		provider = parent.Model
+	}
+	if provider == nil {
+		return nil, fmt.Errorf("harness: subagent %q requires a parent model", spec.Name)
+	}
+	contextCfg := parent.ContextCfg
+	contextCfg.PinnedMessages = append([]model.Message(nil), contextCfg.PinnedMessages...)
 	b := agent.New("subagent:"+spec.Name, spec.Name).
-		WithModel(s.model).
+		WithModel(provider).
+		WithUserID(parent.UserID).
+		WithStorage(parent.Storage).
+		WithBroker(parent.Broker).
+		WithTracer(parent.Tracer).
+		WithContextConfig(contextCfg).
+		WithContextPins(parent.ContextPinsFn).
+		WithReasoningConfig(parent.ReasoningConfig).
+		WithMaxIterations(parent.MaxIterations).
 		WithSystemPrompt(spec.SystemPrompt)
 	for _, inst := range spec.Instructions {
 		b.AddInstruction(inst)
 	}
 	for _, name := range spec.ToolNames {
-		def, ok := s.tools.Get(name)
+		def, ok := parent.Tools.Get(name)
 		if !ok {
 			return nil, fmt.Errorf("harness: subagent %q requests unknown tool %q", spec.Name, name)
 		}
-		b.AddTool(def)
+		// Keep the granted subset, but enforce approval, confirmation, user
+		// input and live policy through the parent registry exactly once.
+		granted := *def
+		granted.Permission = tool.PermAllow
+		granted.RequiresConfirmation = false
+		granted.RequiresUserInput = false
+		granted.Handler = func(ctx context.Context, args map[string]any) (any, error) {
+			return parent.Tools.Execute(ctx, name, args)
+		}
+		b.AddTool(&granted)
 	}
-	return b.Build()
+	sub, err := b.Build()
+	if err != nil {
+		return nil, fmt.Errorf("harness: build subagent %q: %w", spec.Name, err)
+	}
+	sub.Hooks = append(sub.Hooks, parent.Hooks...)
+	if parent.Guardrails != nil {
+		sub.Guardrails = parent.Guardrails
+	}
+	sub.MaxConcurrentSubAgents = parent.MaxConcurrentSubAgents
+	return sub, nil
 }
 
 // resolve returns the spec to run for a spawn request. A non-empty name must

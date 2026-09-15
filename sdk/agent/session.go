@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -27,6 +28,15 @@ type ChatSession struct {
 // chatSessionFromEvents reconstructs a ChatSession from the event ledger.
 func chatSessionFromEvents(events []*storage.Event) *ChatSession {
 	cs := &ChatSession{}
+	var checkpointSeq, coveredSeq int64
+	for _, evt := range events {
+		if checkpoint, ok := decodeSummaryCheckpoint(evt); ok && evt.SeqNum > checkpointSeq {
+			checkpointSeq = evt.SeqNum
+			coveredSeq = checkpoint.CoveredSeq
+			cs.Summary = checkpoint.Summary
+			cs.Messages = checkpoint.PreservedMessages
+		}
+	}
 	for _, evt := range events {
 		payload, ok := evt.Payload.(map[string]any)
 		if !ok {
@@ -34,6 +44,9 @@ func chatSessionFromEvents(events []*storage.Event) *ChatSession {
 		}
 		switch evt.Type {
 		case "chat_message":
+			if checkpointSeq > 0 && evt.SeqNum <= coveredSeq {
+				continue
+			}
 			role, _ := payload["role"].(string)
 			content, _ := payload["content"].(string)
 			msg := model.Message{Role: role, Content: content}
@@ -56,12 +69,63 @@ func chatSessionFromEvents(events []*storage.Event) *ChatSession {
 			}
 			cs.Messages = append(cs.Messages, msg)
 		case "chat_summary":
+			if checkpointSeq > 0 && evt.SeqNum <= checkpointSeq {
+				continue
+			}
 			if s, ok := payload["summary"].(string); ok {
 				cs.Summary = s
 			}
 		}
 	}
 	return cs
+}
+
+// summaryCheckpoint replaces all chat messages through CoveredSeq with the
+// exact preserved tail. CoveredSeq includes retained messages too: the snapshot
+// supplies them once, while the historical ledger remains untouched.
+type summaryCheckpoint struct {
+	Version           int             `json:"version"`
+	Summary           string          `json:"summary"`
+	CoveredSeq        int64           `json:"covered_seq"`
+	PreservedMessages []model.Message `json:"preserved_messages"`
+}
+
+func decodeSummaryCheckpoint(evt *storage.Event) (summaryCheckpoint, bool) {
+	var checkpoint summaryCheckpoint
+	if evt.Type != "chat_summary" {
+		return checkpoint, false
+	}
+	payload, ok := evt.Payload.(map[string]any)
+	if !ok {
+		return checkpoint, false
+	}
+	// Missing/unknown/malformed checkpoint fields must never discard history.
+	if _, ok := payload["summary"].(string); !ok {
+		return checkpoint, false
+	}
+	if covered, ok := payload["covered_seq"]; !ok || covered == nil {
+		return checkpoint, false
+	}
+	if _, ok := payload["preserved_messages"]; !ok {
+		return checkpoint, false
+	}
+	data, err := json.Marshal(payload)
+	if err != nil || json.Unmarshal(data, &checkpoint) != nil {
+		return checkpoint, false
+	}
+	return checkpoint, checkpoint.Version == 1 && checkpoint.CoveredSeq >= 0 && checkpoint.CoveredSeq < evt.SeqNum
+}
+
+// nextSessionEventSequence includes non-chat events and gaps in the ledger.
+// As with session writes generally, callers serialize writes to a session.
+func nextSessionEventSequence(events []*storage.Event) int64 {
+	var maxSeq int64
+	for _, evt := range events {
+		if evt.SeqNum > maxSeq {
+			maxSeq = evt.SeqNum
+		}
+	}
+	return maxSeq + 1
 }
 
 func strFromMap(m map[string]any, key string) string {
@@ -111,6 +175,28 @@ func persistSummary(ctx context.Context, store storage.Storage, sessionID string
 	})
 }
 
+// persistSummaryCheckpoint appends an additive v1 chat_summary event. coveredSeq
+// is the last ledger sequence represented by result (including its preserved
+// messages), not the number of messages summarized. seqNum must be newer.
+func persistSummaryCheckpoint(ctx context.Context, store storage.Storage, sessionID string, seqNum, coveredSeq int64, result model.SummarizationResult) error {
+	if coveredSeq < 0 || coveredSeq >= seqNum {
+		return fmt.Errorf("invalid summary checkpoint sequence %d covering %d", seqNum, coveredSeq)
+	}
+	return store.AppendEvent(ctx, &storage.Event{
+		ID:        fmt.Sprintf("summary_%s_%d", sessionID, seqNum),
+		SessionID: sessionID,
+		SeqNum:    seqNum,
+		Type:      "chat_summary",
+		Payload: map[string]any{
+			"version":            1,
+			"summary":            result.Summary,
+			"covered_seq":        coveredSeq,
+			"preserved_messages": result.PreservedMessages,
+		},
+		CreatedAt: time.Now(),
+	})
+}
+
 // CompactSession forces a summarization pass over sessionID's history right
 // now, regardless of how close the conversation is to the model's context
 // window — unlike the automatic compaction ChatWithSession performs inline,
@@ -146,8 +232,8 @@ func (a *Agent) CompactSession(ctx context.Context, sessionID string) error {
 		return fmt.Errorf("summarize: %w", sumErr)
 	}
 
-	seqNum := int64(len(events) + 1)
-	if persistErr := persistSummary(ctx, a.Storage, sessionID, seqNum, result.Summary); persistErr != nil {
+	seqNum := nextSessionEventSequence(events)
+	if persistErr := persistSummaryCheckpoint(ctx, a.Storage, sessionID, seqNum, seqNum-1, result); persistErr != nil {
 		return fmt.Errorf("persist summary: %w", persistErr)
 	}
 
@@ -210,7 +296,7 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 	// Append user message
 	userMsg := model.Message{Role: model.RoleUser, Content: userMessage}
 	cs.Messages = append(cs.Messages, userMsg)
-	seqNum := int64(len(events) + 1)
+	seqNum := nextSessionEventSequence(events)
 	if persistErr := persistMessage(ctx, a.Storage, sessionID, seqNum, userMsg); persistErr != nil {
 		return nil, fmt.Errorf("persist user message: %w", persistErr)
 	}
@@ -250,7 +336,7 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 		cs.Messages = result.PreservedMessages
 
 		seqNum++
-		if sumPersistErr := persistSummary(ctx, a.Storage, sessionID, seqNum, cs.Summary); sumPersistErr != nil {
+		if sumPersistErr := persistSummaryCheckpoint(ctx, a.Storage, sessionID, seqNum, seqNum-1, result); sumPersistErr != nil {
 			return nil, fmt.Errorf("persist summary: %w", sumPersistErr)
 		}
 
@@ -310,38 +396,13 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 		}
 	}
 
-	// Fire model call hooks, passing provider and request for retry hook
-	modelEvt := &hooks.Event{
-		Type:  hooks.EventModelCallBefore,
-		Name:  a.Model.Name(),
-		Input: req,
-		Metadata: map[string]any{
-			"provider": a.Model,
-			"request":  req,
-		},
-	}
-	if hookErr := a.Hooks.Before(ctx, modelEvt); hookErr != nil {
-		return nil, fmt.Errorf("hook before model call: %w", hookErr)
-	}
-
-	// The session id is in ctx (set above), so these route to the session topic:
-	// the AG-UI/native per-session stream works for ChatWithSession too.
-	a.publish(ctx, stream.Event{Type: stream.EventModelCall, Data: map[string]any{
-		"agent": a.ID, "model": a.Model.Name(), "messages": len(req.Messages),
-	}})
-
-	resp, err := a.Model.Chat(ctx, req)
-
-	modelEvt.Type = hooks.EventModelCallAfter
-	modelEvt.Output = resp
-	modelEvt.Error = err
-	_ = a.Hooks.After(ctx, modelEvt)
-
-	// If retry hook succeeded, use its output
-	if err != nil && modelEvt.Error == nil {
-		resp, _ = modelEvt.Output.(*model.ChatResponse)
-		err = nil
-	}
+	// Share request-level retries, hooks and tracing with every tool round.
+	resp, err := a.modelCall(ctx, req, false, func() (*model.ChatResponse, error) {
+		return a.Model.Chat(ctx, req)
+	}, nil)
+	// Hooks may replace the request slice while trimming context. Carry that
+	// working set into tool rounds; the durable session history stays intact.
+	messages = req.Messages
 
 	if err != nil {
 		a.publish(ctx, stream.Event{Type: stream.EventError, Data: map[string]any{
@@ -440,7 +501,7 @@ func (a *Agent) ChatStreamWithSession(ctx context.Context, sessionID, userMessag
 
 	userMsg := model.Message{Role: model.RoleUser, Content: userMessage}
 	cs.Messages = append(cs.Messages, userMsg)
-	seqNum := int64(len(events) + 1)
+	seqNum := nextSessionEventSequence(events)
 	if err := persistMessage(ctx, a.Storage, sessionID, seqNum, userMsg); err != nil {
 		cs.mu.Unlock()
 		return nil, fmt.Errorf("persist user message: %w", err)
@@ -471,7 +532,7 @@ func (a *Agent) ChatStreamWithSession(ctx context.Context, sessionID, userMessag
 		cs.Summary = result.Summary
 		cs.Messages = result.PreservedMessages
 		seqNum++
-		if err := persistSummary(ctx, a.Storage, sessionID, seqNum, cs.Summary); err != nil {
+		if err := persistSummaryCheckpoint(ctx, a.Storage, sessionID, seqNum, seqNum-1, result); err != nil {
 			cs.mu.Unlock()
 			return nil, fmt.Errorf("persist summary: %w", err)
 		}

@@ -460,6 +460,10 @@ func (fc *FileConfig) agentNames() string {
 
 // BuildAgent constructs a fully-wired *Agent from an AgentConfig.
 func BuildAgent(ctx context.Context, cfg *AgentConfig, opts ...BuildOption) (*Agent, error) {
+	return buildAgent(ctx, cfg, nil, opts...)
+}
+
+func buildAgent(ctx context.Context, cfg *AgentConfig, sharedStorage storage.Storage, opts ...BuildOption) (*Agent, error) {
 	bo := newBuildOptions(opts...)
 	b := New(cfg.ID, cfg.Name)
 	if cfg.Description != "" {
@@ -558,12 +562,21 @@ func BuildAgent(ctx context.Context, cfg *AgentConfig, opts ...BuildOption) (*Ag
 	b.WithModel(provider)
 
 	// Storage
-	store, err := buildStorage(cfg.Storage)
-	if err != nil {
-		return nil, fmt.Errorf("agent %q storage: %w", cfg.ID, err)
+	store := sharedStorage
+	if store == nil {
+		store, err = buildStorage(cfg.Storage)
+		if err != nil {
+			return nil, fmt.Errorf("agent %q storage: %w", cfg.ID, err)
+		}
 	}
+	builtSuccessfully := false
+	defer func() {
+		if !builtSuccessfully && sharedStorage == nil && store != nil {
+			_ = store.Close()
+		}
+	}()
 	if store != nil {
-		if migrator, ok := store.(interface{ Migrate(context.Context) error }); ok {
+		if migrator, ok := store.(interface{ Migrate(context.Context) error }); ok && sharedStorage == nil {
 			if migrateErr := migrator.Migrate(ctx); migrateErr != nil {
 				return nil, fmt.Errorf("agent %q migrate: %w", cfg.ID, migrateErr)
 			}
@@ -585,12 +598,23 @@ func BuildAgent(ctx context.Context, cfg *AgentConfig, opts ...BuildOption) (*Ag
 			return nil, attachErr
 		}
 	}
+	builtSuccessfully = true
 	return built, nil
 }
 
-// BuildAll constructs all agents from a FileConfig. BuildOptions (e.g.
-// WithToolHandler) apply to every agent built.
-func BuildAll(ctx context.Context, fc *FileConfig, opts ...BuildOption) (map[string]*Agent, error) {
+// BuildAllOptions supplies caller-owned resources for a multi-agent build.
+type BuildAllOptions struct {
+	// DefaultStorage replaces construction for agents with an empty storage
+	// configuration or the same effective configuration as FileConfig.Defaults.
+	// Distinct custom configurations and explicit none/memory backends retain
+	// their configured behavior. The caller initializes, migrates and closes
+	// this shared store; the builder never migrates or closes it.
+	DefaultStorage storage.Storage `json:"-"`
+}
+
+// BuildAllWithOptions constructs agents with shared resources while preserving
+// the existing per-agent BuildOptions (tool handlers, base path and catalogs).
+func BuildAllWithOptions(ctx context.Context, fc *FileConfig, options BuildAllOptions, opts ...BuildOption) (map[string]*Agent, error) {
 	// Load the file-level skill catalog (SKILL.md files under skills_dir)
 	// once and share it across every agent build. When a caller already
 	// supplied WithSkillCatalog, that explicit catalog wins and this pass is
@@ -608,10 +632,29 @@ func BuildAll(ctx context.Context, fc *FileConfig, opts ...BuildOption) (map[str
 	// separate pass rather than done inline during the build loop.
 	graphOpts := append(append([]BuildOption(nil), opts...), deferGraphOption())
 	agents := make(map[string]*Agent, len(fc.Agents))
+	var ownedStores []storage.Storage
+	builtSuccessfully := false
+	defer func() {
+		if !builtSuccessfully {
+			for _, store := range ownedStores {
+				_ = store.Close()
+			}
+		}
+	}()
 	for i := range fc.Agents {
-		a, err := BuildAgent(ctx, &fc.Agents[i], graphOpts...)
+		cfg := &fc.Agents[i]
+		var sharedStorage storage.Storage
+		backend := strings.ToLower(cfg.Storage.Backend)
+		if backend != "none" && backend != "memory" &&
+			(cfg.Storage == (StorageConfig{}) || (fc.Defaults != nil && cfg.Storage == fc.Defaults.Storage)) {
+			sharedStorage = options.DefaultStorage
+		}
+		a, err := buildAgent(ctx, cfg, sharedStorage, graphOpts...)
 		if err != nil {
 			return nil, err
+		}
+		if sharedStorage == nil && a.Storage != nil {
+			ownedStores = append(ownedStores, a.Storage)
 		}
 		agents[a.ID] = a
 	}
@@ -640,7 +683,16 @@ func BuildAll(ctx context.Context, fc *FileConfig, opts ...BuildOption) (map[str
 			return nil, err
 		}
 	}
+	builtSuccessfully = true
 	return agents, nil
+}
+
+// BuildAll constructs all agents from a FileConfig. BuildOptions (e.g.
+// WithToolHandler) apply to every agent built. For caller-owned shared storage,
+// use BuildAllWithOptions. On success callers own any constructed stores; on
+// failure the builder closes stores it constructed, never injected resources.
+func BuildAll(ctx context.Context, fc *FileConfig, opts ...BuildOption) (map[string]*Agent, error) {
+	return BuildAllWithOptions(ctx, fc, BuildAllOptions{}, opts...)
 }
 
 // BuildProvider constructs a model.Provider from a ModelConfig. It is the
