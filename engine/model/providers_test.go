@@ -99,8 +99,20 @@ func TestAzureOpenAI_Chat_Error(t *testing.T) {
 
 func TestAzureOpenAI_StreamChat_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		options, ok := body["stream_options"].(map[string]any)
+		if !ok || options["include_usage"] != true {
+			t.Errorf("stream_options.include_usage = %#v, want true", body["stream_options"])
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(w, sseBody("Hello", " Azure"))
+		fmt.Fprint(w, `data: {"id":"azure-stream","choices":[{"delta":{"content":"Hello"}}]}
+data: {"id":"azure-stream","choices":[{"delta":{"content":" Azure"}}]}
+data: {"id":"azure-stream","choices":[],"usage":{"prompt_tokens":12,"completion_tokens":3,"prompt_tokens_details":{"cached_tokens":4}}}
+data: [DONE]
+`)
 	}))
 	defer srv.Close()
 
@@ -114,11 +126,16 @@ func TestAzureOpenAI_StreamChat_Success(t *testing.T) {
 		t.Fatalf("StreamChat: %v", err)
 	}
 	var buf strings.Builder
+	var usage Usage
 	for r := range ch {
 		buf.WriteString(r.Content)
+		usage.Merge(r.Usage)
 	}
 	if buf.String() != "Hello Azure" {
 		t.Errorf("stream=%q", buf.String())
+	}
+	if usage.PromptTokens != 12 || usage.CompletionTokens != 3 || usage.CacheReadTokens != 4 {
+		t.Errorf("usage = %+v, want prompt=12 completion=3 cache-read=4", usage)
 	}
 }
 

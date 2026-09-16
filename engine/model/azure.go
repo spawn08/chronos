@@ -135,6 +135,11 @@ func (a *AzureOpenAI) StreamChat(ctx context.Context, req *ChatRequest) (<-chan 
 	responsesMode := a.usesResponsesAPI(req)
 	path := a.chatPath()
 	body := buildOpenAIRequestBody(req, a.deployment, true)
+	// Azure Chat Completions follows the OpenAI streaming contract: usage is
+	// delivered in a final, choices-free SSE chunk only when requested. Keep
+	// the request aligned with OpenAI so clients can report token usage for
+	// streamed Azure turns.
+	body["stream_options"] = map[string]any{"include_usage": true}
 	if !a.usesV1API() {
 		delete(body, "model") // classic surface uses the deployment name in the URL
 	}
