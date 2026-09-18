@@ -12,6 +12,33 @@ import (
 )
 
 type toolDefinitionsKey struct{}
+type modelProviderKey struct{}
+
+// WithModelProvider returns a child context that uses provider for all model
+// calls made as part of the request. It does not mutate the Agent's default.
+func WithModelProvider(ctx context.Context, provider model.Provider) context.Context {
+	if provider == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, modelProviderKey{}, provider)
+}
+
+// ModelProvider returns the request-scoped provider when present, or fallback.
+func ModelProvider(ctx context.Context, fallback model.Provider) model.Provider {
+	if provider, ok := ModelProviderFromContext(ctx); ok {
+		return provider
+	}
+	return fallback
+}
+
+// ModelProviderFromContext reports the request-scoped provider, if one exists.
+func ModelProviderFromContext(ctx context.Context) (model.Provider, bool) {
+	if ctx == nil {
+		return nil, false
+	}
+	provider, ok := ctx.Value(modelProviderKey{}).(model.Provider)
+	return provider, ok && provider != nil
+}
 
 // WithToolDefinitions limits the schemas advertised for one request. It copies
 // definitions into the context instead of changing the agent's registry, which

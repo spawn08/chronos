@@ -1410,9 +1410,10 @@ func TestChat_WithTools(t *testing.T) {
 }
 
 type modelCallHook struct {
-	before []string
-	after  []string
-	reject error
+	before      []string
+	after       []string
+	retryCounts []int
+	reject      error
 }
 
 func (h *modelCallHook) Before(_ context.Context, evt *hooks.Event) error {
@@ -1426,6 +1427,11 @@ func (h *modelCallHook) Before(_ context.Context, evt *hooks.Event) error {
 func (h *modelCallHook) After(_ context.Context, evt *hooks.Event) error {
 	if evt.Type == hooks.EventModelCallAfter {
 		h.after = append(h.after, evt.Metadata["correlation_id"].(string))
+		if count, ok := evt.Metadata["retry_count"].(int); ok {
+			h.retryCounts = append(h.retryCounts, count)
+		} else if count, ok := evt.Metadata["retry_attempts"].(int); ok {
+			h.retryCounts = append(h.retryCounts, count)
+		}
 	}
 	return nil
 }
@@ -1521,6 +1527,22 @@ func TestChat_ModelCallRetryReturnsRetriedResponse(t *testing.T) {
 	}
 	if resp.Content != "retried" || provider.calls != 2 {
 		t.Errorf("response = %q, provider calls = %d; want retried response after 2 calls", resp.Content, provider.calls)
+	}
+}
+
+func TestChat_ModelCallReportsRetryCountToOuterHooks(t *testing.T) {
+	provider := &retryProvider{}
+	retry := hooks.NewRetryHook(1)
+	retry.SleepFn = func(time.Duration) {}
+	observer := &modelCallHook{}
+	agent := newTestAgent("retry-observed", provider)
+	agent.Hooks = hooks.Chain{observer, retry}
+
+	if _, err := agent.Chat(context.Background(), "hello"); err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if len(observer.retryCounts) != 1 || observer.retryCounts[0] != 1 {
+		t.Fatalf("retry counts = %v, want [1]", observer.retryCounts)
 	}
 }
 

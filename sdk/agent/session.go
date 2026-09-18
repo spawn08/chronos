@@ -25,6 +25,45 @@ type ChatSession struct {
 	mu sync.Mutex
 }
 
+type sessionLock struct {
+	gate chan struct{}
+	refs int
+}
+
+func (a *Agent) acquireSession(ctx context.Context, sessionID string) (func(), error) {
+	a.sessionLocksMu.Lock()
+	if a.sessionLocks == nil {
+		a.sessionLocks = make(map[string]*sessionLock)
+	}
+	lock := a.sessionLocks[sessionID]
+	if lock == nil {
+		lock = &sessionLock{gate: make(chan struct{}, 1)}
+		a.sessionLocks[sessionID] = lock
+	}
+	lock.refs++
+	a.sessionLocksMu.Unlock()
+
+	select {
+	case lock.gate <- struct{}{}:
+		return func() {
+			<-lock.gate
+			a.releaseSessionRef(sessionID, lock)
+		}, nil
+	case <-ctx.Done():
+		a.releaseSessionRef(sessionID, lock)
+		return nil, ctx.Err()
+	}
+}
+
+func (a *Agent) releaseSessionRef(sessionID string, lock *sessionLock) {
+	a.sessionLocksMu.Lock()
+	defer a.sessionLocksMu.Unlock()
+	lock.refs--
+	if lock.refs == 0 && a.sessionLocks[sessionID] == lock {
+		delete(a.sessionLocks, sessionID)
+	}
+}
+
 // chatSessionFromEvents reconstructs a ChatSession from the event ledger.
 func chatSessionFromEvents(events []*storage.Event) *ChatSession {
 	cs := &ChatSession{}
@@ -206,12 +245,19 @@ func persistSummaryCheckpoint(ctx context.Context, store storage.Storage, sessio
 // history and keep using the same session instead of discarding the
 // conversation outright. It is a no-op if the session has no messages.
 func (a *Agent) CompactSession(ctx context.Context, sessionID string) error {
-	if a.Model == nil {
+	provider := a.modelProvider(ctx)
+	if provider == nil {
 		return fmt.Errorf("agent %q has no model", a.ID)
 	}
+	ctx = WithModelProvider(ctx, provider)
 	if a.Storage == nil {
 		return fmt.Errorf("agent %q has no storage (required for session chat)", a.ID)
 	}
+	release, err := a.acquireSession(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	defer release()
 
 	events, err := a.Storage.ListEvents(ctx, sessionID, 0)
 	if err != nil {
@@ -222,8 +268,8 @@ func (a *Agent) CompactSession(ctx context.Context, sessionID string) error {
 		return nil
 	}
 
-	counter := model.NewTokenCounter(a.Model.Model())
-	summarizer := model.NewSummarizer(a.Model, counter, model.SummarizationConfig{
+	counter := model.NewTokenCounter(provider.Model())
+	summarizer := model.NewSummarizer(provider, counter, model.SummarizationConfig{
 		Threshold:           a.ContextCfg.SummarizeThreshold,
 		PreserveRecentTurns: a.ContextCfg.PreserveRecentTurns,
 	})
@@ -253,12 +299,19 @@ func (a *Agent) CompactSession(ctx context.Context, sessionID string) error {
 // When the conversation approaches the model's context window limit, older
 // messages are automatically summarized to stay within budget.
 func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage string) (*model.ChatResponse, error) {
-	if a.Model == nil {
+	provider := a.modelProvider(ctx)
+	if provider == nil {
 		return nil, fmt.Errorf("agent %q has no model", a.ID)
 	}
+	ctx = WithModelProvider(ctx, provider)
 	if a.Storage == nil {
 		return nil, fmt.Errorf("agent %q has no storage (required for session chat)", a.ID)
 	}
+	release, err := a.acquireSession(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 
 	// Scope per-session harness state (planning tool, VFS) to this session so
 	// tools that persist across turns resolve the right session from context.
@@ -307,12 +360,12 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 	// Resolve context limit. Use the real BPE tokenizer (WC-A-004 / PLAN.md
 	// P1-009) so the compaction trigger and budget reflect actual token counts,
 	// not the 4-chars-per-token heuristic.
-	counter := model.NewTokenCounter(a.Model.Model())
-	contextLimit := a.resolveContextLimit()
+	counter := model.NewTokenCounter(provider.Model())
+	contextLimit := a.resolveContextLimitFor(provider)
 	systemTokens := counter.CountTokens(systemMsgs)
 
 	// Check if summarization is needed
-	summarizer := model.NewSummarizer(a.Model, counter, model.SummarizationConfig{
+	summarizer := model.NewSummarizer(provider, counter, model.SummarizationConfig{
 		Threshold:           a.ContextCfg.SummarizeThreshold,
 		PreserveRecentTurns: a.ContextCfg.PreserveRecentTurns,
 	})
@@ -397,8 +450,8 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 	}
 
 	// Share request-level retries, hooks and tracing with every tool round.
-	resp, err := a.modelCall(ctx, req, false, func() (*model.ChatResponse, error) {
-		return a.Model.Chat(ctx, req)
+	resp, err := a.modelCall(ctx, provider, req, false, func() (*model.ChatResponse, error) {
+		return provider.Chat(ctx, req)
 	}, nil)
 	// Hooks may replace the request slice while trimming context. Carry that
 	// working set into tool rounds; the durable session history stays intact.
@@ -467,11 +520,17 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 // ChatWithSession, and persists the completed assistant response before the
 // stream closes.
 func (a *Agent) ChatStreamWithSession(ctx context.Context, sessionID, userMessage string) (<-chan *model.ChatResponse, error) {
-	if a.Model == nil {
+	provider := a.modelProvider(ctx)
+	if provider == nil {
 		return nil, fmt.Errorf("agent %q has no model", a.ID)
 	}
+	ctx = WithModelProvider(ctx, provider)
 	if a.Storage == nil {
 		return nil, fmt.Errorf("agent %q has no storage (required for session chat)", a.ID)
+	}
+	release, err := a.acquireSession(ctx, sessionID)
+	if err != nil {
+		return nil, err
 	}
 
 	ctx = storage.WithSession(ctx, sessionID)
@@ -486,12 +545,14 @@ func (a *Agent) ChatStreamWithSession(ctx context.Context, sessionID, userMessag
 			UpdatedAt: time.Now(),
 		}
 		if createErr := a.Storage.CreateSession(ctx, sess); createErr != nil {
+			release()
 			return nil, fmt.Errorf("create session: %w", createErr)
 		}
 	}
 
 	events, err := a.Storage.ListEvents(ctx, sessionID, 0)
 	if err != nil {
+		release()
 		return nil, fmt.Errorf("load session events: %w", err)
 	}
 	cs := chatSessionFromEvents(events)
@@ -504,14 +565,15 @@ func (a *Agent) ChatStreamWithSession(ctx context.Context, sessionID, userMessag
 	seqNum := nextSessionEventSequence(events)
 	if err := persistMessage(ctx, a.Storage, sessionID, seqNum, userMsg); err != nil {
 		cs.mu.Unlock()
+		release()
 		return nil, fmt.Errorf("persist user message: %w", err)
 	}
 
 	systemMsgs := a.buildSystemContext(ctx, userMessage)
-	counter := model.NewTokenCounter(a.Model.Model())
-	contextLimit := a.resolveContextLimit()
+	counter := model.NewTokenCounter(provider.Model())
+	contextLimit := a.resolveContextLimitFor(provider)
 	systemTokens := counter.CountTokens(systemMsgs)
-	summarizer := model.NewSummarizer(a.Model, counter, model.SummarizationConfig{
+	summarizer := model.NewSummarizer(provider, counter, model.SummarizationConfig{
 		Threshold:           a.ContextCfg.SummarizeThreshold,
 		PreserveRecentTurns: a.ContextCfg.PreserveRecentTurns,
 	})
@@ -527,6 +589,7 @@ func (a *Agent) ChatStreamWithSession(ctx context.Context, sessionID, userMessag
 		result, sumErr := summarizer.Summarize(ctx, cs.Summary, cs.Messages)
 		if sumErr != nil {
 			cs.mu.Unlock()
+			release()
 			return nil, fmt.Errorf("summarize: %w", sumErr)
 		}
 		cs.Summary = result.Summary
@@ -534,6 +597,7 @@ func (a *Agent) ChatStreamWithSession(ctx context.Context, sessionID, userMessag
 		seqNum++
 		if err := persistSummaryCheckpoint(ctx, a.Storage, sessionID, seqNum, seqNum-1, result); err != nil {
 			cs.mu.Unlock()
+			release()
 			return nil, fmt.Errorf("persist summary: %w", err)
 		}
 		_ = a.Hooks.After(ctx, &hooks.Event{
@@ -561,6 +625,7 @@ func (a *Agent) ChatStreamWithSession(ctx context.Context, sessionID, userMessag
 
 	if result := a.Guardrails.CheckInput(ctx, userMessage); result != nil {
 		cs.mu.Unlock()
+		release()
 		return nil, fmt.Errorf("input guardrail failed: %s", result.Reason)
 	}
 
@@ -581,7 +646,8 @@ func (a *Agent) ChatStreamWithSession(ctx context.Context, sessionID, userMessag
 	go func() {
 		defer close(out)
 		defer cs.mu.Unlock()
-		resp, _, streamErr := a.streamLoop(ctx, req, messages, out)
+		defer release()
+		resp, _, streamErr := a.streamLoop(ctx, provider, req, messages, out)
 		if streamErr != nil || resp == nil {
 			return
 		}
@@ -625,8 +691,12 @@ func (a *Agent) buildSystemContext(ctx context.Context, userQuery string) []mode
 
 // resolveContextLimit determines the effective context window size for the model.
 func (a *Agent) resolveContextLimit() int {
+	return a.resolveContextLimitFor(a.Model)
+}
+
+func (a *Agent) resolveContextLimitFor(provider model.Provider) int {
 	if a.ContextCfg.MaxContextTokens > 0 {
 		return a.ContextCfg.MaxContextTokens
 	}
-	return model.ContextLimit(a.Model.Model(), 0)
+	return model.ContextLimit(provider.Model(), 0)
 }

@@ -2,12 +2,33 @@ package queue
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 )
+
+type flakyFinalizationStore struct {
+	Store
+	completeFailures  atomic.Int64
+	heartbeatFailures atomic.Int64
+}
+
+func (s *flakyFinalizationStore) CompleteRun(ctx context.Context, runID, owner, status, lastErr string, now time.Time) error {
+	if s.completeFailures.Add(-1) >= 0 {
+		return errors.New("transient complete failure")
+	}
+	return s.Store.CompleteRun(ctx, runID, owner, status, lastErr, now)
+}
+
+func (s *flakyFinalizationStore) Heartbeat(ctx context.Context, runID, owner string, lease time.Duration, now time.Time) error {
+	if s.heartbeatFailures.Add(-1) >= 0 {
+		return errors.New("transient heartbeat failure")
+	}
+	return s.Store.Heartbeat(ctx, runID, owner, lease, now)
+}
 
 func TestWorker_RunOnceCompletes(t *testing.T) {
 	s := newStore(t)
@@ -30,6 +51,47 @@ func TestWorker_RunOnceCompletes(t *testing.T) {
 	}
 	if !executed.Load() {
 		t.Fatal("executor not invoked")
+	}
+}
+
+func TestWorker_RetriesTransientFinalizationWhileHoldingLease(t *testing.T) {
+	store := &flakyFinalizationStore{Store: newStore(t)}
+	store.completeFailures.Store(2)
+	store.heartbeatFailures.Store(1)
+	q := New(store, Config{})
+	ctx := context.Background()
+	run := &Run{SessionID: "s1"}
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	var executions atomic.Int64
+	w, err := NewWorker(q, func(ctx context.Context, r *Run) Result {
+		executions.Add(1)
+		time.Sleep(15 * time.Millisecond)
+		return Result{}
+	}, WorkerConfig{
+		ID:           "w1",
+		Lease:        time.Second,
+		Heartbeat:    5 * time.Millisecond,
+		PollInterval: time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("new worker: %v", err)
+	}
+	processed, err := w.RunOnce(ctx)
+	if err != nil || !processed {
+		t.Fatalf("run once: processed=%v err=%v", processed, err)
+	}
+	if got := executions.Load(); got != 1 {
+		t.Fatalf("executions = %d, want 1", got)
+	}
+	got, err := q.Get(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+	if got.Status != StatusCompleted {
+		t.Fatalf("status = %s, want %s", got.Status, StatusCompleted)
 	}
 }
 

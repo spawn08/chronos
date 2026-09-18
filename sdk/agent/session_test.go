@@ -808,7 +808,6 @@ func TestChatWithSession_InitialTrimAndLiveModel(t *testing.T) {
 		want := []model.Message{{Role: model.RoleUser, Content: "current task"}}
 		wantModel := "initial-live"
 		if calls > 1 {
-			wantModel = "follow-live"
 			want = append(want,
 				model.Message{Role: model.RoleAssistant, ToolCalls: []model.ToolCall{{ID: "1", Name: "mutate", Arguments: `{}`}}},
 				model.Message{Role: model.RoleTool, Name: "mutate", ToolCallID: "1", Content: `"committed"`})
@@ -831,7 +830,7 @@ func TestChatWithSession_InitialTrimAndLiveModel(t *testing.T) {
 		if e.Type == hooks.EventModelCallBefore {
 			before++
 			req := e.Input.(*model.ChatRequest)
-			if req.Model != a.Model.Model() {
+			if req.Model != "initial-live" {
 				t.Errorf("hook saw stale/empty model: %q", req.Model)
 			}
 			if before == 1 {

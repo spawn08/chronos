@@ -205,6 +205,37 @@ func TestRegister_Overwrite(t *testing.T) {
 	}
 }
 
+func TestReplaceIsAtomicAndSupportsRemoval(t *testing.T) {
+	r := NewRegistry()
+	r.Register(&Definition{Name: "native", Handler: func(context.Context, map[string]any) (any, error) { return "native", nil }})
+	r.Register(&Definition{Name: "mcp__old", Handler: func(context.Context, map[string]any) (any, error) { return "old", nil }})
+
+	err := r.Replace([]string{"mcp__old"}, []*Definition{{Name: "native"}})
+	if err == nil {
+		t.Fatal("Replace accepted collision with a tool outside the replacement set")
+	}
+	if _, ok := r.Get("mcp__old"); !ok {
+		t.Fatal("failed Replace partially removed the old tool")
+	}
+
+	newTool := &Definition{Name: "mcp__new", Handler: func(context.Context, map[string]any) (any, error) { return "new", nil }}
+	if err := r.Replace([]string{"mcp__old"}, []*Definition{newTool}); err != nil {
+		t.Fatalf("Replace: %v", err)
+	}
+	if _, ok := r.Get("mcp__old"); ok {
+		t.Fatal("Replace retained removed tool")
+	}
+	if got, ok := r.Get("mcp__new"); !ok || got != newTool {
+		t.Fatalf("replacement = %p, %v; want %p, true", got, ok, newTool)
+	}
+	if err := r.Replace([]string{"mcp__new"}, nil); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	if _, ok := r.Get("mcp__new"); ok {
+		t.Fatal("remove retained tool")
+	}
+}
+
 func TestExecute_DefaultPermission(t *testing.T) {
 	r := NewRegistry()
 	r.Register(&Definition{

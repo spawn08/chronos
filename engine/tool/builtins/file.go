@@ -26,12 +26,15 @@ func NewFileReadTool(basePath string) *tool.Definition {
 			},
 			"required": []string{"path"},
 		},
-		Handler: func(_ context.Context, args map[string]any) (any, error) {
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			p, _ := args["path"].(string)
 			if p == "" {
 				return nil, fmt.Errorf("file_read: 'path' argument is required")
 			}
-			resolved := resolvePath(basePath, p)
+			resolved, err := resolveWorkspacePath(ctx, basePath, p)
+			if err != nil {
+				return nil, fmt.Errorf("file_read: %w", err)
+			}
 			data, err := os.ReadFile(resolved)
 			if err != nil {
 				return nil, fmt.Errorf("file_read: %w", err)
@@ -61,13 +64,16 @@ func NewFileWriteTool(basePath string) *tool.Definition {
 			},
 			"required": []string{"path", "content"},
 		},
-		Handler: func(_ context.Context, args map[string]any) (any, error) {
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			p, _ := args["path"].(string)
 			content, _ := args["content"].(string)
 			if p == "" {
 				return nil, fmt.Errorf("file_write: 'path' argument is required")
 			}
-			resolved := resolvePath(basePath, p)
+			resolved, err := resolveWorkspacePath(ctx, basePath, p)
+			if err != nil {
+				return nil, fmt.Errorf("file_write: %w", err)
+			}
 			if err := os.MkdirAll(filepath.Dir(resolved), 0o755); err != nil {
 				return nil, fmt.Errorf("file_write: creating dirs: %w", err)
 			}
@@ -95,12 +101,15 @@ func NewFileListTool(basePath string) *tool.Definition {
 			},
 			"required": []string{"path"},
 		},
-		Handler: func(_ context.Context, args map[string]any) (any, error) {
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			p, _ := args["path"].(string)
 			if p == "" {
 				p = "."
 			}
-			resolved := resolvePath(basePath, p)
+			resolved, err := resolveWorkspacePath(ctx, basePath, p)
+			if err != nil {
+				return nil, fmt.Errorf("file_list: %w", err)
+			}
 			entries, err := os.ReadDir(resolved)
 			if err != nil {
 				return nil, fmt.Errorf("file_list: %w", err)
@@ -138,12 +147,15 @@ func NewFileGlobTool(basePath string) *tool.Definition {
 			},
 			"required": []string{"pattern"},
 		},
-		Handler: func(_ context.Context, args map[string]any) (any, error) {
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			pattern, _ := args["pattern"].(string)
 			if pattern == "" {
 				return nil, fmt.Errorf("file_glob: 'pattern' argument is required")
 			}
-			resolved := resolvePath(basePath, pattern)
+			resolved, err := resolveWorkspacePath(ctx, basePath, pattern)
+			if err != nil {
+				return nil, fmt.Errorf("file_glob: %w", err)
+			}
 			matches, err := filepath.Glob(resolved)
 			if err != nil {
 				return nil, fmt.Errorf("file_glob: %w", err)
@@ -173,13 +185,16 @@ func NewFileGrepTool(basePath string) *tool.Definition {
 			},
 			"required": []string{"path", "pattern"},
 		},
-		Handler: func(_ context.Context, args map[string]any) (any, error) {
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			p, _ := args["path"].(string)
 			pattern, _ := args["pattern"].(string)
 			if p == "" || pattern == "" {
 				return nil, fmt.Errorf("file_grep: 'path' and 'pattern' arguments are required")
 			}
-			resolved := resolvePath(basePath, p)
+			resolved, err := resolveWorkspacePath(ctx, basePath, p)
+			if err != nil {
+				return nil, fmt.Errorf("file_grep: %w", err)
+			}
 			data, err := os.ReadFile(resolved)
 			if err != nil {
 				return nil, fmt.Errorf("file_grep: %w", err)

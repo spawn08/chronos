@@ -177,3 +177,78 @@ func TestResolvePath(t *testing.T) {
 		}
 	}
 }
+
+func TestFileToolsUseRequestWorkspaceWithoutChangingConfiguredBase(t *testing.T) {
+	configured := t.TempDir()
+	requestRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(configured, "value.txt"), []byte("configured"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(requestRoot, "value.txt"), []byte("request"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configured, "configured-only.go"), []byte("configured marker"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(requestRoot, "request-only.go"), []byte("request marker"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	readTool := NewFileReadTool(configured)
+	ctx := WithWorkspaceRoot(context.Background(), requestRoot)
+	result, err := readTool.Handler(ctx, map[string]any{"path": "value.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := result.(map[string]any)["content"]; got != "request" {
+		t.Fatalf("request-scoped content = %q, want request", got)
+	}
+	result, err = readTool.Handler(context.Background(), map[string]any{"path": "value.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := result.(map[string]any)["content"]; got != "configured" {
+		t.Fatalf("configured content = %q, want configured", got)
+	}
+	listResult, err := NewFileListTool(configured).Handler(ctx, map[string]any{"path": "."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := listResult.(map[string]any)["entries"].([]map[string]any)
+	if len(entries) != 2 || entries[0]["name"] != "request-only.go" && entries[1]["name"] != "request-only.go" {
+		t.Fatalf("request-scoped list = %#v", entries)
+	}
+	globResult, err := NewFileGlobTool(configured).Handler(ctx, map[string]any{"pattern": "*.go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if matches := globResult.(map[string]any)["matches"].([]string); len(matches) != 1 || filepath.Base(matches[0]) != "request-only.go" {
+		t.Fatalf("request-scoped glob = %#v", matches)
+	}
+	grepResult, err := NewFileGrepTool(configured).Handler(ctx, map[string]any{"path": "request-only.go", "pattern": "request marker"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if matches := grepResult.(map[string]any)["matches"].([]map[string]any); len(matches) != 1 {
+		t.Fatalf("request-scoped grep = %#v", matches)
+	}
+}
+
+func TestFileWriteRemapsConfiguredAbsolutePathAndRejectsOutsideRequestWorkspace(t *testing.T) {
+	configured := t.TempDir()
+	requestRoot := t.TempDir()
+	ctx := WithWorkspaceRoot(context.Background(), requestRoot)
+	writeTool := NewFileWriteTool(configured)
+	configuredPath := filepath.Join(configured, "nested", "value.txt")
+	if _, err := writeTool.Handler(ctx, map[string]any{"path": configuredPath, "content": "isolated"}); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(filepath.Join(requestRoot, "nested", "value.txt")); err != nil || string(data) != "isolated" {
+		t.Fatalf("isolated file = %q, %v", data, err)
+	}
+	if _, err := os.Stat(configuredPath); !os.IsNotExist(err) {
+		t.Fatalf("configured workspace was modified: %v", err)
+	}
+	if _, err := writeTool.Handler(ctx, map[string]any{"path": filepath.Join(t.TempDir(), "outside.txt"), "content": "bad"}); err == nil {
+		t.Fatal("outside absolute path was accepted")
+	}
+}

@@ -2,6 +2,9 @@ package builtins
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,6 +29,34 @@ func TestShellTool_Permissions(t *testing.T) {
 				t.Errorf("Permission = %v, want %v", tc.def.Permission, tc.want)
 			}
 		})
+	}
+}
+
+func TestShellToolUsesRequestWorkspaceAndContainedWorkingDirectory(t *testing.T) {
+	configured := t.TempDir()
+	requestRoot := t.TempDir()
+	subdir := filepath.Join(requestRoot, "subdir")
+	if err := os.Mkdir(subdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sh := NewShellToolAt(configured, nil, 5*time.Second)
+	result, err := sh.Handler(WithWorkspaceRoot(context.Background(), requestRoot), map[string]any{
+		"command": "pwd", "working_dir": "subdir",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := subdir
+	if canonical, err := filepath.EvalSymlinks(want); err == nil {
+		want = canonical
+	}
+	if got := filepath.Clean(strings.TrimSpace(result.(map[string]any)["stdout"].(string))); got != want {
+		t.Fatalf("pwd = %q, want %q", got, want)
+	}
+	if _, err := sh.Handler(WithWorkspaceRoot(context.Background(), requestRoot), map[string]any{
+		"command": "pwd", "working_dir": filepath.Dir(requestRoot),
+	}); err == nil {
+		t.Fatal("outside working directory was accepted")
 	}
 }
 

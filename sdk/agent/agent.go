@@ -87,6 +87,9 @@ type Agent struct {
 	SubAgents              []*Agent
 	MaxConcurrentSubAgents int
 	Capabilities           []string // advertised capabilities for the protocol bus
+
+	sessionLocksMu sync.Mutex
+	sessionLocks   map[string]*sessionLock
 }
 
 // defaultRecallTopK is the number of memories recalled per turn when
@@ -318,6 +321,13 @@ func (a *Agent) debugLog(format string, args ...any) {
 	}
 }
 
+func (a *Agent) modelProvider(ctx context.Context) model.Provider {
+	if provider, ok := ModelProviderFromContext(ctx); ok {
+		return provider
+	}
+	return a.Model
+}
+
 // publish emits an execution event on the broker, routed to the session's topic
 // when a session is in context (storage.WithSession) so per-session SSE
 // subscribers never receive other sessions' events. With no active session (the
@@ -511,9 +521,11 @@ func (a *Agent) buildChatRequest(ctx context.Context, userMessage string) (*mode
 // Chat sends a single user message to the agent's model and returns the response.
 // This is a convenience method for agents that have a model but no graph.
 func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatResponse, error) {
-	if a.Model == nil {
+	provider := a.modelProvider(ctx)
+	if provider == nil {
 		return nil, fmt.Errorf("agent %q has no model", a.ID)
 	}
+	ctx = WithModelProvider(ctx, provider)
 	a.debugLog("Chat called with message length=%d", len(userMessage))
 
 	req, messages, buildErr := a.buildChatRequest(ctx, userMessage)
@@ -521,9 +533,9 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 		return nil, buildErr
 	}
 
-	a.debugLog("sending %d messages to model %q (tools=%d)", len(req.Messages), a.Model.Name(), len(req.Tools))
-	resp, err := a.modelCall(ctx, req, false, func() (*model.ChatResponse, error) {
-		return a.Model.Chat(ctx, req)
+	a.debugLog("sending %d messages to model %q (tools=%d)", len(req.Messages), provider.Name(), len(req.Tools))
+	resp, err := a.modelCall(ctx, provider, req, false, func() (*model.ChatResponse, error) {
+		return provider.Chat(ctx, req)
 	}, nil)
 	messages = req.Messages
 
@@ -580,17 +592,17 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 }
 
 // modelCall is the shared lifecycle boundary for every model round.
-func (a *Agent) modelCall(ctx context.Context, req *model.ChatRequest, streaming bool, call func() (*model.ChatResponse, error), canRetry func() bool) (*model.ChatResponse, error) {
+func (a *Agent) modelCall(ctx context.Context, provider model.Provider, req *model.ChatRequest, streaming bool, call func() (*model.ChatResponse, error), canRetry func() bool) (*model.ChatResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	req.Model = a.Model.Model()
+	req.Model = provider.Model()
 	modelEvt := &hooks.Event{
 		Type:  hooks.EventModelCallBefore,
-		Name:  a.Model.Name(),
+		Name:  provider.Name(),
 		Input: req,
 		Metadata: map[string]any{
-			"provider":       a.Model,
+			"provider":       provider,
 			"request":        req,
 			"stream":         streaming,
 			"correlation_id": fmt.Sprintf("%s:%d", a.ID, modelCallSequence.Add(1)),
@@ -601,7 +613,7 @@ func (a *Agent) modelCall(ctx context.Context, req *model.ChatRequest, streaming
 	}
 
 	a.publish(ctx, stream.Event{Type: stream.EventModelCall, Data: map[string]any{
-		"agent": a.ID, "model": a.Model.Name(), "messages": len(req.Messages), "stream": streaming,
+		"agent": a.ID, "model": provider.Name(), "messages": len(req.Messages), "stream": streaming,
 	}})
 
 	var modelSpan *storage.Trace
@@ -610,7 +622,7 @@ func (a *Agent) modelCall(ctx context.Context, req *model.ChatRequest, streaming
 		if sessionID == "" {
 			sessionID = a.ID
 		}
-		modelSpan, _ = a.Tracer.StartSpan(ctx, sessionID, "model:"+a.Model.Name(), "model_call")
+		modelSpan, _ = a.Tracer.StartSpan(ctx, sessionID, "model:"+provider.Name(), "model_call")
 	}
 
 	// An explicit blocking RetryHook owns its retry policy; do not multiply it
@@ -629,12 +641,20 @@ func (a *Agent) modelCall(ctx context.Context, req *model.ChatRequest, streaming
 	}
 	var resp *model.ChatResponse
 	var err error
+	providerAttempts := 0
+	trackedCall := func() (*model.ChatResponse, error) {
+		providerAttempts++
+		return call()
+	}
 	if legacyRetry {
 		if err = ctx.Err(); err == nil {
-			resp, err = call()
+			resp, err = trackedCall()
 		}
 	} else {
-		resp, err = retryModelRequest(ctx, call, canRetry)
+		resp, err = retryModelRequest(ctx, trackedCall, canRetry)
+	}
+	if providerAttempts > 1 {
+		modelEvt.Metadata["retry_count"] = providerAttempts - 1
 	}
 	modelEvt.Type = hooks.EventModelCallAfter
 	modelEvt.Output = resp
@@ -729,9 +749,11 @@ func transientModelError(err error) bool {
 // the (rejected) text has already been shown. Use the blocking Chat when you need
 // pre-emission validation.
 func (a *Agent) ChatStream(ctx context.Context, userMessage string) (<-chan *model.ChatResponse, error) {
-	if a.Model == nil {
+	provider := a.modelProvider(ctx)
+	if provider == nil {
 		return nil, fmt.Errorf("agent %q has no model", a.ID)
 	}
+	ctx = WithModelProvider(ctx, provider)
 	a.debugLog("ChatStream called with message length=%d", len(userMessage))
 
 	// Build the request synchronously so input-guardrail rejections are returned
@@ -744,7 +766,7 @@ func (a *Agent) ChatStream(ctx context.Context, userMessage string) (<-chan *mod
 	out := make(chan *model.ChatResponse, 64)
 	go func() {
 		defer close(out)
-		_, _, _ = a.streamLoop(ctx, req, messages, out)
+		_, _, _ = a.streamLoop(ctx, provider, req, messages, out)
 	}()
 	return out, nil
 }
@@ -752,8 +774,8 @@ func (a *Agent) ChatStream(ctx context.Context, userMessage string) (<-chan *mod
 // streamLoop drives the streaming model call and the tool-calling rounds,
 // forwarding text deltas to out and reassembling each round's full response so it
 // can decide whether more tool calls are pending.
-func (a *Agent) streamLoop(ctx context.Context, req *model.ChatRequest, messages []model.Message, out chan<- *model.ChatResponse) (*model.ChatResponse, []model.Message, error) {
-	resp, err := a.streamOnce(ctx, req, out)
+func (a *Agent) streamLoop(ctx context.Context, provider model.Provider, req *model.ChatRequest, messages []model.Message, out chan<- *model.ChatResponse) (*model.ChatResponse, []model.Message, error) {
+	resp, err := a.streamOnce(ctx, provider, req, out)
 	messages = req.Messages
 	if err != nil {
 		err = fmt.Errorf("agent %q stream: %w", a.ID, err)
@@ -787,7 +809,7 @@ func (a *Agent) streamLoop(ctx context.Context, req *model.ChatRequest, messages
 			return nil, messages, err
 		}
 		followReq := &model.ChatRequest{Messages: messages, Tools: req.Tools, Reasoning: req.Reasoning}
-		resp, err = a.streamOnce(ctx, followReq, out)
+		resp, err = a.streamOnce(ctx, provider, followReq, out)
 		messages = followReq.Messages
 		if err != nil {
 			err = fmt.Errorf("agent %q stream: %w", a.ID, err)
@@ -838,11 +860,11 @@ func (a *Agent) streamLoop(ctx context.Context, req *model.ChatRequest, messages
 // out as it arrives while teeing the raw chunks into AggregateStream, which
 // returns the reassembled full response (content, tool calls, usage, stop reason)
 // for the caller's tool-loop decision.
-func (a *Agent) streamOnce(ctx context.Context, req *model.ChatRequest, out chan<- *model.ChatResponse) (*model.ChatResponse, error) {
-	a.debugLog("streaming %d messages to model %q (tools=%d)", len(req.Messages), a.Model.Name(), len(req.Tools))
+func (a *Agent) streamOnce(ctx context.Context, provider model.Provider, req *model.ChatRequest, out chan<- *model.ChatResponse) (*model.ChatResponse, error) {
+	a.debugLog("streaming %d messages to model %q (tools=%d)", len(req.Messages), provider.Name(), len(req.Tools))
 	var streamedContent atomic.Bool
-	resp, err := a.modelCall(ctx, req, true, func() (*model.ChatResponse, error) {
-		ch, err := a.Model.StreamChat(ctx, req)
+	resp, err := a.modelCall(ctx, provider, req, true, func() (*model.ChatResponse, error) {
+		ch, err := provider.StreamChat(ctx, req)
 		if err != nil {
 			return nil, err
 		}
@@ -934,8 +956,9 @@ func (a *Agent) handleToolCalls(ctx context.Context, messages []model.Message, r
 	// Pass the tool definitions on the follow-up call so the model can request
 	// more tools on the next round.
 	followReq := &model.ChatRequest{Messages: messages, Tools: req.Tools, Reasoning: req.Reasoning}
-	followUp, err := a.modelCall(ctx, followReq, false, func() (*model.ChatResponse, error) {
-		return a.Model.Chat(ctx, followReq)
+	provider := a.modelProvider(ctx)
+	followUp, err := a.modelCall(ctx, provider, followReq, false, func() (*model.ChatResponse, error) {
+		return provider.Chat(ctx, followReq)
 	}, nil)
 	messages = followReq.Messages
 	if err != nil {
@@ -1096,7 +1119,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc model.ToolCall) toolExec
 // This is the primary entry point for team-based orchestration where agents
 // are lightweight task executors.
 func (a *Agent) Execute(ctx context.Context, task string) (string, error) {
-	if a.Model == nil {
+	if a.modelProvider(ctx) == nil {
 		return "", fmt.Errorf("agent %q: no model configured", a.ID)
 	}
 
@@ -1110,7 +1133,7 @@ func (a *Agent) Execute(ctx context.Context, task string) (string, error) {
 // Run starts a new execution session for this agent.
 func (a *Agent) Run(ctx context.Context, input map[string]any) (*graph.RunState, error) {
 	// If no graph, use model-only execution via Execute
-	if a.Graph == nil && a.Model != nil {
+	if a.Graph == nil && a.modelProvider(ctx) != nil {
 		msg, _ := input["message"].(string)
 		if msg == "" {
 			msg = stateToPrompt(input)

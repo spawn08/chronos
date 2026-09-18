@@ -127,47 +127,74 @@ func (w *Worker) RunOnce(ctx context.Context) (bool, error) {
 		}
 		return false, err
 	}
-	w.process(ctx, r)
-	return true, nil
+	return true, w.process(ctx, r)
 }
 
 // process executes one claimed run under a heartbeated lease and applies the
 // result durably.
-func (w *Worker) process(ctx context.Context, r *Run) {
+func (w *Worker) process(ctx context.Context, r *Run) error {
 	execCtx, cancelExec := context.WithCancel(ctx)
 	defer cancelExec()
 
-	stopHB := make(chan struct{})
+	// Finalization is deliberately detached from worker shutdown. Once execution
+	// has produced a result, keep its lease alive while durably recording that
+	// result so shutdown cannot strand already-executed work.
+	heartbeatCtx, stopHeartbeat := context.WithCancel(context.WithoutCancel(ctx))
 	leaseLost := make(chan struct{})
-	go w.heartbeat(execCtx, r, cancelExec, stopHB, leaseLost)
+	heartbeatDone := make(chan struct{})
+	go func() {
+		defer close(heartbeatDone)
+		w.heartbeat(heartbeatCtx, r, cancelExec, leaseLost)
+	}()
 
 	res := w.exec(execCtx, r)
-
-	close(stopHB)
 
 	// If the lease was lost, another worker owns the run now; do not touch it.
 	select {
 	case <-leaseLost:
-		return
+		stopHeartbeat()
+		<-heartbeatDone
+		return nil
 	default:
 	}
 
-	w.applyResult(ctx, r, res)
+	finalizeCtx, cancelFinalize := context.WithCancel(context.WithoutCancel(ctx))
+	finalizeDone := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+		case <-finalizeDone:
+			return
+		}
+
+		t := time.NewTimer(10 * time.Second)
+		defer t.Stop()
+		select {
+		case <-t.C:
+			cancelFinalize()
+		case <-finalizeDone:
+		}
+	}()
+	err := w.applyResult(finalizeCtx, r, res, leaseLost)
+	close(finalizeDone)
+	cancelFinalize()
+	stopHeartbeat()
+	<-heartbeatDone
+	return err
 }
 
-// heartbeat extends the lease until stopHB is closed or the lease is lost. On
-// lease loss it cancels execution and signals via leaseLost.
-func (w *Worker) heartbeat(ctx context.Context, r *Run, cancelExec context.CancelFunc, stopHB <-chan struct{}, leaseLost chan<- struct{}) {
+// heartbeat extends the lease until ctx ends or the lease is lost. Only
+// ErrLeaseLost proves that another worker owns the run; transient store errors
+// are retried on the next tick.
+func (w *Worker) heartbeat(ctx context.Context, r *Run, cancelExec context.CancelFunc, leaseLost chan<- struct{}) {
 	t := time.NewTicker(w.cfg.Heartbeat)
 	defer t.Stop()
 	for {
 		select {
-		case <-stopHB:
-			return
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if err := w.q.Heartbeat(ctx, r.ID, w.cfg.ID, w.cfg.Lease); err != nil {
+			if err := w.q.Heartbeat(ctx, r.ID, w.cfg.ID, w.cfg.Lease); errors.Is(err, ErrLeaseLost) {
 				close(leaseLost)
 				cancelExec()
 				return
@@ -176,41 +203,43 @@ func (w *Worker) heartbeat(ctx context.Context, r *Run, cancelExec context.Cance
 	}
 }
 
-// applyResult persists the outcome of an attempt. ErrLeaseLost is tolerated: it
-// means the run was recovered by another worker and must not be double-finished.
-func (w *Worker) applyResult(ctx context.Context, r *Run, res Result) {
-	// Use a detached context so bookkeeping still lands if the parent ctx is
-	// being torn down after a canceled execution.
-	bg, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-	defer cancel()
-
-	var err error
-	switch {
-	case res.Err != nil:
-		// r.Attempts is the number of prior failed attempts; this error makes the
-		// failed count r.Attempts+1. Fail terminally at the budget, else retry via
-		// the attempts-incrementing path (Retry, not Sleep) so budget is consumed.
-		failedCount := r.Attempts + 1
-		if failedCount >= r.MaxAttempts {
-			err = w.q.Complete(bg, r.ID, w.cfg.ID, StatusFailed, res.Err.Error())
-		} else {
-			err = w.q.Retry(bg, r.ID, w.cfg.ID, w.cfg.Backoff(failedCount), res.Patch)
+// applyResult persists the outcome of an attempt. Transient errors are retried
+// while the heartbeat retains ownership. ErrLeaseLost is tolerated because it
+// means another worker owns the run and this worker must not double-finish it.
+func (w *Worker) applyResult(ctx context.Context, r *Run, res Result, leaseLost <-chan struct{}) error {
+	for {
+		var err error
+		switch {
+		case res.Err != nil:
+			// r.Attempts is the number of prior failed attempts; this error makes the
+			// failed count r.Attempts+1. Fail terminally at the budget, else retry via
+			// the attempts-incrementing path (Retry, not Sleep) so budget is consumed.
+			failedCount := r.Attempts + 1
+			if failedCount >= r.MaxAttempts {
+				err = w.q.Complete(ctx, r.ID, w.cfg.ID, StatusFailed, res.Err.Error())
+			} else {
+				err = w.q.Retry(ctx, r.ID, w.cfg.ID, w.cfg.Backoff(failedCount), res.Patch)
+			}
+		case res.Sleep > 0:
+			err = w.q.Sleep(ctx, r.ID, w.cfg.ID, res.Sleep, res.Patch)
+		case res.ParkSignal != "":
+			err = w.q.Park(ctx, r.ID, w.cfg.ID, res.ParkSignal, res.Patch)
+		default:
+			err = w.q.Complete(ctx, r.ID, w.cfg.ID, StatusCompleted, "")
 		}
-	case res.Sleep > 0:
-		err = w.q.Sleep(bg, r.ID, w.cfg.ID, res.Sleep, res.Patch)
-	case res.ParkSignal != "":
-		err = w.q.Park(bg, r.ID, w.cfg.ID, res.ParkSignal, res.Patch)
-	default:
-		err = w.q.Complete(bg, r.ID, w.cfg.ID, StatusCompleted, "")
-	}
-	_ = tolerateLeaseLost(err)
-}
+		if err == nil || errors.Is(err, ErrLeaseLost) {
+			return nil
+		}
 
-func tolerateLeaseLost(err error) error {
-	if err == nil || errors.Is(err, ErrLeaseLost) {
-		return nil
+		select {
+		case <-leaseLost:
+			return nil
+		default:
+		}
+		if !sleepCtx(ctx, w.cfg.PollInterval) {
+			return fmt.Errorf("apply result: %w", err)
+		}
 	}
-	return err
 }
 
 // sleepCtx sleeps for d or until ctx is done. It returns false if ctx ended.

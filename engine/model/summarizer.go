@@ -81,6 +81,7 @@ func (s *Summarizer) Summarize(ctx context.Context, existingSummary string, mess
 			{Role: RoleUser, Content: b.String()},
 		},
 		MaxTokens: 500,
+		Model:     s.provider.Model(),
 	})
 	if err != nil {
 		return SummarizationResult{}, fmt.Errorf("summarize: %w", err)

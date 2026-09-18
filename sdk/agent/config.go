@@ -900,9 +900,9 @@ func buildToolFromConfig(tc ToolConfig, handlers *toolHandlerRegistry, basePath 
 
 	switch tc.Name {
 	case "shell":
-		def = builtins.NewShellTool(nil, 0)
+		def = builtins.NewShellToolAt(basePath, nil, 0)
 	case "shell_auto":
-		def = builtins.NewAutoShellTool(nil, 0)
+		def = builtins.NewAutoShellToolAt(basePath, nil, 0)
 	case "file_read":
 		def = builtins.NewFileReadTool(basePath)
 	case "file_write":

@@ -146,6 +146,41 @@ func (r *Registry) Register(def *Definition) {
 	r.tools[def.Name] = def
 }
 
+// Replace atomically removes the named tools and installs replacements. It
+// rejects collisions with tools outside the removal set, leaving the registry
+// unchanged on failure.
+func (r *Registry) Replace(remove []string, replacements []*Definition) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	removed := make(map[string]struct{}, len(remove))
+	for _, name := range remove {
+		removed[name] = struct{}{}
+	}
+	seen := make(map[string]struct{}, len(replacements))
+	for _, def := range replacements {
+		if def == nil || strings.TrimSpace(def.Name) == "" {
+			return fmt.Errorf("replacement tool must have a name")
+		}
+		if _, duplicate := seen[def.Name]; duplicate {
+			return fmt.Errorf("replacement tool %q is duplicated", def.Name)
+		}
+		seen[def.Name] = struct{}{}
+		if _, exists := r.tools[def.Name]; exists {
+			if _, replacing := removed[def.Name]; !replacing {
+				return fmt.Errorf("replacement tool %q collides with an existing tool", def.Name)
+			}
+		}
+	}
+	for name := range removed {
+		delete(r.tools, name)
+	}
+	for _, def := range replacements {
+		r.tools[def.Name] = def
+	}
+	return nil
+}
+
 // List returns all registered tools.
 func (r *Registry) List() []*Definition {
 	r.mu.RLock()
