@@ -246,6 +246,51 @@ func TestChatWithSession_Success(t *testing.T) {
 	}
 }
 
+func TestSessionChatPassesNativeReasoningWithTools(t *testing.T) {
+	for _, streaming := range []bool{false, true} {
+		for _, enabled := range []bool{false, true} {
+			t.Run(fmt.Sprintf("stream=%v/think=%v", streaming, enabled), func(t *testing.T) {
+				var provider model.Provider
+				var request *model.ChatRequest
+				if streaming {
+					provider = &streamProvider{scripts: [][]*model.ChatResponse{{
+						{Role: model.RoleAssistant, Content: "ok", Delta: true},
+						{Role: model.RoleAssistant, StopReason: model.StopReasonEnd},
+					}}}
+				} else {
+					provider = &testProvider{response: &model.ChatResponse{Content: "ok", StopReason: model.StopReasonEnd}}
+				}
+				a, err := New("a1", "Test").WithModel(provider).WithStorage(newTestStorage()).WithReasoningConfig(model.ReasoningConfig{Enabled: enabled, Effort: "high"}).Build()
+				if err != nil {
+					t.Fatal(err)
+				}
+				a.Tools.Register(&tool.Definition{Name: "lookup", Handler: func(context.Context, map[string]any) (any, error) { return nil, nil }})
+				if streaming {
+					ch, err := a.ChatStreamWithSession(t.Context(), "sess", "hi")
+					if err != nil {
+						t.Fatal(err)
+					}
+					if _, _, err := collectStream(t, ch); err != nil {
+						t.Fatal(err)
+					}
+					request = provider.(*streamProvider).requests[0]
+				} else {
+					if _, err := a.ChatWithSession(t.Context(), "sess", "hi"); err != nil {
+						t.Fatal(err)
+					}
+					request = provider.(*testProvider).lastReq
+				}
+				if len(request.Tools) != 1 || (request.Reasoning != nil) != enabled {
+					t.Fatalf("session request tools/reasoning = %+v / %+v", request.Tools, request.Reasoning)
+				}
+				if enabled && request.Reasoning.Effort != "high" {
+					t.Fatalf("reasoning effort = %q, want high", request.Reasoning.Effort)
+				}
+			})
+		}
+	}
+}
+
 func TestChatWithSession_ExistingSession(t *testing.T) {
 	store := newTestStorage()
 	// Pre-create session so GetSession succeeds

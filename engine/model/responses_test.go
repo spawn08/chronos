@@ -170,3 +170,81 @@ func TestAzureNativeReasoningUsesResponsesEndpoint(t *testing.T) {
 		t.Fatalf("content = %q", resp.Content)
 	}
 }
+
+func TestAzureToolReasoningConflictRetriesWithResponses(t *testing.T) {
+	for _, streaming := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%v", streaming), func(t *testing.T) {
+			var paths []string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				paths = append(paths, r.URL.Path)
+				var body map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Errorf("decode request: %v", err)
+				}
+				if r.URL.Path == "/openai/v1/chat/completions" {
+					w.WriteHeader(http.StatusBadRequest)
+					fmt.Fprint(w, `{"error":{"message":"Function tools with reasoning_effort are not supported for gpt-6-sol in /v1/chat/completions."}}`)
+					return
+				}
+				if r.URL.Path != "/openai/v1/responses" || body["model"] != "gpt-6-sol" || body["tools"] == nil {
+					t.Errorf("fallback path/body = %s / %#v", r.URL.Path, body)
+				}
+				completed := `{"id":"resp_1","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"done"}]}]}`
+				if streaming {
+					w.Header().Set("Content-Type", "text/event-stream")
+					fmt.Fprintf(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"done\"}\n\ndata: {\"type\":\"response.completed\",\"response\":%s}\n\ndata: [DONE]\n\n", completed)
+				} else {
+					fmt.Fprint(w, completed)
+				}
+			}))
+			defer srv.Close()
+			p := NewAzureOpenAIWithConfig(AzureConfig{
+				ProviderConfig: ProviderConfig{APIKey: "k", BaseURL: srv.URL, Model: "gpt-6-sol"},
+				Deployment:     "gpt-6-sol", APIVersion: "preview",
+			})
+			req := &ChatRequest{
+				Messages: []Message{{Role: RoleUser, Content: "gi"}},
+				Tools:    []ToolDefinition{{Type: "function", Function: FunctionDef{Name: "lookup"}}},
+			}
+			var result *ChatResponse
+			var err error
+			if streaming {
+				ch, streamErr := p.StreamChat(t.Context(), req)
+				if streamErr != nil {
+					t.Fatal(streamErr)
+				}
+				result, err = AggregateStream(t.Context(), ch)
+			} else {
+				result, err = p.Chat(t.Context(), req)
+			}
+			if err != nil || result.Content != "done" {
+				t.Fatalf("response = %+v, err = %v", result, err)
+			}
+			if len(paths) != 2 || paths[0] != "/openai/v1/chat/completions" || paths[1] != "/openai/v1/responses" {
+				t.Fatalf("request paths = %v, want chat then responses", paths)
+			}
+		})
+	}
+}
+
+func TestAzureToolReasoningFallbackOnlyForSupportedError(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusNotFound, http.StatusBadRequest} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			calls := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				w.WriteHeader(status)
+				fmt.Fprint(w, `{"error":{"message":"DeploymentNotFound"}}`)
+			}))
+			defer srv.Close()
+			p := NewAzureOpenAIWithConfig(AzureConfig{ProviderConfig: ProviderConfig{APIKey: "k", BaseURL: srv.URL}, Deployment: "d", APIVersion: "preview"})
+			req := &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}, Tools: []ToolDefinition{{Type: "function", Function: FunctionDef{Name: "lookup"}}}}
+			if _, err := p.Chat(t.Context(), req); err == nil || calls != 1 {
+				t.Fatalf("Chat error = %v, requests = %d; want one failed request", err, calls)
+			}
+			if _, err := p.StreamChat(t.Context(), req); err == nil || calls != 2 {
+				t.Fatalf("StreamChat error = %v, requests = %d; want one failed request", err, calls)
+			}
+		})
+	}
+}

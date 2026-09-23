@@ -432,6 +432,10 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 	}
 
 	req := &model.ChatRequest{Messages: messages}
+	if a.ReasoningConfig.Enabled {
+		reasoning := a.ReasoningConfig
+		req.Reasoning = &reasoning
+	}
 	applyOutputSchema(req, a.OutputSchema)
 
 	// Add tool definitions
@@ -630,6 +634,10 @@ func (a *Agent) ChatStreamWithSession(ctx context.Context, sessionID, userMessag
 	}
 
 	req := &model.ChatRequest{Messages: messages}
+	if a.ReasoningConfig.Enabled {
+		reasoning := a.ReasoningConfig
+		req.Reasoning = &reasoning
+	}
 	applyOutputSchema(req, a.OutputSchema)
 	for _, t := range a.Tools.List() {
 		req.Tools = append(req.Tools, model.ToolDefinition{

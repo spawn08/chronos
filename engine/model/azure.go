@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 )
 
 // AzureOpenAI implements Provider for Azure-hosted OpenAI models. Standard
@@ -84,6 +85,11 @@ func (a *AzureOpenAI) usesResponsesAPI(req *ChatRequest) bool {
 	return req != nil && nativeReasoningEnabled(req.Reasoning)
 }
 
+func azureReasoningToolConflict(status int, body string, req *ChatRequest) bool {
+	return status == http.StatusBadRequest && req != nil && len(req.Tools) > 0 &&
+		strings.Contains(strings.ToLower(body), "function tools with reasoning_effort are not supported")
+}
+
 func (a *AzureOpenAI) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
 	if a.usesResponsesAPI(req) {
 		return a.responsesChat(ctx, req)
@@ -98,11 +104,15 @@ func (a *AzureOpenAI) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse
 	if err != nil {
 		return nil, fmt.Errorf("azure openai chat: %w", err)
 	}
-	defer drainAndClose(resp.Body)
-
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("azure openai chat: %s", readErrorBody(resp))
+		errMsg := readErrorBody(resp)
+		drainAndClose(resp.Body)
+		if azureReasoningToolConflict(resp.StatusCode, errMsg, req) {
+			return a.responsesChat(ctx, req)
+		}
+		return nil, fmt.Errorf("azure openai chat: %s", errMsg)
 	}
+	defer drainAndClose(resp.Body)
 
 	var oaiResp openAIChatResponse
 	if err := json.NewDecoder(resp.Body).Decode(&oaiResp); err != nil {
@@ -148,13 +158,24 @@ func (a *AzureOpenAI) StreamChat(ctx context.Context, req *ChatRequest) (<-chan 
 		body = buildResponsesRequestBody(req, a.deployment, true)
 	}
 
-	resp, err := a.http.postStream(ctx, path, body)
-	if err != nil {
-		return nil, fmt.Errorf("azure openai stream: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
+	var resp *http.Response
+	for {
+		var err error
+		resp, err = a.http.postStream(ctx, path, body)
+		if err != nil {
+			return nil, fmt.Errorf("azure openai stream: %w", err)
+		}
+		if resp.StatusCode == http.StatusOK {
+			break
+		}
 		errMsg := readErrorBody(resp)
-		resp.Body.Close()
+		drainAndClose(resp.Body)
+		if !responsesMode && azureReasoningToolConflict(resp.StatusCode, errMsg, req) {
+			responsesMode = true
+			path = a.responsesPath()
+			body = buildResponsesRequestBody(req, a.deployment, true)
+			continue
+		}
 		return nil, fmt.Errorf("azure openai stream: %s", errMsg)
 	}
 
