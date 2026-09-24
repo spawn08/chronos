@@ -220,9 +220,9 @@ func TestCollectLogs_StdoutAPIError(t *testing.T) {
 			return nil, fmt.Errorf("logs unavailable")
 		}),
 	}
-	out, errOut := sb.collectLogs(context.Background(), "any")
-	if out != "" || errOut != "" {
-		t.Fatalf("expected empty logs on error, got %q %q", out, errOut)
+	out, errOut, err := sb.collectLogs(context.Background(), "any")
+	if out != "" || errOut != "" || err == nil {
+		t.Fatalf("missing stdout failure: %q %q, error %v", out, errOut, err)
 	}
 }
 
@@ -240,7 +240,10 @@ func TestCollectLogs_StderrAPIErrorAfterStdout(t *testing.T) {
 			return nil, fmt.Errorf("stderr logs fail")
 		}),
 	}
-	out, errOut := sb.collectLogs(context.Background(), "cid")
+	out, errOut, err := sb.collectLogs(context.Background(), "cid")
+	if err == nil {
+		t.Fatal("missing stderr failure was silently accepted")
+	}
 	if errOut != "" {
 		t.Errorf("stderr = %q, want empty", errOut)
 	}

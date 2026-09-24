@@ -346,7 +346,10 @@ func (c *ContainerSandbox) Execute(ctx context.Context, command string, args []s
 	}
 
 	// 4. Collect logs
-	stdout, stderr := c.collectLogs(ctx, containerID)
+	stdout, stderr, err := c.collectLogs(ctx, containerID)
+	if err != nil {
+		return nil, fmt.Errorf("container result unavailable: %w", err)
+	}
 
 	return &Result{
 		Stdout:   stdout,
@@ -355,22 +358,42 @@ func (c *ContainerSandbox) Execute(ctx context.Context, command string, args []s
 	}, nil
 }
 
-func (c *ContainerSandbox) collectLogs(ctx context.Context, containerID string) (stdout, stderr string) {
+func (c *ContainerSandbox) collectLogs(ctx context.Context, containerID string) (stdout, stderr string, err error) {
 	stdoutResp, err := c.dockerAPI(ctx, http.MethodGet, fmt.Sprintf("/%s/containers/%s/logs?stdout=1&stderr=0", c.apiVersion, containerID), nil)
 	if err != nil {
-		return "", ""
+		return "", "", fmt.Errorf("read container stdout: %w", err)
 	}
-	stdoutBytes, _ := io.ReadAll(io.LimitReader(stdoutResp.Body, 1<<20))
+	if stdoutResp.StatusCode != http.StatusOK {
+		stdoutResp.Body.Close()
+		return "", "", fmt.Errorf("read container stdout: HTTP %d", stdoutResp.StatusCode)
+	}
+	stdoutBytes, err := io.ReadAll(io.LimitReader(stdoutResp.Body, 1<<20+1))
 	stdoutResp.Body.Close()
+	if err != nil {
+		return "", "", fmt.Errorf("read container stdout: %w", err)
+	}
+	if len(stdoutBytes) > 1<<20 {
+		return "", "", fmt.Errorf("container stdout exceeds 1 MiB receipt limit")
+	}
 
 	stderrResp, err := c.dockerAPI(ctx, http.MethodGet, fmt.Sprintf("/%s/containers/%s/logs?stdout=0&stderr=1", c.apiVersion, containerID), nil)
 	if err != nil {
-		return stripDockerLogHeaders(stdoutBytes), ""
+		return stripDockerLogHeaders(stdoutBytes), "", fmt.Errorf("read container stderr: %w", err)
 	}
-	stderrBytes, _ := io.ReadAll(io.LimitReader(stderrResp.Body, 1<<20))
+	if stderrResp.StatusCode != http.StatusOK {
+		stderrResp.Body.Close()
+		return stripDockerLogHeaders(stdoutBytes), "", fmt.Errorf("read container stderr: HTTP %d", stderrResp.StatusCode)
+	}
+	stderrBytes, err := io.ReadAll(io.LimitReader(stderrResp.Body, 1<<20+1))
 	stderrResp.Body.Close()
+	if err != nil {
+		return stripDockerLogHeaders(stdoutBytes), "", fmt.Errorf("read container stderr: %w", err)
+	}
+	if len(stderrBytes) > 1<<20 {
+		return stripDockerLogHeaders(stdoutBytes), "", fmt.Errorf("container stderr exceeds 1 MiB receipt limit")
+	}
 
-	return stripDockerLogHeaders(stdoutBytes), stripDockerLogHeaders(stderrBytes)
+	return stripDockerLogHeaders(stdoutBytes), stripDockerLogHeaders(stderrBytes), nil
 }
 
 // Docker multiplexed stream has 8-byte headers per frame.
