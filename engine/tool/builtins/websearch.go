@@ -37,6 +37,7 @@ func webSearchTool(client *http.Client, maxResults int, apiURLTemplate string) *
 		Name:        "web_search",
 		Description: "Search the web using DuckDuckGo and return results with titles, URLs, and snippets.",
 		Permission:  tool.PermRequireApproval,
+		Effects:     []tool.Effect{tool.EffectNetwork},
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -150,6 +151,7 @@ func NewWebSearchToolWithEngine(engineURL string, timeout time.Duration) *tool.D
 		Name:        "web_search_custom",
 		Description: "Search the web using a custom search engine endpoint.",
 		Permission:  tool.PermRequireApproval,
+		Effects:     []tool.Effect{tool.EffectNetwork},
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

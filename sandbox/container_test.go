@@ -94,6 +94,25 @@ func TestBuildCreateBody_HardenedDefaults(t *testing.T) {
 	}
 }
 
+func TestBuildCreateBody_ExplicitWorkspaceAndEnvironment(t *testing.T) {
+	sb := NewContainerSandbox(ContainerConfig{
+		Image: "pinned@sha256:abc", Mounts: []BindMount{{Source: "/repo", Target: "/workspace"}},
+		WorkingDir: "/workspace/subdir", Env: []string{"HOME=/workspace", "PATH=/usr/bin"},
+	})
+	body := sb.buildCreateBody([]string{"sh", "-c", "pwd"})
+	if body["WorkingDir"] != "/workspace/subdir" || !reflect.DeepEqual(body["Env"], []string{"HOME=/workspace", "PATH=/usr/bin"}) {
+		t.Fatalf("workspace body = %#v", body)
+	}
+	host := body["HostConfig"].(map[string]any)
+	mounts, ok := host["Mounts"].([]map[string]any)
+	if !ok || len(mounts) != 1 || mounts[0]["Source"] != "/repo" || mounts[0]["Target"] != "/workspace" || mounts[0]["ReadOnly"] != false {
+		t.Fatalf("host mounts = %#v", host["Mounts"])
+	}
+	if host["ReadonlyRootfs"] != true || body["NetworkDisabled"] != true {
+		t.Fatalf("container escaped default isolation: %#v", body)
+	}
+}
+
 func TestBuildCreateBody_Overrides(t *testing.T) {
 	sb := NewContainerSandbox(ContainerConfig{
 		User:           "1000:1000",

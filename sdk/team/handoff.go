@@ -27,6 +27,7 @@ func NewHandoffTool(cfg HandoffConfig) *tool.Definition {
 	}
 
 	return &tool.Definition{
+		Effects:     []tool.Effect{},
 		Name:        name,
 		Description: desc,
 		Permission:  tool.PermAllow,

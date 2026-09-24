@@ -22,7 +22,8 @@ type ChatSession struct {
 	Messages []model.Message `json:"messages"`
 	Summary  string          `json:"summary"`
 
-	mu sync.Mutex
+	mu          sync.Mutex
+	recoveryErr error
 }
 
 type sessionLock struct {
@@ -106,6 +107,12 @@ func chatSessionFromEvents(events []*storage.Event) *ChatSession {
 					}
 				}
 			}
+			if state, present := payload["provider_state"]; present {
+				msg.ProviderState, cs.recoveryErr = decodeProviderState(state)
+				if cs.recoveryErr != nil {
+					return cs
+				}
+			}
 			cs.Messages = append(cs.Messages, msg)
 		case "chat_summary":
 			if checkpointSeq > 0 && evt.SeqNum <= checkpointSeq {
@@ -152,6 +159,25 @@ func decodeSummaryCheckpoint(evt *storage.Event) (summaryCheckpoint, bool) {
 	if err != nil || json.Unmarshal(data, &checkpoint) != nil {
 		return checkpoint, false
 	}
+	if value, exists := payload["provider_states"]; exists {
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return checkpoint, false
+		}
+		var states []json.RawMessage
+		if err := json.Unmarshal(encoded, &states); err != nil || len(states) != len(checkpoint.PreservedMessages) {
+			return checkpoint, false
+		}
+		for i, state := range states {
+			if string(state) == "null" {
+				continue
+			}
+			checkpoint.PreservedMessages[i].ProviderState, err = decodeProviderState(state)
+			if err != nil {
+				return checkpoint, false
+			}
+		}
+	}
 	return checkpoint, checkpoint.Version == 1 && checkpoint.CoveredSeq >= 0 && checkpoint.CoveredSeq < evt.SeqNum
 }
 
@@ -191,6 +217,13 @@ func persistMessage(ctx context.Context, store storage.Storage, sessionID string
 		}
 		payload["tool_calls"] = tcs
 	}
+	state, err := encodeProviderState(msg.ProviderState)
+	if err != nil {
+		return fmt.Errorf("persist message provider continuation: %w", err)
+	}
+	if state != nil {
+		payload["provider_state"] = state
+	}
 
 	return store.AppendEvent(ctx, &storage.Event{
 		ID:        fmt.Sprintf("chat_%s_%d", sessionID, seqNum),
@@ -221,6 +254,14 @@ func persistSummaryCheckpoint(ctx context.Context, store storage.Storage, sessio
 	if coveredSeq < 0 || coveredSeq >= seqNum {
 		return fmt.Errorf("invalid summary checkpoint sequence %d covering %d", seqNum, coveredSeq)
 	}
+	states := make([]*storedProviderState, len(result.PreservedMessages))
+	for i, msg := range result.PreservedMessages {
+		state, err := encodeProviderState(msg.ProviderState)
+		if err != nil {
+			return fmt.Errorf("persist summary provider continuation: %w", err)
+		}
+		states[i] = state
+	}
 	return store.AppendEvent(ctx, &storage.Event{
 		ID:        fmt.Sprintf("summary_%s_%d", sessionID, seqNum),
 		SessionID: sessionID,
@@ -231,6 +272,7 @@ func persistSummaryCheckpoint(ctx context.Context, store storage.Storage, sessio
 			"summary":            result.Summary,
 			"covered_seq":        coveredSeq,
 			"preserved_messages": result.PreservedMessages,
+			"provider_states":    states,
 		},
 		CreatedAt: time.Now(),
 	})
@@ -264,6 +306,9 @@ func (a *Agent) CompactSession(ctx context.Context, sessionID string) error {
 		return fmt.Errorf("load session events: %w", err)
 	}
 	cs := chatSessionFromEvents(events)
+	if cs.recoveryErr != nil {
+		return fmt.Errorf("restore provider continuation: %w", cs.recoveryErr)
+	}
 	if len(cs.Messages) == 0 {
 		return nil
 	}
@@ -340,6 +385,9 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 		return nil, fmt.Errorf("load session events: %w", err)
 	}
 	cs := chatSessionFromEvents(events)
+	if cs.recoveryErr != nil {
+		return nil, fmt.Errorf("restore provider continuation: %w", cs.recoveryErr)
+	}
 	cs.ID = sessionID
 	cs.AgentID = a.ID
 
@@ -560,6 +608,10 @@ func (a *Agent) ChatStreamWithSession(ctx context.Context, sessionID, userMessag
 		return nil, fmt.Errorf("load session events: %w", err)
 	}
 	cs := chatSessionFromEvents(events)
+	if cs.recoveryErr != nil {
+		release()
+		return nil, fmt.Errorf("restore provider continuation: %w", cs.recoveryErr)
+	}
 	cs.ID = sessionID
 	cs.AgentID = a.ID
 	cs.mu.Lock()

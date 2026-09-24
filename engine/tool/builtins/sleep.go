@@ -15,6 +15,7 @@ func NewSleepTool(maxDuration time.Duration) *tool.Definition {
 	return &tool.Definition{
 		Name:        "sleep",
 		Description: "Pause execution for a specified number of seconds. Useful for rate limiting and polling patterns.",
+		Effects:     []tool.Effect{},
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

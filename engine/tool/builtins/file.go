@@ -16,6 +16,7 @@ func NewFileReadTool(basePath string) *tool.Definition {
 		Name:        "file_read",
 		Description: "Read the contents of a file at the given path.",
 		Permission:  tool.PermAllow,
+		Effects:     []tool.Effect{tool.EffectRead},
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -50,6 +51,13 @@ func NewFileWriteTool(basePath string) *tool.Definition {
 		Name:        "file_write",
 		Description: "Write content to a file at the given path, creating directories as needed.",
 		Permission:  tool.PermRequireApproval,
+		Effects:     []tool.Effect{tool.EffectScratchWrite, tool.EffectDeliveryWrite},
+		ResolveEffects: func(ctx context.Context, _ map[string]any) ([]tool.Effect, error) {
+			if tool.IsScratchWorkspace(ctx) {
+				return []tool.Effect{tool.EffectScratchWrite}, nil
+			}
+			return []tool.Effect{tool.EffectDeliveryWrite}, nil
+		},
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -91,6 +99,7 @@ func NewFileListTool(basePath string) *tool.Definition {
 		Name:        "file_list",
 		Description: "List files and directories at the given path.",
 		Permission:  tool.PermAllow,
+		Effects:     []tool.Effect{tool.EffectRead},
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -137,6 +146,7 @@ func NewFileGlobTool(basePath string) *tool.Definition {
 		Name:        "file_glob",
 		Description: "Find files matching a glob pattern.",
 		Permission:  tool.PermAllow,
+		Effects:     []tool.Effect{tool.EffectRead},
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -171,6 +181,7 @@ func NewFileGrepTool(basePath string) *tool.Definition {
 		Name:        "file_grep",
 		Description: "Search for a text pattern in a file, returning matching lines.",
 		Permission:  tool.PermAllow,
+		Effects:     []tool.Effect{tool.EffectRead},
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

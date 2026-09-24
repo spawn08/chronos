@@ -2,9 +2,14 @@ package agent
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/spawn08/chronos/engine/model"
 )
 
 func TestLoadFile(t *testing.T) {
@@ -217,8 +222,8 @@ agents:
 	if err != nil {
 		t.Fatalf("BuildProvider: %v", err)
 	}
-	if provider.Name() != "azure-openai" || provider.Model() != "gpt-5.5" {
-		t.Fatalf("provider = %s/%s, want azure-openai/gpt-5.5", provider.Name(), provider.Model())
+	if provider.Name() != "azure" || provider.Model() != "gpt-5.5" {
+		t.Fatalf("provider = %s/%s, want azure/gpt-5.5", provider.Name(), provider.Model())
 	}
 }
 
@@ -262,6 +267,7 @@ agents:
 
 func TestBuildProviderAzureEnvFallbackAndValidation(t *testing.T) {
 	t.Setenv("AZURE_OPENAI_ENDPOINT", "https://env.openai.azure.com")
+	t.Setenv("AZURE_OPENAI_BASE_URL", "")
 	t.Setenv("AZURE_OPENAI_DEPLOYMENT", "env-deployment")
 	t.Setenv("AZURE_OPENAI_API_KEY", "env-key")
 	t.Setenv("AZURE_OPENAI_API_VERSION", "2025-01-01-preview")
@@ -270,8 +276,8 @@ func TestBuildProviderAzureEnvFallbackAndValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildProvider env fallback: %v", err)
 	}
-	if provider.Name() != "azure-openai" || provider.Model() != "env-deployment" {
-		t.Fatalf("provider = %s/%s, want azure-openai/env-deployment", provider.Name(), provider.Model())
+	if provider.Name() != "azure" || provider.Model() != "env-deployment" {
+		t.Fatalf("provider = %s/%s, want azure/env-deployment", provider.Name(), provider.Model())
 	}
 
 	t.Setenv("AZURE_OPENAI_ENDPOINT", "")
@@ -279,6 +285,60 @@ func TestBuildProviderAzureEnvFallbackAndValidation(t *testing.T) {
 	_, err = BuildProvider(ModelConfig{Provider: "azure"})
 	if err == nil {
 		t.Fatal("expected missing Azure endpoint/deployment error")
+	}
+}
+
+func TestBuildProviderAzureEndpointPrecedence(t *testing.T) {
+	servers := make(map[string]*httptest.Server)
+	for _, source := range []string{"config endpoint", "config base_url", "endpoint env", "base_url env"} {
+		source := source
+		servers[source] = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			fmt.Fprintf(w, `{"choices":[{"message":{"role":"assistant","content":%q}}]}`, source)
+		}))
+		defer servers[source].Close()
+	}
+
+	t.Setenv("AZURE_OPENAI_ENDPOINT", servers["endpoint env"].URL)
+	t.Setenv("AZURE_OPENAI_BASE_URL", servers["base_url env"].URL)
+	tests := []struct {
+		name string
+		cfg  ModelConfig
+		want string
+	}{
+		{"config endpoint wins", ModelConfig{Endpoint: servers["config endpoint"].URL, BaseURL: servers["config base_url"].URL}, "config endpoint"},
+		{"config base_url wins", ModelConfig{BaseURL: servers["config base_url"].URL}, "config base_url"},
+		{"endpoint env wins", ModelConfig{}, "endpoint env"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := tt.cfg
+			cfg.Provider = "azure"
+			cfg.Deployment = "deployment"
+			provider, err := BuildProvider(cfg)
+			if err != nil {
+				t.Fatalf("BuildProvider: %v", err)
+			}
+			resp, err := provider.Chat(t.Context(), &model.ChatRequest{})
+			if err != nil {
+				t.Fatalf("Chat: %v", err)
+			}
+			if resp.Content != tt.want {
+				t.Fatalf("endpoint source = %q, want %q", resp.Content, tt.want)
+			}
+		})
+	}
+
+	t.Setenv("AZURE_OPENAI_ENDPOINT", "")
+	provider, err := BuildProvider(ModelConfig{Provider: "azure", Deployment: "deployment"})
+	if err != nil {
+		t.Fatalf("BuildProvider base URL alias: %v", err)
+	}
+	resp, err := provider.Chat(t.Context(), &model.ChatRequest{})
+	if err != nil {
+		t.Fatalf("Chat base URL alias: %v", err)
+	}
+	if resp.Content != "base_url env" {
+		t.Fatalf("endpoint source = %q, want base_url env", resp.Content)
 	}
 }
 

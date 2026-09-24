@@ -13,6 +13,39 @@ import (
 
 type toolDefinitionsKey struct{}
 type modelProviderKey struct{}
+type runIdentityKey struct{}
+
+// RunIdentity is the host-issued identity of one bounded agent invocation.
+// Model and tool arguments cannot override these values.
+type RunIdentity struct {
+	TenantID           string
+	RepositoryID       string
+	DeliveryID         string
+	TaskID             string
+	NodeID             string
+	AttemptID          string
+	GoalRevision       string
+	ArtifactSnapshot   string
+	PolicyRevision     string
+	RoleID             string
+	SessionID          string
+	InvocationID       string
+	ParentInvocationID string
+}
+
+// WithRunIdentity binds immutable invocation identity to a request context.
+func WithRunIdentity(ctx context.Context, identity RunIdentity) context.Context {
+	return context.WithValue(ctx, runIdentityKey{}, identity)
+}
+
+// RunIdentityFromContext returns a copy of the host-issued invocation identity.
+func RunIdentityFromContext(ctx context.Context) (RunIdentity, bool) {
+	if ctx == nil {
+		return RunIdentity{}, false
+	}
+	identity, ok := ctx.Value(runIdentityKey{}).(RunIdentity)
+	return identity, ok && identity.InvocationID != "" && identity.RoleID != ""
+}
 
 // WithModelProvider returns a child context that uses provider for all model
 // calls made as part of the request. It does not mutate the Agent's default.

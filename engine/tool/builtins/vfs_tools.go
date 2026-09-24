@@ -31,6 +31,7 @@ func NewFSWriteTool(vfs VFS) *tool.Definition {
 			"instead of keeping it in the conversation. Returns only the path and size — read it back later with fs_read. " +
 			"Use this to keep your context small on long tasks.",
 		Permission: tool.PermAllow,
+		Effects:    []tool.Effect{tool.EffectScratchWrite},
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -65,6 +66,7 @@ func NewFSReadTool(vfs VFS) *tool.Definition {
 		Name:        FSReadToolName,
 		Description: "Read back a text artifact previously saved with fs_write, by its path.",
 		Permission:  tool.PermAllow,
+		Effects:     []tool.Effect{tool.EffectRead},
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -90,6 +92,7 @@ func NewFSListTool(vfs VFS) *tool.Definition {
 		Name:        FSListToolName,
 		Description: "List saved artifacts (path and size only) under an optional path prefix.",
 		Permission:  tool.PermAllow,
+		Effects:     []tool.Effect{tool.EffectRead},
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -117,6 +120,7 @@ func NewFSDeleteTool(vfs VFS) *tool.Definition {
 		Name:        FSDeleteToolName,
 		Description: "Delete a saved artifact by path.",
 		Permission:  tool.PermAllow,
+		Effects:     []tool.Effect{tool.EffectScratchWrite},
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

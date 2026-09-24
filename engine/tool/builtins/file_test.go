@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	enginetool "github.com/spawn08/chronos/engine/tool"
 )
 
 func TestFileReadTool(t *testing.T) {
@@ -20,6 +22,22 @@ func TestFileReadTool(t *testing.T) {
 	m := result.(map[string]any)
 	if m["content"] != "hello" {
 		t.Errorf("content = %q", m["content"])
+	}
+}
+
+func TestFileWriteEffectSeparatesScratchFromDelivery(t *testing.T) {
+	dir := t.TempDir()
+	registry := enginetool.NewRegistry()
+	registry.Register(NewFileWriteTool(dir))
+	if err := registry.SetPermissionMode(enginetool.PermissionModeAutoApprove); err != nil {
+		t.Fatal(err)
+	}
+	scratchCtx := enginetool.WithEffectGrant(enginetool.WithScratchWorkspace(context.Background()), enginetool.EffectScratchWrite)
+	if _, err := registry.Execute(scratchCtx, "file_write", map[string]any{"path": "review.txt", "content": "candidate"}); err != nil {
+		t.Fatalf("scratch write: %v", err)
+	}
+	if _, err := registry.Execute(enginetool.WithEffectGrant(context.Background(), enginetool.EffectScratchWrite), "file_write", map[string]any{"path": "delivery.txt", "content": "forbidden"}); err == nil {
+		t.Fatal("scratch-only grant wrote to delivery workspace")
 	}
 }
 
@@ -250,5 +268,55 @@ func TestFileWriteRemapsConfiguredAbsolutePathAndRejectsOutsideRequestWorkspace(
 	}
 	if _, err := writeTool.Handler(ctx, map[string]any{"path": filepath.Join(t.TempDir(), "outside.txt"), "content": "bad"}); err == nil {
 		t.Fatal("outside absolute path was accepted")
+	}
+}
+
+func TestFileReadRejectsSymlinkOutsideRequestWorkspace(t *testing.T) {
+	parent := t.TempDir()
+	requestRoot := filepath.Join(parent, "workspace")
+	outside := filepath.Join(parent, "outside.txt")
+	if err := os.Mkdir(requestRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outside, []byte("outside"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(requestRoot, "escape.txt")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	_, err := NewFileReadTool(requestRoot).Handler(
+		WithWorkspaceRoot(context.Background(), requestRoot),
+		map[string]any{"path": "escape.txt"},
+	)
+	if err == nil {
+		t.Fatal("read through symlink outside request workspace was accepted")
+	}
+}
+
+func TestFileWriteRejectsSymlinkOutsideRequestWorkspace(t *testing.T) {
+	parent := t.TempDir()
+	requestRoot := filepath.Join(parent, "workspace")
+	outside := filepath.Join(parent, "outside")
+	if err := os.Mkdir(requestRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(requestRoot, "escape")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	outsideFile := filepath.Join(outside, "written.txt")
+	_, err := NewFileWriteTool(requestRoot).Handler(
+		WithWorkspaceRoot(context.Background(), requestRoot),
+		map[string]any{"path": filepath.Join("escape", "written.txt"), "content": "bad"},
+	)
+	if err == nil {
+		t.Fatal("write through symlink outside request workspace was accepted")
+	}
+	if _, err := os.Stat(outsideFile); !os.IsNotExist(err) {
+		t.Fatalf("outside file was created: %v", err)
 	}
 }

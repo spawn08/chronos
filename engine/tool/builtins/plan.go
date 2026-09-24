@@ -263,6 +263,7 @@ func NewPlanTool(store PlanStore, broker *stream.Broker) *tool.Definition {
 		Name:        PlanToolName,
 		Description: planToolDescription,
 		Permission:  tool.PermAllow,
+		Effects:     []tool.Effect{tool.EffectScratchWrite},
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

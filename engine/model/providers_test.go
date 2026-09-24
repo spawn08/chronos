@@ -42,7 +42,7 @@ func sseBody(chunks ...string) string {
 
 func TestAzureOpenAI_NewAzureOpenAI(t *testing.T) {
 	p := NewAzureOpenAI("https://res.openai.azure.com", "key", "gpt4-deploy")
-	if p.Name() != "azure-openai" {
+	if p.Name() != "azure" {
 		t.Errorf("Name=%q", p.Name())
 	}
 	if p.Model() != "gpt4-deploy" {
@@ -835,6 +835,9 @@ func TestFallbackProvider_Chat_FallsToSecond(t *testing.T) {
 	if resp.Content != "second" {
 		t.Errorf("Content=%q, want second", resp.Content)
 	}
+	if resp.Provider != "succeed" || resp.Model != "m" {
+		t.Errorf("actual provider receipt = %q/%q, want succeed/m", resp.Provider, resp.Model)
+	}
 	if !fallbackCalled {
 		t.Error("OnFallback should have been called")
 	}
@@ -870,6 +873,8 @@ func TestFallbackProvider_StreamChat_FallsToSecond(t *testing.T) {
 	}
 	if resp == nil || resp.Content != "stream second" {
 		t.Errorf("unexpected response: %+v", resp)
+	} else if resp.Provider != "succeed" || resp.Model != "m" {
+		t.Errorf("actual streaming provider receipt = %q/%q, want succeed/m", resp.Provider, resp.Model)
 	}
 }
 

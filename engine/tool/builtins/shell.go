@@ -73,6 +73,10 @@ func NewShellToolAt(basePath string, allowedCommands []string, timeout time.Dura
 		Name:        "shell",
 		Description: "Execute a shell command and return stdout/stderr. Use with caution.",
 		Permission:  tool.PermRequireApproval,
+		Effects: []tool.Effect{
+			tool.EffectRead, tool.EffectDeliveryWrite, tool.EffectProcessExecution,
+			tool.EffectNetwork, tool.EffectExternalMutation,
+		},
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -176,6 +180,10 @@ func NewSandboxShellTool(sb sandbox.Sandbox, timeout time.Duration) *tool.Defini
 		Name:        "shell",
 		Description: "Execute a shell command inside the sandbox environment. Returns stdout, stderr, and exit code.",
 		Permission:  tool.PermAllow,
+		Effects: []tool.Effect{
+			tool.EffectRead, tool.EffectDeliveryWrite, tool.EffectProcessExecution,
+			tool.EffectNetwork, tool.EffectExternalMutation,
+		},
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

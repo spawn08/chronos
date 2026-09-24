@@ -58,7 +58,7 @@ func NewAzureOpenAIWithConfig(cfg AzureConfig) *AzureOpenAI {
 	}
 }
 
-func (a *AzureOpenAI) Name() string  { return "azure-openai" }
+func (a *AzureOpenAI) Name() string  { return "azure" }
 func (a *AzureOpenAI) Model() string { return a.deployment }
 
 // usesV1API reports whether this resource's configured api-version selects

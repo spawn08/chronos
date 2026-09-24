@@ -659,15 +659,26 @@ func (a *Agent) modelCall(ctx context.Context, provider model.Provider, req *mod
 	modelEvt.Type = hooks.EventModelCallAfter
 	modelEvt.Output = resp
 	modelEvt.Error = err
-	_ = afterHooks.After(ctx, modelEvt)
+	afterErr := afterHooks.After(ctx, modelEvt)
 	if err != nil && (canRetry == nil || canRetry()) {
 		if modelEvt.Error == nil {
 			resp, _ = modelEvt.Output.(*model.ChatResponse)
 		}
 		err = modelEvt.Error
 	}
+	if afterErr != nil {
+		err = errors.Join(err, fmt.Errorf("hook after model call: %w", afterErr))
+	}
 	if ctx.Err() != nil {
 		err = ctx.Err()
+	}
+	if resp != nil {
+		if resp.Provider == "" {
+			resp.Provider = provider.Name()
+		}
+		if resp.Model == "" {
+			resp.Model = provider.Model()
+		}
 	}
 
 	if modelSpan != nil {
@@ -1042,6 +1053,7 @@ func (a *Agent) toolCallsParallelSafe(calls []model.ToolCall) bool {
 }
 
 func (a *Agent) executeToolCall(ctx context.Context, tc model.ToolCall) toolExecution {
+	ctx = withToolCallID(ctx, tc.ID)
 	var args map[string]any
 	_ = json.Unmarshal([]byte(tc.Arguments), &args)
 	a.debugLog("calling tool %q", tc.Name)
@@ -1090,7 +1102,15 @@ func (a *Agent) executeToolCall(ctx context.Context, tc model.ToolCall) toolExec
 	toolEvt.Type = hooks.EventToolCallAfter
 	toolEvt.Output = result
 	toolEvt.Error = err
-	_ = a.Hooks.After(ctx, toolEvt)
+	if hookErr := a.Hooks.After(ctx, toolEvt); hookErr != nil {
+		// The effect may have occurred but its durable observation did not.
+		// Stop this turn; a model-visible tool error could cause a duplicate.
+		return toolExecution{err: fmt.Errorf("hook after tool %q: %w", tc.Name, hookErr)}
+	}
+	var fatalEffect interface{ FatalEffect() }
+	if errors.As(err, &fatalEffect) {
+		return toolExecution{err: fmt.Errorf("tool %q requires effect reconciliation: %w", tc.Name, err)}
+	}
 	toolResultData := map[string]any{"agent": a.ID, "id": tc.ID, "tool": tc.Name}
 	if err != nil {
 		toolResultData["error"] = err.Error()

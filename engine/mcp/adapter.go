@@ -38,6 +38,7 @@ func RegisterTools(ctx context.Context, client *Client, registry *tool.Registry)
 		mcpClient := client
 
 		def := &tool.Definition{
+			Effects:     []tool.Effect{tool.EffectNetwork, tool.EffectExternalMutation},
 			Name:        mcpTool.Name,
 			Description: mcpTool.Description,
 			Parameters:  mcpTool.InputSchema,
@@ -60,6 +61,7 @@ func ToolInfoToDefinitions(client *Client, tools []ToolInfo) []*tool.Definition 
 		mcpTool := t
 		mcpClient := client
 		defs[i] = &tool.Definition{
+			Effects:     []tool.Effect{tool.EffectNetwork, tool.EffectExternalMutation},
 			Name:        mcpTool.Name,
 			Description: mcpTool.Description,
 			Parameters:  mcpTool.InputSchema,

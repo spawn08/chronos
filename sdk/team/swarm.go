@@ -128,6 +128,7 @@ func NewSwarm(cfg SwarmConfig) (*Team, error) {
 // Unlike the standard handoff tool, this one includes the full task context.
 func SwarmHandoffTool(targetID, targetName, description string) *tool.Definition {
 	return &tool.Definition{
+		Effects:     []tool.Effect{},
 		Name:        fmt.Sprintf("transfer_to_%s", targetID),
 		Description: description,
 		Permission:  tool.PermAllow,

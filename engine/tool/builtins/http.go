@@ -28,6 +28,16 @@ func NewHTTPTool(timeout time.Duration, maxBodySize int64) *tool.Definition {
 		Name:        "http_request",
 		Description: "Make an HTTP request and return the response status, headers, and body.",
 		Permission:  tool.PermRequireApproval,
+		Effects:     []tool.Effect{tool.EffectNetwork, tool.EffectExternalMutation},
+		ResolveEffects: func(_ context.Context, args map[string]any) ([]tool.Effect, error) {
+			method, _ := args["method"].(string)
+			switch strings.ToUpper(strings.TrimSpace(method)) {
+			case "", http.MethodGet, http.MethodHead, http.MethodOptions:
+				return []tool.Effect{tool.EffectNetwork}, nil
+			default:
+				return []tool.Effect{tool.EffectNetwork, tool.EffectExternalMutation}, nil
+			}
+		},
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

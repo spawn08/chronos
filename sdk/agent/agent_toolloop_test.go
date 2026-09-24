@@ -65,6 +65,78 @@ func TestExecuteToolCallsReturnsHookDenialToModel(t *testing.T) {
 	}
 }
 
+type failedObservationHook struct{ err error }
+
+func (failedObservationHook) Before(context.Context, *hooks.Event) error { return nil }
+
+func (h failedObservationHook) After(_ context.Context, event *hooks.Event) error {
+	if event.Type == hooks.EventToolCallAfter {
+		return h.err
+	}
+	return nil
+}
+
+func TestExecuteToolCallsStopsWhenAfterHookCannotRecordEffect(t *testing.T) {
+	a, err := New("durable", "Durable").WithModel(&recordingProvider{}).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := errors.New("observation storage unavailable")
+	a.Hooks = append(a.Hooks, failedObservationHook{err: failed})
+	called := 0
+	a.Tools.Register(&tool.Definition{Name: "write", Permission: tool.PermAllow, Handler: func(context.Context, map[string]any) (any, error) {
+		called++
+		return "written", nil
+	}})
+	messages, err := a.executeToolCalls(context.Background(), nil, &model.ChatResponse{ToolCalls: []model.ToolCall{{ID: "call-1", Name: "write", Arguments: `{}`}}})
+	if !errors.Is(err, failed) || called != 1 || len(messages) != 1 {
+		t.Fatalf("effect count = %d, messages = %#v, error = %v", called, messages, err)
+	}
+}
+
+func TestExecuteToolCallsBindsProviderCallIdentityToHandler(t *testing.T) {
+	a, err := New("durable", "Durable").WithModel(&recordingProvider{}).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed := ""
+	a.Tools.Register(&tool.Definition{Name: "read", Permission: tool.PermAllow, Handler: func(ctx context.Context, _ map[string]any) (any, error) {
+		observed, _ = ToolCallIDFromContext(ctx)
+		return "ok", nil
+	}})
+	if _, err := a.executeToolCalls(context.Background(), nil, &model.ChatResponse{ToolCalls: []model.ToolCall{{ID: "provider-call-1", Name: "read", Arguments: `{}`}}}); err != nil || observed != "provider-call-1" {
+		t.Fatalf("tool call identity = %q, error = %v", observed, err)
+	}
+}
+
+type failedModelObservationHook struct{ err error }
+
+func (failedModelObservationHook) Before(context.Context, *hooks.Event) error { return nil }
+
+func (h failedModelObservationHook) After(_ context.Context, event *hooks.Event) error {
+	if event.Type == hooks.EventModelCallAfter {
+		return h.err
+	}
+	return nil
+}
+
+func TestModelCallStopsWhenAfterHookCannotRecordUsage(t *testing.T) {
+	a, err := New("durable", "Durable").WithModel(&recordingProvider{}).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := errors.New("usage storage unavailable")
+	a.Hooks = append(a.Hooks, failedModelObservationHook{err: failed})
+	called := 0
+	_, err = a.modelCall(context.Background(), a.Model, &model.ChatRequest{}, false, func() (*model.ChatResponse, error) {
+		called++
+		return &model.ChatResponse{Content: "done"}, nil
+	}, nil)
+	if !errors.Is(err, failed) || called != 1 {
+		t.Fatalf("model calls = %d, error = %v", called, err)
+	}
+}
+
 func TestExecuteToolCallsRunsParallelSafeToolsConcurrently(t *testing.T) {
 	a, err := New("parallel", "Parallel").WithModel(&recordingProvider{}).Build()
 	if err != nil {

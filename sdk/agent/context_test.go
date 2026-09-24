@@ -9,6 +9,20 @@ import (
 	"github.com/spawn08/chronos/storage/adapters/memory"
 )
 
+func TestRunIdentityContextReturnsValueCopy(t *testing.T) {
+	want := RunIdentity{TaskID: "task", RoleID: "coder", InvocationID: "run-1", ParentInvocationID: "run-0"}
+	ctx := WithRunIdentity(context.Background(), want)
+	got, ok := RunIdentityFromContext(ctx)
+	if !ok || got != want {
+		t.Fatalf("RunIdentityFromContext() = %+v, %v, want %+v", got, ok, want)
+	}
+	got.RoleID = "changed"
+	again, _ := RunIdentityFromContext(ctx)
+	if again.RoleID != want.RoleID {
+		t.Fatalf("context identity was mutated: %+v", again)
+	}
+}
+
 func TestEvictLargeResult_SmallResult(t *testing.T) {
 	store := memory.New()
 	ctx := context.Background()

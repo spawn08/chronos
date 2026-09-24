@@ -16,6 +16,7 @@ func NewCalculatorTool() *tool.Definition {
 	return &tool.Definition{
 		Name:        "calculator",
 		Description: "Evaluate mathematical expressions. Supports +, -, *, /, ^, (), sqrt, sin, cos, log.",
+		Effects:     []tool.Effect{},
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

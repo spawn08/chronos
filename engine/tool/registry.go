@@ -18,6 +18,78 @@ const (
 	PermDeny            Permission = "deny"             // blocked
 )
 
+// Effect identifies an authority-bearing operation independently of tool names.
+type Effect string
+
+const (
+	EffectRead             Effect = "read"
+	EffectScratchWrite     Effect = "scratch_write"
+	EffectDeliveryWrite    Effect = "delivery_write"
+	EffectProcessExecution Effect = "process_execution"
+	EffectNetwork          Effect = "network"
+	EffectExternalMutation Effect = "external_mutation"
+)
+
+type effectGrantKey struct{}
+type scratchWorkspaceKey struct{}
+
+// WithEffectGrant binds the exact effects authorized for an execution. An
+// explicit empty grant denies every effect-bearing tool.
+func WithEffectGrant(ctx context.Context, effects ...Effect) context.Context {
+	grant := make(map[Effect]struct{}, len(effects))
+	for _, effect := range effects {
+		grant[effect] = struct{}{}
+	}
+	return context.WithValue(ctx, effectGrantKey{}, grant)
+}
+
+// EffectGrantFromContext returns a detached copy of the execution grant.
+func EffectGrantFromContext(ctx context.Context) (map[Effect]struct{}, bool) {
+	if ctx == nil {
+		return nil, false
+	}
+	stored, ok := ctx.Value(effectGrantKey{}).(map[Effect]struct{})
+	if !ok {
+		return nil, false
+	}
+	grant := make(map[Effect]struct{}, len(stored))
+	for effect := range stored {
+		grant[effect] = struct{}{}
+	}
+	return grant, true
+}
+
+// WithScratchWorkspace marks filesystem writes in this invocation as candidate
+// or review output rather than delivery-tree mutation.
+func WithScratchWorkspace(ctx context.Context) context.Context {
+	return context.WithValue(ctx, scratchWorkspaceKey{}, true)
+}
+
+// IsScratchWorkspace reports whether workspace writes are scratch effects.
+func IsScratchWorkspace(ctx context.Context) bool {
+	value, _ := ctx.Value(scratchWorkspaceKey{}).(bool)
+	return value
+}
+
+// RequireEffects verifies that an execution grant contains every requested
+// effect. It is used by non-registry effect boundaries such as executable hooks.
+func RequireEffects(ctx context.Context, effects ...Effect) error {
+	grant, constrained := EffectGrantFromContext(ctx)
+	if !constrained {
+		return nil
+	}
+	for _, effect := range effects {
+		if _, ok := grant[effect]; !ok {
+			return fmt.Errorf("requires undelegated effect %q", effect)
+		}
+	}
+	return nil
+}
+
+// EffectResolver determines call-specific effects, such as distinguishing a
+// scratch write from a delivery write after resolving its destination.
+type EffectResolver func(context.Context, map[string]any) ([]Effect, error)
+
 // PermissionMode controls how approval-gated tools are handled by a registry.
 // Explicitly denied tools are never bypassed, including in auto-approve mode.
 type PermissionMode string
@@ -51,6 +123,8 @@ type Definition struct {
 	RequiresConfirmation bool           `json:"requires_confirmation,omitempty"`
 	RequiresUserInput    bool           `json:"requires_user_input,omitempty"`
 	ParallelSafe         bool           `json:"parallel_safe,omitempty"`
+	Effects              []Effect       `json:"effects,omitempty"`
+	ResolveEffects       EffectResolver `json:"-"`
 	Handler              Handler        `json:"-"`
 }
 
@@ -204,6 +278,9 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]any
 	if !ok {
 		return nil, fmt.Errorf("tool %q not found", name)
 	}
+	if err := authorizeEffects(ctx, def, args); err != nil {
+		return nil, err
+	}
 
 	switch def.Permission {
 	case PermDeny:
@@ -266,6 +343,28 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]any
 	}
 
 	return r.invokeHandler(ctx, def, args)
+}
+
+func authorizeEffects(ctx context.Context, def *Definition, args map[string]any) error {
+	_, constrained := EffectGrantFromContext(ctx)
+	if !constrained {
+		return nil
+	}
+	effects := def.Effects
+	if def.ResolveEffects != nil {
+		resolved, err := def.ResolveEffects(ctx, args)
+		if err != nil {
+			return fmt.Errorf("tool %q resolve effects: %w", def.Name, err)
+		}
+		effects = resolved
+	}
+	if effects == nil {
+		return fmt.Errorf("tool %q has no declared effects", def.Name)
+	}
+	if err := RequireEffects(ctx, effects...); err != nil {
+		return fmt.Errorf("tool %q %w", def.Name, err)
+	}
+	return nil
 }
 
 // invokeHandler runs a tool handler, converting any panic into an error so a

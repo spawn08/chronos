@@ -2,7 +2,9 @@ package builtins
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -42,32 +44,69 @@ func WorkspaceRoot(ctx context.Context, configured string) string {
 func resolveWorkspacePath(ctx context.Context, configured, path string) (string, error) {
 	root, overridden := WorkspaceRootFromContext(ctx)
 	if !overridden {
+		root = configured
+	}
+	if root == "" {
 		return resolvePath(configured, path), nil
 	}
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return "", fmt.Errorf("resolve workspace root: %w", err)
 	}
+	var resolved string
 	if filepath.IsAbs(path) {
 		if pathWithin(root, path) {
-			return filepath.Clean(path), nil
-		}
-		if configured != "" {
+			resolved = filepath.Clean(path)
+		} else if configured != "" {
 			base, baseErr := filepath.Abs(configured)
 			if baseErr == nil && pathWithin(base, path) {
 				relative, relErr := filepath.Rel(base, path)
 				if relErr == nil {
-					return filepath.Join(root, relative), nil
+					resolved = filepath.Join(root, relative)
 				}
 			}
 		}
+		if resolved == "" {
+			return "", fmt.Errorf("path %q is outside request workspace", path)
+		}
+	} else {
+		resolved = filepath.Join(root, path)
+		if !pathWithin(root, resolved) {
+			return "", fmt.Errorf("path %q is outside request workspace", path)
+		}
+	}
+
+	canonicalRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve workspace symlinks: %w", err)
+	}
+	canonicalPath, err := evalSymlinksAllowMissing(resolved)
+	if err != nil {
+		return "", fmt.Errorf("resolve path symlinks: %w", err)
+	}
+	if !pathWithin(canonicalRoot, canonicalPath) {
 		return "", fmt.Errorf("path %q is outside request workspace", path)
 	}
-	resolved := filepath.Join(root, path)
-	if !pathWithin(root, resolved) {
-		return "", fmt.Errorf("path %q is outside request workspace", path)
+	return canonicalPath, nil
+}
+
+func evalSymlinksAllowMissing(path string) (string, error) {
+	canonical, err := filepath.EvalSymlinks(path)
+	if err == nil {
+		return canonical, nil
 	}
-	return resolved, nil
+	if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	parent := filepath.Dir(path)
+	if parent == path {
+		return "", err
+	}
+	canonicalParent, parentErr := evalSymlinksAllowMissing(parent)
+	if parentErr != nil {
+		return "", parentErr
+	}
+	return filepath.Join(canonicalParent, filepath.Base(path)), nil
 }
 
 func pathWithin(root, path string) bool {

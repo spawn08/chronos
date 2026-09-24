@@ -8,6 +8,9 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -29,9 +32,10 @@ const (
 
 // ContainerSandbox implements Sandbox using Docker Engine API for production-grade isolation.
 type ContainerSandbox struct {
-	Image    string
-	client   *http.Client
-	sockPath string
+	Image      string
+	client     *http.Client
+	sockPath   string
+	apiVersion string
 	// Resource limits
 	MemoryBytes int64
 	CPUQuota    int64
@@ -46,6 +50,15 @@ type ContainerSandbox struct {
 	SeccompProfile string            // custom seccomp profile JSON; empty keeps Docker's default
 	Runtime        string            // OCI runtime (e.g. "runsc" for gVisor, "kata-runtime")
 	Tmpfs          map[string]string // writable tmpfs mounts (path -> mount options)
+	Mounts         []BindMount       // explicitly granted host paths
+	WorkingDir     string            // directory inside the container
+	Env            []string          // explicit environment; no host environment inheritance
+}
+
+type BindMount struct {
+	Source   string
+	Target   string
+	ReadOnly bool
 }
 
 // ContainerConfig holds container sandbox configuration.
@@ -69,6 +82,9 @@ type ContainerConfig struct {
 	Tmpfs map[string]string
 	// WritableRootfs disables the read-only rootfs hardening when true.
 	WritableRootfs bool
+	Mounts         []BindMount
+	WorkingDir     string
+	Env            []string
 }
 
 // NewContainerSandbox creates a Docker-based sandbox with a hardened default profile:
@@ -117,6 +133,7 @@ func NewContainerSandbox(cfg ContainerConfig) *ContainerSandbox {
 	return &ContainerSandbox{
 		Image:          cfg.Image,
 		sockPath:       cfg.SocketPath,
+		apiVersion:     "v1.41",
 		MemoryBytes:    cfg.MemoryBytes,
 		CPUQuota:       cfg.CPUQuota,
 		NetworkMode:    cfg.NetworkMode,
@@ -129,6 +146,9 @@ func NewContainerSandbox(cfg ContainerConfig) *ContainerSandbox {
 		SeccompProfile: cfg.SeccompProfile,
 		Runtime:        cfg.Runtime,
 		Tmpfs:          tmpfs,
+		Mounts:         append([]BindMount(nil), cfg.Mounts...),
+		WorkingDir:     cfg.WorkingDir,
+		Env:            append([]string(nil), cfg.Env...),
 		client: &http.Client{
 			Transport: transport,
 			Timeout:   5 * time.Minute,
@@ -173,8 +193,17 @@ func (c *ContainerSandbox) buildCreateBody(cmd []string) map[string]any {
 	if c.Runtime != "" {
 		hostConfig["Runtime"] = c.Runtime
 	}
+	if len(c.Mounts) > 0 {
+		mounts := make([]map[string]any, 0, len(c.Mounts))
+		for _, mount := range c.Mounts {
+			mounts = append(mounts, map[string]any{
+				"Type": "bind", "Source": mount.Source, "Target": mount.Target, "ReadOnly": mount.ReadOnly,
+			})
+		}
+		hostConfig["Mounts"] = mounts
+	}
 
-	return map[string]any{
+	body := map[string]any{
 		"Image":           c.Image,
 		"Cmd":             cmd,
 		"User":            c.User,
@@ -183,6 +212,13 @@ func (c *ContainerSandbox) buildCreateBody(cmd []string) map[string]any {
 		"NetworkDisabled": c.NetworkMode == "none",
 		"HostConfig":      hostConfig,
 	}
+	if c.WorkingDir != "" {
+		body["WorkingDir"] = c.WorkingDir
+	}
+	if len(c.Env) > 0 {
+		body["Env"] = c.Env
+	}
+	return body
 }
 
 func (c *ContainerSandbox) dockerAPI(ctx context.Context, method, path string, body any) (*http.Response, error) {
@@ -199,6 +235,60 @@ func (c *ContainerSandbox) dockerAPI(ctx context.Context, method, path string, b
 	return c.client.Do(req)
 }
 
+// Preflight requires a reachable daemon and a locally available image. It
+// never pulls an image as an implicit admission side effect.
+func (c *ContainerSandbox) Preflight(ctx context.Context) error {
+	versionResponse, err := c.dockerAPI(ctx, http.MethodGet, "/version", nil)
+	if err != nil {
+		return fmt.Errorf("container sandbox daemon preflight: %w", err)
+	}
+	if versionResponse.StatusCode != http.StatusOK {
+		versionResponse.Body.Close()
+		return fmt.Errorf("container sandbox daemon preflight: HTTP %d", versionResponse.StatusCode)
+	}
+	var version struct {
+		API    string `json:"ApiVersion"`
+		MinAPI string `json:"MinAPIVersion"`
+	}
+	err = json.NewDecoder(versionResponse.Body).Decode(&version)
+	versionResponse.Body.Close()
+	if err != nil {
+		return fmt.Errorf("container sandbox daemon version: %w", err)
+	}
+	parseMinor := func(value string) (int, error) {
+		parts := strings.Split(value, ".")
+		if len(parts) != 2 || parts[0] != "1" {
+			return 0, fmt.Errorf("unsupported Docker API version %q", value)
+		}
+		return strconv.Atoi(parts[1])
+	}
+	maxMinor, err := parseMinor(version.API)
+	if err != nil {
+		return fmt.Errorf("container sandbox daemon version: %w", err)
+	}
+	minMinor, err := parseMinor(version.MinAPI)
+	if err != nil {
+		return fmt.Errorf("container sandbox daemon minimum version: %w", err)
+	}
+	selected := 41
+	if minMinor > selected {
+		selected = minMinor
+	}
+	if maxMinor < selected {
+		return fmt.Errorf("container sandbox API version 1.%d is unsupported", selected)
+	}
+	c.apiVersion = fmt.Sprintf("v1.%d", selected)
+	resp, err := c.dockerAPI(ctx, http.MethodGet, "/"+c.apiVersion+"/images/"+url.PathEscape(c.Image)+"/json", nil)
+	if err != nil {
+		return fmt.Errorf("container sandbox preflight: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("container sandbox image %q is unavailable: HTTP %d", c.Image, resp.StatusCode)
+	}
+	return nil
+}
+
 func (c *ContainerSandbox) Execute(ctx context.Context, command string, args []string, timeout time.Duration) (*Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -207,7 +297,7 @@ func (c *ContainerSandbox) Execute(ctx context.Context, command string, args []s
 	createBody := c.buildCreateBody(cmd)
 
 	// 1. Create container
-	resp, err := c.dockerAPI(ctx, http.MethodPost, "/v1.41/containers/create", createBody)
+	resp, err := c.dockerAPI(ctx, http.MethodPost, "/"+c.apiVersion+"/containers/create", createBody)
 	if err != nil {
 		return nil, fmt.Errorf("container create: %w", err)
 	}
@@ -229,14 +319,17 @@ func (c *ContainerSandbox) Execute(ctx context.Context, command string, args []s
 	defer c.removeContainer(containerID)
 
 	// 2. Start container
-	startResp, err := c.dockerAPI(ctx, http.MethodPost, fmt.Sprintf("/v1.41/containers/%s/start", containerID), nil)
+	startResp, err := c.dockerAPI(ctx, http.MethodPost, fmt.Sprintf("/%s/containers/%s/start", c.apiVersion, containerID), nil)
 	if err != nil {
 		return nil, fmt.Errorf("container start: %w", err)
 	}
 	startResp.Body.Close()
+	if startResp.StatusCode != http.StatusNoContent {
+		return nil, fmt.Errorf("container start: HTTP %d", startResp.StatusCode)
+	}
 
 	// 3. Wait for completion
-	waitResp, err := c.dockerAPI(ctx, http.MethodPost, fmt.Sprintf("/v1.41/containers/%s/wait", containerID), nil)
+	waitResp, err := c.dockerAPI(ctx, http.MethodPost, fmt.Sprintf("/%s/containers/%s/wait", c.apiVersion, containerID), nil)
 	if err != nil {
 		return nil, fmt.Errorf("container wait: %w", err)
 	}
@@ -245,7 +338,12 @@ func (c *ContainerSandbox) Execute(ctx context.Context, command string, args []s
 	var waitResult struct {
 		StatusCode int `json:"StatusCode"`
 	}
-	_ = json.NewDecoder(waitResp.Body).Decode(&waitResult)
+	if waitResp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("container wait: HTTP %d", waitResp.StatusCode)
+	}
+	if err := json.NewDecoder(waitResp.Body).Decode(&waitResult); err != nil {
+		return nil, fmt.Errorf("container wait decode: %w", err)
+	}
 
 	// 4. Collect logs
 	stdout, stderr := c.collectLogs(ctx, containerID)
@@ -258,14 +356,14 @@ func (c *ContainerSandbox) Execute(ctx context.Context, command string, args []s
 }
 
 func (c *ContainerSandbox) collectLogs(ctx context.Context, containerID string) (stdout, stderr string) {
-	stdoutResp, err := c.dockerAPI(ctx, http.MethodGet, fmt.Sprintf("/v1.41/containers/%s/logs?stdout=1&stderr=0", containerID), nil)
+	stdoutResp, err := c.dockerAPI(ctx, http.MethodGet, fmt.Sprintf("/%s/containers/%s/logs?stdout=1&stderr=0", c.apiVersion, containerID), nil)
 	if err != nil {
 		return "", ""
 	}
 	stdoutBytes, _ := io.ReadAll(io.LimitReader(stdoutResp.Body, 1<<20))
 	stdoutResp.Body.Close()
 
-	stderrResp, err := c.dockerAPI(ctx, http.MethodGet, fmt.Sprintf("/v1.41/containers/%s/logs?stdout=0&stderr=1", containerID), nil)
+	stderrResp, err := c.dockerAPI(ctx, http.MethodGet, fmt.Sprintf("/%s/containers/%s/logs?stdout=0&stderr=1", c.apiVersion, containerID), nil)
 	if err != nil {
 		return stripDockerLogHeaders(stdoutBytes), ""
 	}
@@ -296,7 +394,7 @@ func stripDockerLogHeaders(data []byte) string {
 func (c *ContainerSandbox) removeContainer(containerID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	resp, err := c.dockerAPI(ctx, http.MethodDelete, fmt.Sprintf("/v1.41/containers/%s?force=true", containerID), nil)
+	resp, err := c.dockerAPI(ctx, http.MethodDelete, fmt.Sprintf("/%s/containers/%s?force=true", c.apiVersion, containerID), nil)
 	if err == nil {
 		resp.Body.Close()
 	}

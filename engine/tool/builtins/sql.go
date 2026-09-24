@@ -26,6 +26,7 @@ func NewSQLTool(db *sql.DB, allowedOperations []string) *tool.Definition {
 		Description:          "Execute a SQL query against the database and return results as rows.",
 		Permission:           tool.PermRequireApproval,
 		RequiresConfirmation: true,
+		Effects:              []tool.Effect{tool.EffectRead, tool.EffectExternalMutation},
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

@@ -180,6 +180,8 @@ type ChatResponse struct {
 	ID         string     `json:"id"`
 	Content    string     `json:"content"`
 	Role       string     `json:"role"`
+	Provider   string     `json:"provider,omitempty"`
+	Model      string     `json:"model,omitempty"`
 	Usage      Usage      `json:"usage"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	StopReason StopReason `json:"stop_reason,omitempty"`

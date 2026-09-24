@@ -49,6 +49,10 @@ func (f *FallbackProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatRes
 	for i, p := range f.providers {
 		resp, err := p.Chat(ctx, req)
 		if err == nil {
+			if resp != nil {
+				resp.Provider = p.Name()
+				resp.Model = p.Model()
+			}
 			return resp, nil
 		}
 		lastErr = err
@@ -72,7 +76,22 @@ func (f *FallbackProvider) StreamChat(ctx context.Context, req *ChatRequest) (<-
 	for i, p := range f.providers {
 		ch, err := p.StreamChat(ctx, req)
 		if err == nil {
-			return ch, nil
+			annotated := make(chan *ChatResponse)
+			go func(provider Provider, input <-chan *ChatResponse) {
+				defer close(annotated)
+				for response := range input {
+					if response != nil {
+						response.Provider = provider.Name()
+						response.Model = provider.Model()
+					}
+					select {
+					case annotated <- response:
+					case <-ctx.Done():
+						return
+					}
+				}
+			}(p, ch)
+			return annotated, nil
 		}
 		lastErr = err
 		if f.OnFallback != nil {

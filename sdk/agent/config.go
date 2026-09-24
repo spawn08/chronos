@@ -755,12 +755,12 @@ func buildProvider(cfg ModelConfig) (model.Provider, error) {
 		return model.NewOllama(host, modelID), nil
 
 	case "azure":
-		endpoint := firstNonEmpty(cfg.Endpoint, cfg.BaseURL, os.Getenv("AZURE_OPENAI_ENDPOINT"))
+		endpoint := firstNonEmpty(cfg.Endpoint, cfg.BaseURL, os.Getenv("AZURE_OPENAI_ENDPOINT"), os.Getenv("AZURE_OPENAI_BASE_URL"))
 		deployment := firstNonEmpty(cfg.Deployment, modelID, os.Getenv("AZURE_OPENAI_DEPLOYMENT"))
 		apiKey = firstNonEmpty(apiKey, os.Getenv("AZURE_OPENAI_API_KEY"))
 		apiVersion := firstNonEmpty(cfg.APIVersion, os.Getenv("AZURE_OPENAI_API_VERSION"))
 		if endpoint == "" {
-			return nil, fmt.Errorf("azure provider requires endpoint or base_url (or AZURE_OPENAI_ENDPOINT)")
+			return nil, fmt.Errorf("azure provider requires endpoint or base_url (or AZURE_OPENAI_ENDPOINT or AZURE_OPENAI_BASE_URL)")
 		}
 		if deployment == "" {
 			return nil, fmt.Errorf("azure provider requires deployment or model (or AZURE_OPENAI_DEPLOYMENT)")

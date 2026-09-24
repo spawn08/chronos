@@ -71,6 +71,7 @@ func NewSpawnSubAgentTool(svc *SubAgentService, runner Runner) *tool.Definition 
 		Description:  description,
 		Permission:   tool.PermAllow,
 		ParallelSafe: true,
+		Effects:      []tool.Effect{},
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

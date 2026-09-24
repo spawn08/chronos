@@ -5,8 +5,21 @@ import (
 	"database/sql"
 	"testing"
 
+	"github.com/spawn08/chronos/engine/tool"
 	_ "modernc.org/sqlite"
 )
+
+func TestSQLToolRequiresExternalMutationAuthority(t *testing.T) {
+	registry := tool.NewRegistry()
+	registry.Register(NewSQLTool(setupTestDB(t), []string{"SELECT"}))
+	if err := registry.SetPermissionMode(tool.PermissionModeAutoApprove); err != nil {
+		t.Fatal(err)
+	}
+	ctx := tool.WithEffectGrant(context.Background(), tool.EffectRead)
+	if _, err := registry.Execute(ctx, "sql_query", map[string]any{"query": "SELECT * FROM users"}); err == nil {
+		t.Fatal("read-only grant accessed external SQL service")
+	}
+}
 
 func setupTestDB(t *testing.T) *sql.DB {
 	t.Helper()
