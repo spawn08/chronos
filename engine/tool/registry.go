@@ -32,6 +32,18 @@ const (
 
 type effectGrantKey struct{}
 type scratchWorkspaceKey struct{}
+type effectKeyContextKey struct{}
+
+// WithEffectKey binds a host-issued destination idempotency key to one tool
+// invocation. It is never populated from model-supplied arguments.
+func WithEffectKey(ctx context.Context, key string) context.Context {
+	return context.WithValue(ctx, effectKeyContextKey{}, key)
+}
+
+func EffectKeyFromContext(ctx context.Context) (string, bool) {
+	key, ok := ctx.Value(effectKeyContextKey{}).(string)
+	return key, ok && key != ""
+}
 
 // WithEffectGrant binds the exact effects authorized for an execution. An
 // explicit empty grant denies every effect-bearing tool.
@@ -90,6 +102,15 @@ func RequireEffects(ctx context.Context, effects ...Effect) error {
 // scratch write from a delivery write after resolving its destination.
 type EffectResolver func(context.Context, map[string]any) ([]Effect, error)
 
+// EffectRecoveryAdapter is an opt-in host implementation for one destination.
+// Prepare returns a bounded, non-secret observation descriptor; Observe checks
+// the actual destination state using the same host-issued key. A tool without
+// an adapter remains unsafe to replay after an unknown external outcome.
+type EffectRecoveryAdapter interface {
+	Prepare(context.Context, map[string]any, string) (string, error)
+	Observe(context.Context, string, string) (any, bool, error)
+}
+
 // PermissionMode controls how approval-gated tools are handled by a registry.
 // Explicitly denied tools are never bypassed, including in auto-approve mode.
 type PermissionMode string
@@ -116,16 +137,17 @@ func ParsePermissionMode(value string) (PermissionMode, error) {
 
 // Definition describes a callable tool.
 type Definition struct {
-	Name                 string         `json:"name"`
-	Description          string         `json:"description"`
-	Parameters           map[string]any `json:"parameters"` // JSON Schema
-	Permission           Permission     `json:"permission"`
-	RequiresConfirmation bool           `json:"requires_confirmation,omitempty"`
-	RequiresUserInput    bool           `json:"requires_user_input,omitempty"`
-	ParallelSafe         bool           `json:"parallel_safe,omitempty"`
-	Effects              []Effect       `json:"effects,omitempty"`
-	ResolveEffects       EffectResolver `json:"-"`
-	Handler              Handler        `json:"-"`
+	Name                 string                `json:"name"`
+	Description          string                `json:"description"`
+	Parameters           map[string]any        `json:"parameters"` // JSON Schema
+	Permission           Permission            `json:"permission"`
+	RequiresConfirmation bool                  `json:"requires_confirmation,omitempty"`
+	RequiresUserInput    bool                  `json:"requires_user_input,omitempty"`
+	ParallelSafe         bool                  `json:"parallel_safe,omitempty"`
+	Effects              []Effect              `json:"effects,omitempty"`
+	ResolveEffects       EffectResolver        `json:"-"`
+	Recovery             EffectRecoveryAdapter `json:"-"`
+	Handler              Handler               `json:"-"`
 }
 
 // Handler is the function signature for tool execution.

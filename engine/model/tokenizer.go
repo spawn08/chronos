@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"sync/atomic"
 
 	"github.com/tiktoken-go/tokenizer"
 )
@@ -128,10 +129,34 @@ func (c *EstimatingCounter) CountString(s string) int {
 	return int(float64(len(s))/cpt) + 1
 }
 
-// KnownContextLimit returns the catalog context window in tokens for an exact
-// model ID. Unknown IDs, including arbitrary deployment names, return (0, false)
-// so callers can distinguish a known capability from a configured fallback.
+// ContextLimitResolver reports a model's context window from an external
+// catalog. It returns ok=false for models it does not know.
+type ContextLimitResolver func(modelName string) (limit int, ok bool)
+
+var contextLimitResolver atomic.Pointer[ContextLimitResolver]
+
+// SetContextLimitResolver installs a resolver consulted before the built-in
+// table, so an application can supply live catalog data (e.g. models.dev).
+// It is safe for concurrent use; nil removes the resolver.
+func SetContextLimitResolver(resolver ContextLimitResolver) {
+	if resolver == nil {
+		contextLimitResolver.Store(nil)
+		return
+	}
+	contextLimitResolver.Store(&resolver)
+}
+
+// KnownContextLimit returns the catalog context window in tokens for a model
+// ID: from the installed ContextLimitResolver when it knows the model, else
+// from the built-in table by exact ID. Unknown IDs, including arbitrary
+// deployment names, return (0, false) so callers can distinguish a known
+// capability from a configured fallback.
 func KnownContextLimit(modelName string) (int, bool) {
+	if resolver := contextLimitResolver.Load(); resolver != nil {
+		if limit, ok := (*resolver)(modelName); ok && limit > 0 {
+			return limit, true
+		}
+	}
 	limit, ok := modelContextLimits[modelName]
 	return limit, ok
 }

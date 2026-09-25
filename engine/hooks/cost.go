@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"sync"
+
+	"github.com/spawn08/chronos/engine/model"
 )
 
 // ModelPrice defines the per-token cost for a model.
@@ -77,7 +79,7 @@ func (ct *CostTracker) After(_ context.Context, evt *Event) error {
 		return nil
 	}
 
-	modelName := evt.Name
+	modelName := modelNameFromEvent(evt)
 	promptTokens, completionTokens := extractUsage(evt)
 	if promptTokens == 0 && completionTokens == 0 {
 		return nil
@@ -157,9 +159,27 @@ func (ct *CostTracker) UnknownModels() map[string]int {
 	return out
 }
 
-// extractUsage pulls token counts from a model call after event. It looks at
-// the Output field (expected to be a *ChatResponse or compatible struct with
-// Usage) and also checks metadata.
+// modelNameFromEvent returns the model ID for a model call event. Agents set
+// evt.Name to the provider name ("anthropic"), so the model ID comes from the
+// request or provider; evt.Name is the fallback for callers that emit their
+// own events with the model as the name.
+func modelNameFromEvent(evt *Event) string {
+	if req, ok := evt.Input.(*model.ChatRequest); ok && req != nil && req.Model != "" {
+		return req.Model
+	}
+	if provider, ok := evt.Metadata["provider"].(interface{ Model() string }); ok && provider != nil {
+		if id := provider.Model(); id != "" {
+			return id
+		}
+	}
+	return evt.Name
+}
+
+// extractUsage pulls token counts from a model call after event: explicit
+// metadata first, then a *model.ChatResponse, then any Output implementing
+// GetUsage. For a ChatResponse, prompt is every input token (uncached, cache
+// reads and cache writes) because ModelPrice has no cache rates; cached input
+// is therefore billed at the full prompt price, never under-reported.
 func extractUsage(evt *Event) (prompt, completion int) {
 	if evt.Metadata != nil {
 		if p, ok := evt.Metadata["prompt_tokens"].(int); ok {
@@ -171,6 +191,10 @@ func extractUsage(evt *Event) (prompt, completion int) {
 		if prompt > 0 || completion > 0 {
 			return
 		}
+	}
+
+	if resp, ok := evt.Output.(*model.ChatResponse); ok && resp != nil {
+		return resp.Usage.PromptWindowTokens(), resp.Usage.CompletionTokens
 	}
 
 	// Try to extract from output via interface

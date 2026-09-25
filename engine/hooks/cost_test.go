@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"testing"
+
+	"github.com/spawn08/chronos/engine/model"
 )
 
 func TestNewCostTracker(t *testing.T) {
@@ -214,5 +216,53 @@ func TestCostTracker_BeforeNonModelEvent(t *testing.T) {
 	err := ct.Before(context.Background(), &Event{Type: EventToolCallBefore, Name: "tool"})
 	if err != nil {
 		t.Errorf("non-model event should not be checked: %v", err)
+	}
+}
+
+type costTestProvider struct{ id string }
+
+func (p costTestProvider) Model() string { return p.id }
+
+// Agents emit model call events named after the provider with the request as
+// Input and a *model.ChatResponse as Output; the tracker must price the model.
+func TestCostTrackerPricesAgentModelCallEvents(t *testing.T) {
+	ct := NewCostTracker(map[string]ModelPrice{
+		"claude-haiku-4-5": {PromptPricePerToken: 0.000001, CompletionPricePerToken: 0.000005},
+	})
+	evt := &Event{
+		Type:  EventModelCallAfter,
+		Name:  "anthropic",
+		Input: &model.ChatRequest{Model: "claude-haiku-4-5"},
+		Output: &model.ChatResponse{Usage: model.Usage{
+			PromptTokens: 100, CacheReadTokens: 900, CompletionTokens: 10,
+		}},
+	}
+	if err := ct.After(context.Background(), evt); err != nil {
+		t.Fatalf("After() error = %v", err)
+	}
+	got := ct.GetGlobalCost()
+	// Anthropic-style usage: 100 uncached + 900 cache reads = 1000 input tokens.
+	if got.PromptTokens != 1000 || got.CompletionTokens != 10 {
+		t.Fatalf("tokens = %+v, want 1000 prompt / 10 completion", got)
+	}
+	if want := 1000*0.000001 + 10*0.000005; got.TotalCost != want {
+		t.Fatalf("TotalCost = %v, want %v", got.TotalCost, want)
+	}
+	if unknown := ct.UnknownModels(); len(unknown) != 0 {
+		t.Fatalf("UnknownModels() = %v, want none", unknown)
+	}
+
+	// Without a request, the provider in metadata identifies the model.
+	byProvider := &Event{
+		Type:     EventModelCallAfter,
+		Name:     "anthropic",
+		Metadata: map[string]any{"provider": costTestProvider{id: "claude-haiku-4-5"}},
+		Output:   &model.ChatResponse{Usage: model.Usage{PromptTokens: 1}},
+	}
+	if err := ct.After(context.Background(), byProvider); err != nil {
+		t.Fatalf("After(provider metadata) error = %v", err)
+	}
+	if unknown := ct.UnknownModels(); len(unknown) != 0 {
+		t.Fatalf("UnknownModels() after provider event = %v, want none", unknown)
 	}
 }
