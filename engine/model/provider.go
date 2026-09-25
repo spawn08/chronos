@@ -177,12 +177,15 @@ func jsonSchemaFromMetadata(req *ChatRequest) (schema map[string]any, ok bool) {
 
 // ChatResponse is the output of a chat completion.
 type ChatResponse struct {
-	ID         string     `json:"id"`
-	Content    string     `json:"content"`
-	Role       string     `json:"role"`
-	Provider   string     `json:"provider,omitempty"`
-	Model      string     `json:"model,omitempty"`
-	Usage      Usage      `json:"usage"`
+	ID       string `json:"id"`
+	Content  string `json:"content"`
+	Role     string `json:"role"`
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model,omitempty"`
+	Usage    Usage  `json:"usage"`
+	// UsageKnown distinguishes an explicit zero-token provider report from a
+	// response that omitted usage entirely. It is host accounting metadata.
+	UsageKnown bool       `json:"-"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	StopReason StopReason `json:"stop_reason,omitempty"`
 	// Reasoning carries provider-approved thinking/reasoning output separately

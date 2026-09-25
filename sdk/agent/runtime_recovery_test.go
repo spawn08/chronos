@@ -414,6 +414,25 @@ func TestRuntimeRecovery_ProviderRetriesRemainBounded(t *testing.T) {
 	}
 }
 
+func TestRuntimeRecovery_DurableRequestDoesNotRetryAcrossSDKHookOrHTTP(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"error":{"message":"unavailable"}}`))
+	}))
+	defer server.Close()
+	provider := model.NewOpenAIWithConfig(model.ProviderConfig{Model: "test-model", BaseURL: server.URL, MaxRetries: 3})
+	retry := hooks.NewRetryHook(3)
+	retry.SleepFn = func(time.Duration) {}
+	a, _ := agent.New("a", "A").WithModel(provider).AddHook(retry).Build()
+	_, err := a.Execute(agent.WithModelRetriesDisabled(context.Background()), "task")
+	var apiErr *model.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != 503 || requests.Load() != 1 || retry.RetriesCount() != 0 {
+		t.Fatalf("durable call err=%v HTTP attempts=%d retry-hook attempts=%d", err, requests.Load(), retry.RetriesCount())
+	}
+}
+
 func TestRuntimeRecovery_StreamBodyFailureBeforeEmission(t *testing.T) {
 	calls := 0
 	p := &runtimeProvider{id: "model", stream: func(context.Context, *model.ChatRequest) (<-chan *model.ChatResponse, error) {

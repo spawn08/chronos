@@ -180,10 +180,13 @@ func convertOpenAIResponse(oai *openAIChatResponse) *ChatResponse {
 	}
 	choice := oai.Choices[0]
 	cr := &ChatResponse{
-		ID:      oai.ID,
-		Content: choice.Message.Content,
-		Role:    RoleAssistant,
-		Usage:   usageFromOpenAI(oai.Usage),
+		ID:         oai.ID,
+		Content:    choice.Message.Content,
+		Role:       RoleAssistant,
+		UsageKnown: oai.Usage != nil,
+	}
+	if oai.Usage != nil {
+		cr.Usage = usageFromOpenAI(*oai.Usage)
 	}
 	if len(choice.Message.ToolCalls) > 0 {
 		cr.StopReason = StopReasonToolCall
@@ -234,11 +237,14 @@ func readOpenAISSEStream(ctx context.Context, resp *http.Response, ch chan<- *Ch
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			continue
 		}
-		usage := usageFromOpenAI(chunk.Usage)
+		var usage Usage
+		if chunk.Usage != nil {
+			usage = usageFromOpenAI(*chunk.Usage)
+		}
 		if len(chunk.Choices) == 0 {
 			// Usage-only chunk (from stream_options.include_usage).
-			if usage.PromptTokens > 0 || usage.CompletionTokens > 0 || usage.CacheReadTokens > 0 {
-				if !sendCtx(ctx, ch, &ChatResponse{ID: chunk.ID, Role: RoleAssistant, Delta: true, Usage: usage}) {
+			if chunk.Usage != nil {
+				if !sendCtx(ctx, ch, &ChatResponse{ID: chunk.ID, Role: RoleAssistant, Delta: true, Usage: usage, UsageKnown: true}) {
 					return
 				}
 			}
@@ -246,11 +252,12 @@ func readOpenAISSEStream(ctx context.Context, resp *http.Response, ch chan<- *Ch
 		}
 		delta := chunk.Choices[0].Delta
 		cr := &ChatResponse{
-			ID:      chunk.ID,
-			Content: delta.Content,
-			Role:    RoleAssistant,
-			Delta:   true,
-			Usage:   usage,
+			ID:         chunk.ID,
+			Content:    delta.Content,
+			Role:       RoleAssistant,
+			Delta:      true,
+			Usage:      usage,
+			UsageKnown: chunk.Usage != nil,
 		}
 		if fr := chunk.Choices[0].FinishReason; fr != "" {
 			cr.StopReason = mapOpenAIFinishReason(fr)
@@ -305,7 +312,7 @@ type openAIChatResponse struct {
 			} `json:"tool_calls,omitempty"`
 		} `json:"delta"`
 	} `json:"choices"`
-	Usage openAIUsage `json:"usage"`
+	Usage *openAIUsage `json:"usage"`
 }
 
 type openAIUsage struct {

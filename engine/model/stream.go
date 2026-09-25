@@ -75,6 +75,7 @@ func AggregateStream(ctx context.Context, ch <-chan *ChatResponse) (*ChatRespons
 			content.WriteString(cr.Content)
 			reasoning.WriteString(cr.Reasoning)
 			final.Usage.Merge(cr.Usage)
+			final.UsageKnown = final.UsageKnown || cr.UsageKnown
 			if cr.StopReason != "" {
 				final.StopReason = cr.StopReason
 			}

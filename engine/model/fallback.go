@@ -56,6 +56,9 @@ func (f *FallbackProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatRes
 			return resp, nil
 		}
 		lastErr = err
+		if retriesDisabled(ctx) {
+			return nil, fmt.Errorf("fallback provider: first provider %s failed without retry: %w", p.Name(), err)
+		}
 		if f.OnFallback != nil {
 			f.OnFallback(i, p.Name(), err)
 		}
@@ -94,6 +97,9 @@ func (f *FallbackProvider) StreamChat(ctx context.Context, req *ChatRequest) (<-
 			return annotated, nil
 		}
 		lastErr = err
+		if retriesDisabled(ctx) {
+			return nil, fmt.Errorf("fallback provider: first provider %s failed without retry: %w", p.Name(), err)
+		}
 		if f.OnFallback != nil {
 			f.OnFallback(i, p.Name(), err)
 		}

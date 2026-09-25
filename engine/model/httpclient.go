@@ -149,6 +149,9 @@ func (h *httpClient) doWithRetry(ctx context.Context, client *http.Client, path 
 	}
 
 	attempts := h.maxRetries + 1
+	if retriesDisabled(ctx) {
+		attempts = 1
+	}
 	for attempt := 0; ; attempt++ {
 		resp, doErr := h.doOnce(ctx, client, path, payload)
 		if doErr != nil {

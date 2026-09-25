@@ -293,10 +293,9 @@ func anthropicAssistantBlocks(msg Message) []map[string]any {
 }
 
 func (a *Anthropic) convertResponse(raw *anthropicResponse) *ChatResponse {
-	cr := &ChatResponse{
-		ID:    raw.ID,
-		Role:  RoleAssistant,
-		Usage: usageFromAnthropic(raw.Usage),
+	cr := &ChatResponse{ID: raw.ID, Role: RoleAssistant, UsageKnown: raw.Usage != nil}
+	if raw.Usage != nil {
+		cr.Usage = usageFromAnthropic(*raw.Usage)
 	}
 
 	var textParts []string
@@ -390,9 +389,9 @@ func (a *Anthropic) readSSEStream(ctx context.Context, resp *http.Response, ch c
 				Signature string `json:"signature"`
 			} `json:"content_block"`
 			Message struct {
-				Usage anthropicUsage `json:"usage"`
+				Usage *anthropicUsage `json:"usage"`
 			} `json:"message"`
-			Usage anthropicUsage `json:"usage"`
+			Usage *anthropicUsage `json:"usage"`
 		}
 		if err := json.Unmarshal([]byte(data), &event); err != nil {
 			continue
@@ -401,8 +400,8 @@ func (a *Anthropic) readSSEStream(ctx context.Context, resp *http.Response, ch c
 		switch event.Type {
 		case "message_start":
 			// Prompt token usage arrives up front, including cache hits.
-			if usage := usageFromAnthropic(event.Message.Usage); usage.PromptTokens > 0 || usage.CacheReadTokens > 0 || usage.CacheCreationTokens > 0 {
-				if !sendCtx(ctx, ch, &ChatResponse{Role: RoleAssistant, Delta: true, Usage: usage}) {
+			if event.Message.Usage != nil {
+				if !sendCtx(ctx, ch, &ChatResponse{Role: RoleAssistant, Delta: true, Usage: usageFromAnthropic(*event.Message.Usage), UsageKnown: true}) {
 					return
 				}
 			}
@@ -476,13 +475,14 @@ func (a *Anthropic) readSSEStream(ctx context.Context, resp *http.Response, ch c
 			flushThinking()
 		case "message_delta":
 			cr := &ChatResponse{Role: RoleAssistant, Delta: true}
-			if event.Usage.OutputTokens > 0 {
+			if event.Usage != nil {
 				cr.Usage.CompletionTokens = event.Usage.OutputTokens
+				cr.UsageKnown = true
 			}
 			if sr := mapAnthropicStopReason(event.Delta.StopReason); sr != "" {
 				cr.StopReason = sr
 			}
-			if cr.Usage.CompletionTokens > 0 || cr.StopReason != "" {
+			if cr.UsageKnown || cr.StopReason != "" {
 				if !sendCtx(ctx, ch, cr) {
 					return
 				}
@@ -530,8 +530,8 @@ type anthropicResponse struct {
 		Name      string `json:"name,omitempty"`
 		Input     any    `json:"input,omitempty"`
 	} `json:"content"`
-	StopReason string         `json:"stop_reason"`
-	Usage      anthropicUsage `json:"usage"`
+	StopReason string          `json:"stop_reason"`
+	Usage      *anthropicUsage `json:"usage"`
 }
 
 type anthropicUsage struct {

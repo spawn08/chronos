@@ -314,7 +314,7 @@ func (a *Agent) CompactSession(ctx context.Context, sessionID string) error {
 	}
 
 	counter := model.NewTokenCounter(provider.Model())
-	summarizer := model.NewSummarizer(provider, counter, model.SummarizationConfig{
+	summarizer := model.NewSummarizer(summarizerProvider{agent: a, provider: provider}, counter, model.SummarizationConfig{
 		Threshold:           a.ContextCfg.SummarizeThreshold,
 		PreserveRecentTurns: a.ContextCfg.PreserveRecentTurns,
 	})
@@ -413,7 +413,7 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 	systemTokens := counter.CountTokens(systemMsgs)
 
 	// Check if summarization is needed
-	summarizer := model.NewSummarizer(provider, counter, model.SummarizationConfig{
+	summarizer := model.NewSummarizer(summarizerProvider{agent: a, provider: provider}, counter, model.SummarizationConfig{
 		Threshold:           a.ContextCfg.SummarizeThreshold,
 		PreserveRecentTurns: a.ContextCfg.PreserveRecentTurns,
 	})
@@ -629,7 +629,7 @@ func (a *Agent) ChatStreamWithSession(ctx context.Context, sessionID, userMessag
 	counter := model.NewTokenCounter(provider.Model())
 	contextLimit := a.resolveContextLimitFor(provider)
 	systemTokens := counter.CountTokens(systemMsgs)
-	summarizer := model.NewSummarizer(provider, counter, model.SummarizationConfig{
+	summarizer := model.NewSummarizer(summarizerProvider{agent: a, provider: provider}, counter, model.SummarizationConfig{
 		Threshold:           a.ContextCfg.SummarizeThreshold,
 		PreserveRecentTurns: a.ContextCfg.PreserveRecentTurns,
 	})

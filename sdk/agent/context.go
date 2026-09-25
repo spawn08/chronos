@@ -14,6 +14,14 @@ import (
 type toolDefinitionsKey struct{}
 type modelProviderKey struct{}
 type runIdentityKey struct{}
+type modelRetriesDisabledKey struct{}
+
+// WithModelRetriesDisabled makes one invocation perform at most one SDK model
+// attempt per call. Durable workers use it to reconcile each billable request
+// before deciding whether to schedule another attempt.
+func WithModelRetriesDisabled(ctx context.Context) context.Context {
+	return model.WithRetriesDisabled(context.WithValue(ctx, modelRetriesDisabledKey{}, true))
+}
 
 // RunIdentity is the host-issued identity of one bounded agent invocation.
 // Model and tool arguments cannot override these values.

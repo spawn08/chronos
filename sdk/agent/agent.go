@@ -632,7 +632,7 @@ func (a *Agent) modelCall(ctx context.Context, provider model.Provider, req *mod
 	legacyRetry := false
 	for _, h := range a.Hooks {
 		if _, ok := h.(*hooks.RetryHook); ok {
-			if streaming {
+			if streaming || ctx.Value(modelRetriesDisabledKey{}) == true {
 				continue
 			}
 			legacyRetry = true
@@ -646,7 +646,7 @@ func (a *Agent) modelCall(ctx context.Context, provider model.Provider, req *mod
 		providerAttempts++
 		return call()
 	}
-	if legacyRetry {
+	if legacyRetry || ctx.Value(modelRetriesDisabledKey{}) == true {
 		if err = ctx.Err(); err == nil {
 			resp, err = trackedCall()
 		}
