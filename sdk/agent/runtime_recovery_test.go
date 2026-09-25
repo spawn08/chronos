@@ -433,6 +433,41 @@ func TestRuntimeRecovery_DurableRequestDoesNotRetryAcrossSDKHookOrHTTP(t *testin
 	}
 }
 
+type cancelBeforeProviderHook struct {
+	cancel   context.CancelFunc
+	attempts int
+}
+
+func (h *cancelBeforeProviderHook) Before(_ context.Context, event *hooks.Event) error {
+	if event.Type == hooks.EventModelCallBefore {
+		h.cancel()
+	}
+	return nil
+}
+
+func (h *cancelBeforeProviderHook) After(_ context.Context, event *hooks.Event) error {
+	if event.Type == hooks.EventModelCallAfter {
+		h.attempts, _ = event.Metadata["provider_attempts"].(int)
+	}
+	return nil
+}
+
+func TestRuntimeRecovery_UnsentModelCallReportsNoProviderAttempts(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	hook := &cancelBeforeProviderHook{cancel: cancel, attempts: -1}
+	calls := 0
+	p := &runtimeProvider{id: "model", chat: func(context.Context, *model.ChatRequest) (*model.ChatResponse, error) {
+		calls++
+		return &model.ChatResponse{Content: "unexpected"}, nil
+	}}
+	a, _ := agent.New("a", "A").WithModel(p).AddHook(hook).Build()
+	_, err := a.Execute(agent.WithModelRetriesDisabled(ctx), "task")
+	if !errors.Is(err, context.Canceled) || calls != 0 || hook.attempts != 0 {
+		t.Fatalf("unsent request err=%v provider calls=%d reported attempts=%d", err, calls, hook.attempts)
+	}
+}
+
 func TestRuntimeRecovery_StreamBodyFailureBeforeEmission(t *testing.T) {
 	calls := 0
 	p := &runtimeProvider{id: "model", stream: func(context.Context, *model.ChatRequest) (<-chan *model.ChatResponse, error) {

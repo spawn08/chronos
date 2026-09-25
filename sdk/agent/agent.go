@@ -656,6 +656,7 @@ func (a *Agent) modelCall(ctx context.Context, provider model.Provider, req *mod
 	if providerAttempts > 1 {
 		modelEvt.Metadata["retry_count"] = providerAttempts - 1
 	}
+	modelEvt.Metadata["provider_attempts"] = providerAttempts
 	modelEvt.Type = hooks.EventModelCallAfter
 	modelEvt.Output = resp
 	modelEvt.Error = err
