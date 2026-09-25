@@ -185,32 +185,44 @@ func extractUsage(evt *Event) (prompt, completion int) {
 	return 0, 0
 }
 
+// defaultPriceTable holds base input/output rates. Current models match the
+// models.dev snapshot of 2026-09-25; retired models that models.dev no longer
+// lists (gpt-4-turbo, o1-mini, claude-3.x, gemini 1.5/2.0) keep their last
+// known rates.
 func defaultPriceTable() map[string]ModelPrice {
 	return map[string]ModelPrice{
 		"gpt-5.5":     {PromptPricePerToken: 0.000005, CompletionPricePerToken: 0.00003},
 		"gpt-5":       {PromptPricePerToken: 0.00000125, CompletionPricePerToken: 0.00001},
+		"gpt-5-mini":  {PromptPricePerToken: 0.00000025, CompletionPricePerToken: 0.000002},
+		"gpt-5-nano":  {PromptPricePerToken: 0.00000005, CompletionPricePerToken: 0.0000004},
 		"gpt-4o":      {PromptPricePerToken: 0.0000025, CompletionPricePerToken: 0.00001},
 		"gpt-4o-mini": {PromptPricePerToken: 0.00000015, CompletionPricePerToken: 0.0000006},
 		"gpt-4-turbo": {PromptPricePerToken: 0.00001, CompletionPricePerToken: 0.00003},
 		"o1":          {PromptPricePerToken: 0.000015, CompletionPricePerToken: 0.00006},
 		"o1-mini":     {PromptPricePerToken: 0.000003, CompletionPricePerToken: 0.000012},
-		"o3":          {PromptPricePerToken: 0.00001, CompletionPricePerToken: 0.00004},
+		"o3":          {PromptPricePerToken: 0.000002, CompletionPricePerToken: 0.000008},
 		"o3-mini":     {PromptPricePerToken: 0.0000011, CompletionPricePerToken: 0.0000044},
 
 		"claude-fable-5":    {PromptPricePerToken: 0.00001, CompletionPricePerToken: 0.00005},
+		"claude-opus-5":     {PromptPricePerToken: 0.000005, CompletionPricePerToken: 0.000025},
 		"claude-opus-4-8":   {PromptPricePerToken: 0.000005, CompletionPricePerToken: 0.000025},
 		"claude-opus-4-7":   {PromptPricePerToken: 0.000005, CompletionPricePerToken: 0.000025},
-		"claude-sonnet-5":   {PromptPricePerToken: 0.000003, CompletionPricePerToken: 0.000015},
+		"claude-opus-4-6":   {PromptPricePerToken: 0.000005, CompletionPricePerToken: 0.000025},
+		"claude-opus-4-5":   {PromptPricePerToken: 0.000005, CompletionPricePerToken: 0.000025},
+		"claude-sonnet-5":   {PromptPricePerToken: 0.000002, CompletionPricePerToken: 0.00001},
 		"claude-haiku-4-5":  {PromptPricePerToken: 0.000001, CompletionPricePerToken: 0.000005},
 		"claude-sonnet-4-6": {PromptPricePerToken: 0.000003, CompletionPricePerToken: 0.000015},
+		"claude-sonnet-4-5": {PromptPricePerToken: 0.000003, CompletionPricePerToken: 0.000015},
 		"claude-3-5-sonnet": {PromptPricePerToken: 0.000003, CompletionPricePerToken: 0.000015},
 		"claude-3-opus":     {PromptPricePerToken: 0.000015, CompletionPricePerToken: 0.000075},
 		"claude-3-haiku":    {PromptPricePerToken: 0.00000025, CompletionPricePerToken: 0.00000125},
 		"claude-3-5-haiku":  {PromptPricePerToken: 0.0000008, CompletionPricePerToken: 0.000004},
 
+		"gemini-2.5-pro":   {PromptPricePerToken: 0.00000125, CompletionPricePerToken: 0.00001},
+		"gemini-2.5-flash": {PromptPricePerToken: 0.0000003, CompletionPricePerToken: 0.0000025},
 		"gemini-2.0-flash": {PromptPricePerToken: 0.00000015, CompletionPricePerToken: 0.0000006},
 		"gemini-1.5-pro":   {PromptPricePerToken: 0.00000125, CompletionPricePerToken: 0.000005},
 
-		"mistral-large-latest": {PromptPricePerToken: 0.000002, CompletionPricePerToken: 0.000006},
+		"mistral-large-latest": {PromptPricePerToken: 0.0000005, CompletionPricePerToken: 0.0000015},
 	}
 }
