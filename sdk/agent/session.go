@@ -106,6 +106,16 @@ func chatSessionFromEvents(events []*storage.Event) *ChatSession {
 						})
 					}
 				}
+			} else if tcs, ok := payload["tool_calls"].([]map[string]any); ok {
+				// Stores that keep payloads in memory return persistMessage's
+				// concrete type rather than a JSON round-tripped []any.
+				for _, tcMap := range tcs {
+					msg.ToolCalls = append(msg.ToolCalls, model.ToolCall{
+						ID:        strFromMap(tcMap, "id"),
+						Name:      strFromMap(tcMap, "name"),
+						Arguments: strFromMap(tcMap, "arguments"),
+					})
+				}
 			}
 			if state, present := payload["provider_state"]; present {
 				msg.ProviderState, cs.recoveryErr = decodeProviderState(state)
@@ -123,6 +133,15 @@ func chatSessionFromEvents(events []*storage.Event) *ChatSession {
 			}
 		}
 	}
+	return cs
+}
+
+// loadChatSession reconstructs the session for a new request. Unlike the
+// faithful ledger replay, it keeps only complete tool rounds so a crash while
+// a round was being persisted cannot produce a request providers reject.
+func loadChatSession(events []*storage.Event) *ChatSession {
+	cs := chatSessionFromEvents(events)
+	cs.Messages = repairToolPairs(cs.Messages)
 	return cs
 }
 
@@ -305,7 +324,7 @@ func (a *Agent) CompactSession(ctx context.Context, sessionID string) error {
 	if err != nil {
 		return fmt.Errorf("load session events: %w", err)
 	}
-	cs := chatSessionFromEvents(events)
+	cs := loadChatSession(events)
 	if cs.recoveryErr != nil {
 		return fmt.Errorf("restore provider continuation: %w", cs.recoveryErr)
 	}
@@ -384,7 +403,7 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 	if err != nil {
 		return nil, fmt.Errorf("load session events: %w", err)
 	}
-	cs := chatSessionFromEvents(events)
+	cs := loadChatSession(events)
 	if cs.recoveryErr != nil {
 		return nil, fmt.Errorf("restore provider continuation: %w", cs.recoveryErr)
 	}
@@ -522,28 +541,32 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 
 	// Handle tool calls across multiple rounds, threading the accumulated
 	// message history and passing the tool definitions on every follow-up.
-	maxIter := a.toolLoopLimit()
-	iteration := 0
+	recorder := a.newSessionRecorder(sessionID, cs, seqNum, systemMsgs, systemTokens, counter, contextLimit, summarizer)
+	loop := a.newToolLoop(ctx, recorder)
+	var paused *ToolLoopAction
 	for resp.StopReason == model.StopReasonToolCall && len(resp.ToolCalls) > 0 {
-		iteration++
-		if iteration > maxIter {
-			return nil, fmt.Errorf("agent %q: exceeded max tool-calling iterations (%d) with unsatisfied tool calls", a.ID, maxIter)
+		if err := loop.beforeRound(); err != nil {
+			return nil, err
 		}
-		resp, messages, err = a.handleToolCalls(ctx, messages, resp, req)
+		resp, messages, paused, err = a.handleToolCalls(ctx, loop, messages, resp, req)
 		if err != nil {
 			return nil, err
+		}
+		if paused != nil {
+			resp = pausedResponse(paused)
+			break
 		}
 	}
 
 	// Check output guardrails
-	if resp != nil && resp.Content != "" {
+	if paused == nil && resp != nil && resp.Content != "" {
 		if result := a.Guardrails.CheckOutput(ctx, resp.Content); result != nil {
 			return nil, fmt.Errorf("output guardrail failed: %s", result.Reason)
 		}
 	}
 
 	// Validate response against output schema
-	if a.OutputSchema != nil && resp != nil && resp.Content != "" {
+	if paused == nil && a.OutputSchema != nil && resp != nil && resp.Content != "" {
 		if valErr := validateAgainstSchema(resp.Content, a.OutputSchema); valErr != nil {
 			return nil, fmt.Errorf("output schema validation failed: %w", valErr)
 		}
@@ -551,10 +574,7 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 
 	// Persist assistant response
 	if resp != nil {
-		assistantMsg := model.Message{Role: model.RoleAssistant, Content: resp.Content}
-		cs.Messages = append(cs.Messages, assistantMsg)
-		seqNum++
-		if pErr := persistMessage(ctx, a.Storage, sessionID, seqNum, assistantMsg); pErr != nil {
+		if pErr := recorder.finish(ctx, model.Message{Role: model.RoleAssistant, Content: resp.Content}); pErr != nil {
 			return nil, fmt.Errorf("persist assistant message: %w", pErr)
 		}
 	}
@@ -607,7 +627,7 @@ func (a *Agent) ChatStreamWithSession(ctx context.Context, sessionID, userMessag
 		release()
 		return nil, fmt.Errorf("load session events: %w", err)
 	}
-	cs := chatSessionFromEvents(events)
+	cs := loadChatSession(events)
 	if cs.recoveryErr != nil {
 		release()
 		return nil, fmt.Errorf("restore provider continuation: %w", cs.recoveryErr)
@@ -702,17 +722,18 @@ func (a *Agent) ChatStreamWithSession(ctx context.Context, sessionID, userMessag
 		})
 	}
 
+	recorder := a.newSessionRecorder(sessionID, cs, seqNum, systemMsgs, systemTokens, counter, contextLimit, summarizer)
 	out := make(chan *model.ChatResponse, 64)
 	go func() {
 		defer close(out)
 		defer cs.mu.Unlock()
 		defer release()
-		resp, _, streamErr := a.streamLoop(ctx, provider, req, messages, out)
+		resp, _, streamErr := a.streamLoop(ctx, provider, req, messages, out, recorder)
 		if streamErr != nil || resp == nil {
 			return
 		}
 		assistantMsg := model.Message{Role: model.RoleAssistant, Content: resp.Content}
-		if err := persistMessage(ctx, a.Storage, sessionID, seqNum+1, assistantMsg); err != nil {
+		if err := recorder.finish(ctx, assistantMsg); err != nil {
 			a.emitError(ctx, out, fmt.Errorf("persist assistant message: %w", err))
 		}
 	}()

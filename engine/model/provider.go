@@ -22,6 +22,10 @@ const (
 	StopReasonMaxTokens StopReason = "max_tokens"
 	StopReasonToolCall  StopReason = "tool_call"
 	StopReasonFilter    StopReason = "content_filter"
+	// StopReasonPaused is set by the agent harness, never by a provider: a
+	// ToolLoopController ended the tool-calling loop at a round boundary (for
+	// example, no measurable progress). Completed rounds are intact.
+	StopReasonPaused StopReason = "paused"
 )
 
 // ContentPart represents a multi-modal content part within a message.

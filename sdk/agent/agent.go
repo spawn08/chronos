@@ -144,6 +144,13 @@ type ContextConfig struct {
 	MaxToolResultTokens     int     `json:"max_tool_result_tokens" yaml:"max_tool_result_tokens"` // max tokens for tool result before eviction (default 20000)
 	MaxToolCallsFromHistory int     `json:"max_tool_calls_from_history" yaml:"max_tool_calls"`    // max tool call pairs to keep in history
 
+	// PersistToolRounds makes session chat append each completed tool round
+	// (assistant tool calls plus every result) to the session ledger as it
+	// happens, and compact the session inside a long turn when it nears the
+	// context window. A turn that errors or pauses mid-loop then leaves its
+	// working context in the session for the next turn. Off by default.
+	PersistToolRounds bool `json:"persist_tool_rounds" yaml:"persist_tool_rounds"`
+
 	// PinnedMessages are injected as system context on every turn and are never
 	// summarized or evicted by compaction. Use them for content that must always
 	// be visible to the model (policies, invariants, a fixed brief). Set
@@ -550,20 +557,28 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 		"agent": a.ID, "stop_reason": string(resp.StopReason), "content": resp.Content,
 	}})
 
-	// Handle tool calls with iteration limit
-	maxIter := a.toolLoopLimit()
-	iteration := 0
+	// Handle tool calls under the fixed iteration cap or a ToolLoopController.
+	loop := a.newToolLoop(ctx, nil)
 	totalUsage := resp.Usage
+	var paused *ToolLoopAction
 	for resp.StopReason == model.StopReasonToolCall && len(resp.ToolCalls) > 0 {
-		iteration++
-		if iteration > maxIter {
-			return nil, fmt.Errorf("agent %q: exceeded max tool-calling iterations (%d) with unsatisfied tool calls", a.ID, maxIter)
+		if err := loop.beforeRound(); err != nil {
+			return nil, err
 		}
-		resp, messages, err = a.handleToolCalls(ctx, messages, resp, req)
+		resp, messages, paused, err = a.handleToolCalls(ctx, loop, messages, resp, req)
 		if err != nil {
 			return nil, err
 		}
+		if paused != nil {
+			break
+		}
 		accumulateUsage(&totalUsage, resp.Usage)
+	}
+	if paused != nil {
+		result := pausedResponse(paused)
+		result.Usage = totalUsage
+		result.Usage.ContextTokens = resp.Usage.WindowTokens()
+		return result, nil
 	}
 	lastWindow := resp.Usage.WindowTokens()
 	resp.Usage = totalUsage
@@ -778,7 +793,7 @@ func (a *Agent) ChatStream(ctx context.Context, userMessage string) (<-chan *mod
 	out := make(chan *model.ChatResponse, 64)
 	go func() {
 		defer close(out)
-		_, _, _ = a.streamLoop(ctx, provider, req, messages, out)
+		_, _, _ = a.streamLoop(ctx, provider, req, messages, out, nil)
 	}()
 	return out, nil
 }
@@ -786,7 +801,7 @@ func (a *Agent) ChatStream(ctx context.Context, userMessage string) (<-chan *mod
 // streamLoop drives the streaming model call and the tool-calling rounds,
 // forwarding text deltas to out and reassembling each round's full response so it
 // can decide whether more tool calls are pending.
-func (a *Agent) streamLoop(ctx context.Context, provider model.Provider, req *model.ChatRequest, messages []model.Message, out chan<- *model.ChatResponse) (*model.ChatResponse, []model.Message, error) {
+func (a *Agent) streamLoop(ctx context.Context, provider model.Provider, req *model.ChatRequest, messages []model.Message, out chan<- *model.ChatResponse, session *sessionRecorder) (*model.ChatResponse, []model.Message, error) {
 	resp, err := a.streamOnce(ctx, provider, req, out)
 	messages = req.Messages
 	if err != nil {
@@ -798,12 +813,9 @@ func (a *Agent) streamLoop(ctx context.Context, provider model.Provider, req *mo
 	var totalUsage model.Usage
 	accumulateUsage(&totalUsage, resp.Usage)
 
-	maxIter := a.toolLoopLimit()
-	iteration := 0
+	loop := a.newToolLoop(ctx, session)
 	for resp != nil && resp.StopReason == model.StopReasonToolCall && len(resp.ToolCalls) > 0 {
-		iteration++
-		if iteration > maxIter {
-			err = fmt.Errorf("agent %q: exceeded max tool-calling iterations (%d) with unsatisfied tool calls", a.ID, maxIter)
+		if err = loop.beforeRound(); err != nil {
 			a.emitError(ctx, out, err)
 			return nil, messages, err
 		}
@@ -815,10 +827,20 @@ func (a *Agent) streamLoop(ctx context.Context, provider model.Provider, req *mo
 			Delta:     true,
 			ToolCalls: append([]model.ToolCall(nil), resp.ToolCalls...),
 		})
+		before := len(messages)
 		messages, err = a.executeToolCalls(ctx, messages, resp)
 		if err != nil {
 			a.emitError(ctx, out, err)
 			return nil, messages, err
+		}
+		var paused *ToolLoopAction
+		messages, paused, err = loop.afterRound(ctx, messages, before, resp)
+		if err != nil {
+			a.emitError(ctx, out, err)
+			return nil, messages, err
+		}
+		if paused != nil {
+			return a.finishPausedStream(ctx, out, paused, totalUsage, resp.Usage.WindowTokens()), messages, nil
 		}
 		followReq := &model.ChatRequest{Messages: messages, Tools: req.Tools, Reasoning: req.Reasoning}
 		resp, err = a.streamOnce(ctx, provider, followReq, out)
@@ -866,6 +888,27 @@ func (a *Agent) streamLoop(ctx context.Context, provider model.Provider, req *mo
 		StopReason: resp.StopReason,
 	})
 	return resp, messages, nil
+}
+
+// finishPausedStream follows the normal stream protocol for a controller
+// stop: the harness message as a delta, then one final chunk carrying the
+// aggregated usage and StopReasonPaused.
+func (a *Agent) finishPausedStream(ctx context.Context, out chan<- *model.ChatResponse, action *ToolLoopAction, totalUsage model.Usage, contextTokens int) *model.ChatResponse {
+	resp := pausedResponse(action)
+	if resp.Content != "" {
+		sendStream(ctx, out, &model.ChatResponse{Role: model.RoleAssistant, Content: resp.Content, Delta: true})
+	}
+	a.publish(ctx, stream.Event{Type: stream.EventModelResponse, Data: map[string]any{
+		"agent": a.ID, "stop_reason": string(resp.StopReason),
+	}})
+	totalUsage.ContextTokens = contextTokens
+	resp.Usage = totalUsage
+	sendStream(ctx, out, &model.ChatResponse{
+		Role:       model.RoleAssistant,
+		Usage:      totalUsage,
+		StopReason: resp.StopReason,
+	})
+	return resp
 }
 
 // streamOnce issues a single streaming model call. It forwards each text delta to
@@ -959,10 +1002,18 @@ func accumulateUsage(total *model.Usage, u model.Usage) {
 //
 // The original request's tools and native-reasoning settings are passed through
 // to every follow-up so multi-round tool use keeps the same provider mode.
-func (a *Agent) handleToolCalls(ctx context.Context, messages []model.Message, resp *model.ChatResponse, req *model.ChatRequest) (*model.ChatResponse, []model.Message, error) {
+//
+// loop records the round and may stop it before the follow-up call; the
+// returned action is then non-nil and resp is the round's own response.
+func (a *Agent) handleToolCalls(ctx context.Context, loop *toolLoop, messages []model.Message, resp *model.ChatResponse, req *model.ChatRequest) (*model.ChatResponse, []model.Message, *ToolLoopAction, error) {
+	before := len(messages)
 	messages, err := a.executeToolCalls(ctx, messages, resp)
 	if err != nil {
-		return nil, messages, err
+		return nil, messages, nil, err
+	}
+	messages, paused, err := loop.afterRound(ctx, messages, before, resp)
+	if err != nil || paused != nil {
+		return resp, messages, paused, err
 	}
 
 	// Pass the tool definitions on the follow-up call so the model can request
@@ -974,7 +1025,7 @@ func (a *Agent) handleToolCalls(ctx context.Context, messages []model.Message, r
 	}, nil)
 	messages = followReq.Messages
 	if err != nil {
-		return nil, messages, err
+		return nil, messages, nil, err
 	}
 	// Publish the follow-up response so a stream consumer (e.g. AG-UI) receives
 	// the post-tool text — including the final answer of a tool-using turn, which
@@ -982,7 +1033,7 @@ func (a *Agent) handleToolCalls(ctx context.Context, messages []model.Message, r
 	a.publish(ctx, stream.Event{Type: stream.EventModelResponse, Data: map[string]any{
 		"agent": a.ID, "stop_reason": string(followUp.StopReason), "content": followUp.Content,
 	}})
-	return followUp, messages, nil
+	return followUp, messages, nil, nil
 }
 
 // executeToolCalls appends the assistant message and runs each requested tool,

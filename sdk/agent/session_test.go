@@ -710,7 +710,7 @@ type checkpointProvider struct {
 }
 
 func (p *checkpointProvider) Chat(_ context.Context, req *model.ChatRequest) (*model.ChatResponse, error) {
-	if req.MaxTokens == 500 {
+	if len(req.Messages) > 0 && strings.Contains(req.Messages[0].Content, "conversation summarizer") {
 		p.summaries++
 		p.summaryInputs = append(p.summaryInputs, req.Messages[1].Content)
 		return &model.ChatResponse{Content: fmt.Sprintf("summary-%d", p.summaries), StopReason: model.StopReasonEnd}, nil

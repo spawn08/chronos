@@ -195,3 +195,20 @@ func TestSummarizationConfig_Defaults(t *testing.T) {
 		t.Errorf("default preserveRecent = %d, want 5", s.config.PreserveRecentTurns)
 	}
 }
+
+func TestSummarize_NeverSplitsAToolRound(t *testing.T) {
+	s := NewSummarizer(&mockSummarizerProvider{response: "s"}, NewEstimatingCounter(), SummarizationConfig{PreserveRecentTurns: 1})
+	msgs := []Message{
+		{Role: RoleUser, Content: "task"},
+		{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "a", Name: "read"}, {ID: "b", Name: "read"}}},
+		{Role: RoleTool, ToolCallID: "a", Content: "one"},
+		{Role: RoleTool, ToolCallID: "b", Content: "two"},
+	}
+	result, err := s.Summarize(context.Background(), "", msgs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.SummarizedCount != 1 || len(result.PreservedMessages) != 3 || result.PreservedMessages[0].Role != RoleAssistant {
+		t.Fatalf("result = %+v, want the whole tool round preserved", result)
+	}
+}
