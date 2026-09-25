@@ -535,17 +535,30 @@ type anthropicResponse struct {
 }
 
 type anthropicUsage struct {
-	InputTokens              int `json:"input_tokens"`
-	OutputTokens             int `json:"output_tokens"`
-	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
-	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+	InputTokens              int                     `json:"input_tokens"`
+	OutputTokens             int                     `json:"output_tokens"`
+	CacheCreationInputTokens int                     `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int                     `json:"cache_read_input_tokens"`
+	CacheCreation            *anthropicCacheCreation `json:"cache_creation,omitempty"`
 }
 
+// anthropicCacheCreation splits cache_creation_input_tokens by TTL.
+type anthropicCacheCreation struct {
+	Ephemeral5mInputTokens int `json:"ephemeral_5m_input_tokens"`
+	Ephemeral1hInputTokens int `json:"ephemeral_1h_input_tokens"`
+}
+
+// usageFromAnthropic maps Anthropic usage, where input_tokens excludes cache
+// reads and writes (so CacheReadInPrompt stays false).
 func usageFromAnthropic(u anthropicUsage) Usage {
-	return Usage{
+	usage := Usage{
 		PromptTokens:        u.InputTokens,
 		CompletionTokens:    u.OutputTokens,
 		CacheCreationTokens: u.CacheCreationInputTokens,
 		CacheReadTokens:     u.CacheReadInputTokens,
 	}
+	if u.CacheCreation != nil {
+		usage.CacheCreation1hTokens = min(u.CacheCreation.Ephemeral1hInputTokens, u.CacheCreationInputTokens)
+	}
+	return usage
 }

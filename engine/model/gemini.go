@@ -225,6 +225,8 @@ func (g *Gemini) convertResponse(raw *geminiResponse) *ChatResponse {
 			PromptTokens:     raw.UsageMetadata.PromptTokenCount,
 			CompletionTokens: raw.UsageMetadata.CandidatesTokenCount,
 			CacheReadTokens:  raw.UsageMetadata.CachedContentTokenCount,
+			// promptTokenCount includes cachedContentTokenCount.
+			CacheReadInPrompt: true,
 		}
 	}
 

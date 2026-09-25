@@ -538,7 +538,8 @@ func TestAnthropic_Chat_ParsesCacheUsage(t *testing.T) {
 			"input_tokens": 40,
 			"output_tokens": 5,
 			"cache_creation_input_tokens": 1200,
-			"cache_read_input_tokens": 8000
+			"cache_read_input_tokens": 8000,
+			"cache_creation": {"ephemeral_5m_input_tokens": 900, "ephemeral_1h_input_tokens": 300}
 		}
 	}`)
 	defer srv.Close()
@@ -552,5 +553,12 @@ func TestAnthropic_Chat_ParsesCacheUsage(t *testing.T) {
 	}
 	if resp.Usage.PromptTokens != 40 || resp.Usage.CacheCreationTokens != 1200 || resp.Usage.CacheReadTokens != 8000 {
 		t.Fatalf("usage = %+v", resp.Usage)
+	}
+	if resp.Usage.CacheCreation1hTokens != 300 {
+		t.Fatalf("CacheCreation1hTokens = %d, want 300", resp.Usage.CacheCreation1hTokens)
+	}
+	// Anthropic input_tokens already excludes cache reads.
+	if resp.Usage.CacheReadInPrompt || resp.Usage.UncachedPromptTokens() != 40 {
+		t.Fatalf("Anthropic usage treated as cache-inclusive: %+v", resp.Usage)
 	}
 }

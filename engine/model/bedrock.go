@@ -179,12 +179,8 @@ type bedrockResponse struct {
 		Input any    `json:"input,omitempty"`
 	} `json:"content"`
 	StopReason string `json:"stop_reason"`
-	Usage      struct {
-		InputTokens              int `json:"input_tokens"`
-		OutputTokens             int `json:"output_tokens"`
-		CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
-		CacheReadInputTokens     int `json:"cache_read_input_tokens"`
-	} `json:"usage"`
+	// Bedrock returns the Anthropic Messages usage shape.
+	Usage anthropicUsage `json:"usage"`
 }
 
 type bedrockStreamEvent struct {
@@ -196,14 +192,9 @@ type bedrockStreamEvent struct {
 
 func (b *Bedrock) convertResponse(raw *bedrockResponse) *ChatResponse {
 	resp := &ChatResponse{
-		ID:   raw.ID,
-		Role: RoleAssistant,
-		Usage: Usage{
-			PromptTokens:        raw.Usage.InputTokens,
-			CompletionTokens:    raw.Usage.OutputTokens,
-			CacheCreationTokens: raw.Usage.CacheCreationInputTokens,
-			CacheReadTokens:     raw.Usage.CacheReadInputTokens,
-		},
+		ID:    raw.ID,
+		Role:  RoleAssistant,
+		Usage: usageFromAnthropic(raw.Usage),
 	}
 
 	for _, c := range raw.Content {

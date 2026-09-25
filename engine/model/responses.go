@@ -158,6 +158,8 @@ func convertResponsesResponse(raw *responsesAPIResponse) *ChatResponse {
 			PromptTokens:     raw.Usage.InputTokens,
 			CompletionTokens: raw.Usage.OutputTokens,
 			CacheReadTokens:  raw.Usage.InputTokensDetails.CachedTokens,
+			// input_tokens includes input_tokens_details.cached_tokens.
+			CacheReadInPrompt: true,
 		},
 		ProviderState: raw.Output,
 	}

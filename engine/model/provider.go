@@ -213,9 +213,20 @@ type Usage struct {
 	// CacheCreationTokens is the provider cache-write (Anthropic
 	// cache_creation_input_tokens). Billed at a write premium.
 	CacheCreationTokens int `json:"cache_creation_tokens,omitempty"`
+	// CacheCreation1hTokens is the subset of CacheCreationTokens written with
+	// Anthropic's 1-hour TTL (cache_creation.ephemeral_1h_input_tokens),
+	// which is billed at a higher rate than the default 5-minute TTL.
+	CacheCreation1hTokens int `json:"cache_creation_1h_tokens,omitempty"`
 	// CacheReadTokens is the provider cache-hit count (Anthropic
 	// cache_read_input_tokens, OpenAI prompt_tokens_details.cached_tokens).
 	CacheReadTokens int `json:"cache_read_tokens,omitempty"`
+	// CacheReadInPrompt is set by providers whose PromptTokens already
+	// include CacheReadTokens (OpenAI, Azure, Responses, Gemini). It is false
+	// for providers that report uncached input separately (Anthropic,
+	// Bedrock-Anthropic). Providers that populate CacheReadTokens must set it;
+	// it is declared rather than inferred from the counts because the counts
+	// alone are ambiguous.
+	CacheReadInPrompt bool `json:"cache_read_in_prompt,omitempty"`
 }
 
 // Provider is the interface all LLM backends must implement.

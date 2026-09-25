@@ -328,5 +328,7 @@ func usageFromOpenAI(u openAIUsage) Usage {
 		PromptTokens:     u.PromptTokens,
 		CompletionTokens: u.CompletionTokens,
 		CacheReadTokens:  u.PromptTokensDetails.CachedTokens,
+		// prompt_tokens includes prompt_tokens_details.cached_tokens.
+		CacheReadInPrompt: true,
 	}
 }

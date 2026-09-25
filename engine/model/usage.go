@@ -13,32 +13,38 @@ func (u *Usage) Merge(src Usage) {
 	if src.CacheCreationTokens > 0 {
 		u.CacheCreationTokens = src.CacheCreationTokens
 	}
+	if src.CacheCreation1hTokens > 0 {
+		u.CacheCreation1hTokens = src.CacheCreation1hTokens
+	}
 	if src.CacheReadTokens > 0 {
 		u.CacheReadTokens = src.CacheReadTokens
 	}
 	if src.ContextTokens > 0 {
 		u.ContextTokens = src.ContextTokens
 	}
+	u.CacheReadInPrompt = u.CacheReadInPrompt || src.CacheReadInPrompt
 }
 
-// Add accumulates another round's usage into u. Used for multi-round tool loops.
+// Add accumulates another round's usage into u. Used for multi-round tool
+// loops, whose rounds share one provider and therefore one cache convention.
 func (u *Usage) Add(src Usage) {
 	u.PromptTokens += src.PromptTokens
 	u.CompletionTokens += src.CompletionTokens
 	u.CacheCreationTokens += src.CacheCreationTokens
+	u.CacheCreation1hTokens += src.CacheCreation1hTokens
 	u.CacheReadTokens += src.CacheReadTokens
 	if src.ContextTokens > 0 {
 		u.ContextTokens = src.ContextTokens
 	}
+	u.CacheReadInPrompt = u.CacheReadInPrompt || src.CacheReadInPrompt
 }
 
 // UncachedPromptTokens is the portion of the prompt billed at full input
-// price. OpenAI-style providers include cache hits inside PromptTokens;
-// Anthropic-style providers report uncached input separately from cache
-// reads/writes.
+// price. When the provider declares CacheReadInPrompt, cache hits are removed
+// from PromptTokens; otherwise PromptTokens is already uncached input.
 func (u Usage) UncachedPromptTokens() int {
-	if u.CacheCreationTokens == 0 && u.CacheReadTokens > 0 && u.PromptTokens >= u.CacheReadTokens {
-		return u.PromptTokens - u.CacheReadTokens
+	if u.CacheReadInPrompt {
+		return max(u.PromptTokens-u.CacheReadTokens, 0)
 	}
 	return u.PromptTokens
 }
