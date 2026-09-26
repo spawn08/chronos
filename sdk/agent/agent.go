@@ -528,6 +528,7 @@ func (a *Agent) buildChatRequest(ctx context.Context, userMessage string) (*mode
 // Chat sends a single user message to the agent's model and returns the response.
 // This is a convenience method for agents that have a model but no graph.
 func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatResponse, error) {
+	ctx = context.WithValue(ctx, toolRoundInputKey{}, userMessage)
 	provider := a.modelProvider(ctx)
 	if provider == nil {
 		return nil, fmt.Errorf("agent %q has no model", a.ID)
@@ -538,6 +539,15 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 	req, messages, buildErr := a.buildChatRequest(ctx, userMessage)
 	if buildErr != nil {
 		return nil, buildErr
+	}
+	if journal := toolRoundJournalFromContext(ctx); journal != nil {
+		prior, err := journal.ResumeToolRound(ctx, a.ID, userMessage, provider.Model())
+		if err != nil {
+			return nil, fmt.Errorf("resume tool round: %w", err)
+		}
+		if len(prior) > 0 {
+			req.Messages = prior
+		}
 	}
 
 	a.debugLog("sending %d messages to model %q (tools=%d)", len(req.Messages), provider.Name(), len(req.Tools))

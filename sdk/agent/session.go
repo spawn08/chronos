@@ -363,6 +363,7 @@ func (a *Agent) CompactSession(ctx context.Context, sessionID string) error {
 // When the conversation approaches the model's context window limit, older
 // messages are automatically summarized to stay within budget.
 func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage string) (*model.ChatResponse, error) {
+	ctx = context.WithValue(ctx, toolRoundInputKey{}, userMessage)
 	provider := a.modelProvider(ctx)
 	if provider == nil {
 		return nil, fmt.Errorf("agent %q has no model", a.ID)
@@ -521,6 +522,15 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 	}
 
 	// Share request-level retries, hooks and tracing with every tool round.
+	if journal := toolRoundJournalFromContext(ctx); journal != nil {
+		prior, err := journal.ResumeToolRound(ctx, a.ID, userMessage, provider.Model())
+		if err != nil {
+			return nil, fmt.Errorf("resume tool round: %w", err)
+		}
+		if len(prior) > 0 {
+			req.Messages = prior
+		}
+	}
 	resp, err := a.modelCall(ctx, provider, req, false, func() (*model.ChatResponse, error) {
 		return provider.Chat(ctx, req)
 	}, nil)

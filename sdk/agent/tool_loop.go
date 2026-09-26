@@ -95,6 +95,12 @@ func (l *toolLoop) afterRound(ctx context.Context, messages []model.Message, bef
 			return messages, nil, err
 		}
 	}
+	if journal := toolRoundJournalFromContext(ctx); journal != nil {
+		input, _ := ctx.Value(toolRoundInputKey{}).(string)
+		if err := journal.CheckpointToolRound(ctx, l.agent.ID, input, l.agent.modelProvider(ctx).Model(), l.iteration, messages); err != nil {
+			return messages, nil, fmt.Errorf("checkpoint tool round: %w", err)
+		}
+	}
 	if l.controller != nil {
 		action, err := l.controller.AfterToolRound(ctx, ToolRound{
 			AgentID:   l.agent.ID,

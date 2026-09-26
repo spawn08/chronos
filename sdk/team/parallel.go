@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/spawn08/chronos/engine/graph"
+	"github.com/spawn08/chronos/sdk/agent"
 )
 
 // agentResult captures the output or error from a single parallel agent execution.
@@ -27,6 +28,33 @@ type agentResult struct {
 //     collect (gather all errors), and best-effort (ignore errors).
 //   - Each agent gets an independent copy of the input state to prevent data races.
 func (t *Team) runParallel(ctx context.Context, input graph.State) (graph.State, error) {
+	return t.runParallelFrom(ctx, input, nil, nil)
+}
+
+// ParallelCheckpoint is called after a member response and before the team
+// result is merged. Calls are serialized, but members finish in any order;
+// durable callers must persist the response under their live owner lease. A
+// failed checkpoint cancels the remaining members regardless of ErrorMode.
+type ParallelCheckpoint func(ctx context.Context, step int, agentID, response string) error
+
+// RunParallelWithCheckpoints resumes a parallel team after the members in
+// completedResponses (keyed by position in Order) were persisted. Those
+// members are never resubmitted; their responses are merged in Order with the
+// members that run now. Each running member gets a stable node identity
+// "team:<id>:<step>" so its model calls can be attributed durably.
+func (t *Team) RunParallelWithCheckpoints(ctx context.Context, input graph.State, completedResponses map[int]string, checkpoint ParallelCheckpoint) (graph.State, error) {
+	if t.Strategy != StrategyParallel || checkpoint == nil {
+		return nil, fmt.Errorf("team %q: invalid parallel checkpoint request", t.ID)
+	}
+	for step := range completedResponses {
+		if step < 0 || step >= len(t.Order) {
+			return nil, fmt.Errorf("team %q: invalid parallel checkpoint request", t.ID)
+		}
+	}
+	return t.runParallelFrom(ctx, input, completedResponses, checkpoint)
+}
+
+func (t *Team) runParallelFrom(ctx context.Context, input graph.State, completed map[int]string, checkpoint ParallelCheckpoint) (graph.State, error) {
 	n := len(t.Order)
 	if n == 0 {
 		return input, nil
@@ -37,7 +65,30 @@ func (t *Team) runParallel(ctx context.Context, input graph.State) (graph.State,
 
 	results := make([]agentResult, n)
 	var wg sync.WaitGroup
-	wg.Add(n)
+	var checkpointMu sync.Mutex
+	var checkpointErr error
+	pending := 0
+	// Snapshot completion up front: callers may record new receipts into the
+	// same map from their checkpoint while members are still being launched.
+	done := make([]bool, n)
+	for i, agentID := range t.Order {
+		if _, ok := t.Agents[agentID]; !ok {
+			return nil, fmt.Errorf("team %q: agent %q not found", t.ID, agentID)
+		}
+		response, ok := completed[i]
+		if !ok {
+			pending++
+			continue
+		}
+		done[i] = true
+		state := make(graph.State, len(input)+1)
+		for k, v := range input {
+			state[k] = v
+		}
+		state["response"] = response
+		results[i] = agentResult{agentID: agentID, state: state}
+	}
+	wg.Add(pending)
 
 	// Semaphore for concurrency limiting. Cap of 0 means unbounded.
 	var sem chan struct{}
@@ -46,6 +97,9 @@ func (t *Team) runParallel(ctx context.Context, input graph.State) (graph.State,
 	}
 
 	for idx, agentID := range t.Order {
+		if done[idx] {
+			continue
+		}
 		a := t.Agents[agentID]
 		i := idx
 
@@ -74,7 +128,37 @@ func (t *Team) runParallel(ctx context.Context, input graph.State) (graph.State,
 				localInput[k] = v
 			}
 
-			state, err := executeAgent(ctx, a, localInput)
+			runCtx := ctx
+			if checkpoint != nil {
+				if parent, ok := agent.RunIdentityFromContext(ctx); ok {
+					child := parent
+					child.ParentInvocationID = parent.InvocationID
+					child.InvocationID = fmt.Sprintf("%s/team/%s/%d", parent.InvocationID, t.ID, i)
+					child.NodeID = fmt.Sprintf("team:%s:%d", t.ID, i)
+					child.RoleID = a.ID
+					runCtx = agent.WithRunIdentity(ctx, child)
+				}
+			}
+			state, err := executeAgent(runCtx, a, localInput)
+			if err == nil && checkpoint != nil {
+				response, ok := state["response"].(string)
+				checkpointMu.Lock()
+				switch {
+				case checkpointErr != nil:
+					err = checkpointErr
+				case !ok:
+					checkpointErr = fmt.Errorf("team %q: agent %q returned no text receipt", t.ID, a.ID)
+				default:
+					if cpErr := checkpoint(ctx, i, a.ID, response); cpErr != nil {
+						checkpointErr = fmt.Errorf("team %q: checkpoint agent %q: %w", t.ID, a.ID, cpErr)
+					}
+				}
+				if checkpointErr != nil {
+					err = checkpointErr
+					cancel()
+				}
+				checkpointMu.Unlock()
+			}
 			results[i] = agentResult{agentID: a.ID, state: state, err: err}
 
 			if err != nil && t.ErrorMode == ErrorStrategyFailFast {
@@ -83,6 +167,9 @@ func (t *Team) runParallel(ctx context.Context, input graph.State) (graph.State,
 		}()
 	}
 	wg.Wait()
+	if checkpointErr != nil {
+		return nil, checkpointErr
+	}
 
 	// Process errors according to strategy
 	var errs []string
