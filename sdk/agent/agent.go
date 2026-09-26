@@ -540,6 +540,25 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 	if buildErr != nil {
 		return nil, buildErr
 	}
+	if journal := agentReplyJournalFromContext(ctx); journal != nil {
+		prior, err := journal.ResumeAgentReply(ctx, a.ID, userMessage, provider.Model())
+		if err != nil {
+			return nil, fmt.Errorf("resume agent reply: %w", err)
+		}
+		if prior != nil {
+			if prior.Content != "" {
+				if result := a.Guardrails.CheckOutput(ctx, prior.Content); result != nil {
+					return nil, fmt.Errorf("output guardrail failed: %s", result.Reason)
+				}
+			}
+			if a.OutputSchema != nil && prior.Content != "" {
+				if err := validateAgainstSchema(prior.Content, a.OutputSchema); err != nil {
+					return nil, fmt.Errorf("output schema validation failed: %w", err)
+				}
+			}
+			return prior, nil
+		}
+	}
 	if journal := toolRoundJournalFromContext(ctx); journal != nil {
 		prior, err := journal.ResumeToolRound(ctx, a.ID, userMessage, provider.Model())
 		if err != nil {
@@ -611,6 +630,13 @@ func (a *Agent) Chat(ctx context.Context, userMessage string) (*model.ChatRespon
 	// Extract memories from conversation (scoped to the agent's tenant)
 	if mgr := a.memoryManager(); mgr != nil {
 		_ = mgr.ExtractMemories(ctx, messages)
+	}
+	if resp != nil && resp.StopReason == model.StopReasonEnd {
+		if journal := agentReplyJournalFromContext(ctx); journal != nil {
+			if err := journal.CheckpointAgentReply(ctx, a.ID, userMessage, provider.Model(), resp); err != nil {
+				return nil, fmt.Errorf("checkpoint agent reply: %w", err)
+			}
+		}
 	}
 
 	return resp, nil

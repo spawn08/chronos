@@ -39,6 +39,67 @@ func (interruptRoundFixture) AfterToolRound(context.Context, agent.ToolRound) (a
 	return agent.ToolLoopAction{}, errors.New("injected crash after checkpoint")
 }
 
+type replyJournalFixture struct {
+	reply *model.ChatResponse
+	ready bool
+	fail  bool
+}
+
+func (*replyJournalFixture) ResumeToolRound(context.Context, string, string, string) ([]model.Message, error) {
+	return nil, nil
+}
+func (*replyJournalFixture) CheckpointToolRound(context.Context, string, string, string, int, []model.Message) error {
+	return nil
+}
+func (j *replyJournalFixture) ResumeAgentReply(context.Context, string, string, string) (*model.ChatResponse, error) {
+	if j.ready {
+		return j.reply, nil
+	}
+	return nil, nil
+}
+func (j *replyJournalFixture) CheckpointAgentReply(_ context.Context, _, _, _ string, reply *model.ChatResponse) error {
+	if j.fail {
+		return errors.New("reply checkpoint failed")
+	}
+	j.reply = reply
+	return nil
+}
+
+func TestAgentReplyJournalDoesNotResubmitCompletedProviderCall(t *testing.T) {
+	for _, session := range []bool{false, true} {
+		t.Run(map[bool]string{false: "chat", true: "session"}[session], func(t *testing.T) {
+			calls := 0
+			store := memorystore.New()
+			provider := &runtimeProvider{id: "fixture", chat: func(context.Context, *model.ChatRequest) (*model.ChatResponse, error) {
+				calls++
+				return &model.ChatResponse{Content: "persisted", StopReason: model.StopReasonEnd, UsageKnown: true}, nil
+			}}
+			a, err := agent.New("worker", "Worker").WithModel(provider).WithStorage(store).Build()
+			if err != nil {
+				t.Fatal(err)
+			}
+			journal := &replyJournalFixture{fail: true}
+			ctx := agent.WithToolRoundJournal(context.Background(), journal)
+			run := func() (*model.ChatResponse, error) {
+				if session {
+					return a.ChatWithSession(ctx, "session", "task")
+				}
+				return a.Chat(ctx, "task")
+			}
+			if _, err := run(); err == nil || calls != 1 {
+				t.Fatalf("reply checkpoint failure: calls=%d err=%v", calls, err)
+			}
+			journal.fail = false
+			journal.reply = &model.ChatResponse{Content: "persisted", StopReason: model.StopReasonEnd, UsageKnown: true}
+			journal.ready = true
+			response, err := run()
+			if err != nil || response.Content != "persisted" || !response.UsageKnown || calls != 1 {
+				t.Fatalf("resumed reply=%+v calls=%d err=%v", response, calls, err)
+			}
+		})
+	}
+}
+
 func TestToolRoundJournalResumesWithoutRepeatingReplyOrTool(t *testing.T) {
 	for _, session := range []bool{false, true} {
 		t.Run(map[bool]string{true: "session", false: "chat"}[session], func(t *testing.T) {

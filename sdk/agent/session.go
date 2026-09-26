@@ -381,6 +381,28 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 	// Scope per-session harness state (planning tool, VFS) to this session so
 	// tools that persist across turns resolve the right session from context.
 	ctx = storage.WithSession(ctx, sessionID)
+	if journal := agentReplyJournalFromContext(ctx); journal != nil {
+		if result := a.Guardrails.CheckInput(ctx, userMessage); result != nil {
+			return nil, fmt.Errorf("input guardrail failed: %s", result.Reason)
+		}
+		prior, err := journal.ResumeAgentReply(ctx, a.ID, userMessage, provider.Model())
+		if err != nil {
+			return nil, fmt.Errorf("resume agent reply: %w", err)
+		}
+		if prior != nil {
+			if prior.Content != "" {
+				if result := a.Guardrails.CheckOutput(ctx, prior.Content); result != nil {
+					return nil, fmt.Errorf("output guardrail failed: %s", result.Reason)
+				}
+			}
+			if a.OutputSchema != nil && prior.Content != "" {
+				if err := validateAgainstSchema(prior.Content, a.OutputSchema); err != nil {
+					return nil, fmt.Errorf("output schema validation failed: %w", err)
+				}
+			}
+			return prior, nil
+		}
+	}
 
 	// Fire session start hook on first call (best-effort, idempotent)
 	_ = a.Hooks.Before(ctx, &hooks.Event{Type: hooks.EventSessionStart, Name: sessionID})
@@ -592,6 +614,13 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 	// Extract memories (scoped to the agent's tenant)
 	if mgr := a.memoryManager(); mgr != nil {
 		_ = mgr.ExtractMemories(ctx, cs.Messages)
+	}
+	if resp != nil && resp.StopReason == model.StopReasonEnd {
+		if journal := agentReplyJournalFromContext(ctx); journal != nil {
+			if err := journal.CheckpointAgentReply(ctx, a.ID, userMessage, provider.Model(), resp); err != nil {
+				return nil, fmt.Errorf("checkpoint agent reply: %w", err)
+			}
+		}
 	}
 
 	return resp, nil

@@ -15,6 +15,19 @@ type ToolRoundJournal interface {
 	CheckpointToolRound(context.Context, string, string, string, int, []model.Message) error
 }
 
+// AgentReplyJournal is optional for durable workers that can account for a
+// completed agent reply. A reply is replayed without admitting another model
+// call; incomplete/unknown provider outcomes have no checkpoint.
+type AgentReplyJournal interface {
+	ResumeAgentReply(context.Context, string, string, string) (*model.ChatResponse, error)
+	CheckpointAgentReply(context.Context, string, string, string, *model.ChatResponse) error
+}
+
+func agentReplyJournalFromContext(ctx context.Context) AgentReplyJournal {
+	journal, _ := toolRoundJournalFromContext(ctx).(AgentReplyJournal)
+	return journal
+}
+
 type toolRoundJournalKey struct{}
 type toolRoundInputKey struct{}
 
