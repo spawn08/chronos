@@ -95,7 +95,7 @@ func NewFileWriteTool(basePath string) *tool.Definition {
 			if err != nil {
 				return nil, fmt.Errorf("file_write: %w", err)
 			}
-			if _, editing := args["old_content"]; editing {
+			if IsFileEdit(args) {
 				return editFile(resolved, args)
 			}
 			content, ok := args["content"].(string)
@@ -111,6 +111,22 @@ func NewFileWriteTool(basePath string) *tool.Definition {
 			return map[string]any{"path": resolved, "bytes_written": len(content)}, nil
 		},
 	}
+}
+
+// IsFileEdit reports whether file_write args select edit mode. Some models
+// fill every schema field, sending an empty old_content alongside content;
+// that is a whole-file write, not an edit. An empty old_content without
+// content still selects edit mode so the caller gets the edit-specific error.
+func IsFileEdit(args map[string]any) bool {
+	raw, present := args["old_content"]
+	if !present {
+		return false
+	}
+	if old, _ := raw.(string); old != "" {
+		return true
+	}
+	_, hasContent := args["content"].(string)
+	return !hasContent
 }
 
 // editFile replaces old_content with new_content in an existing file. The

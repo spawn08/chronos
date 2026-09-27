@@ -359,3 +359,20 @@ func TestFileWriteToolEditMode(t *testing.T) {
 		t.Fatalf("edited content = %q", data)
 	}
 }
+
+// Models that fill every schema field send empty edit fields next to content;
+// that must be treated as a whole-file write.
+func TestFileWriteToolContentWithEmptyEditFields(t *testing.T) {
+	dir := t.TempDir()
+	write := NewFileWriteTool(dir).Handler
+	args := map[string]any{"path": "docs/p.json", "content": "{}\n", "old_content": "", "new_content": "", "replace_all": false}
+	if IsFileEdit(args) {
+		t.Fatal("empty old_content with content must not select edit mode")
+	}
+	if _, err := write(context.Background(), args); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(dir, "docs", "p.json")); string(data) != "{}\n" {
+		t.Fatalf("written content = %q", data)
+	}
+}
