@@ -52,8 +52,8 @@ func NewFileWriteTool(basePath string) *tool.Definition {
 		Description: "Create or modify a file. To edit an existing file, pass old_content (exact text currently in the file, " +
 			"including whitespace, unique unless replace_all is true) and new_content; prefer this for changes so each call stays small. " +
 			"To create a file or replace it entirely, pass content instead. Directories are created as needed.",
-		Permission:  tool.PermRequireApproval,
-		Effects:     []tool.Effect{tool.EffectScratchWrite, tool.EffectDeliveryWrite},
+		Permission: tool.PermRequireApproval,
+		Effects:    []tool.Effect{tool.EffectScratchWrite, tool.EffectDeliveryWrite},
 		ResolveEffects: func(ctx context.Context, _ map[string]any) ([]tool.Effect, error) {
 			if tool.IsScratchWorkspace(ctx) {
 				return []tool.Effect{tool.EffectScratchWrite}, nil
