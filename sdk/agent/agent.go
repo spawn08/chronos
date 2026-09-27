@@ -737,7 +737,15 @@ func (a *Agent) modelCall(ctx context.Context, provider model.Provider, req *mod
 		if err != nil {
 			_ = a.Tracer.EndSpan(ctx, modelSpan, nil, err.Error())
 		} else {
-			_ = a.Tracer.EndSpan(ctx, modelSpan, map[string]any{"stop_reason": string(resp.StopReason), "stream": streaming}, "")
+			// Per-call usage, including prompt-cache reads and writes, so a
+			// session's cache effectiveness can be audited after the fact.
+			_ = a.Tracer.EndSpan(ctx, modelSpan, map[string]any{"stop_reason": string(resp.StopReason), "stream": streaming, "model": resp.Model, "usage": map[string]int{
+				"input_tokens":             resp.Usage.UncachedPromptTokens(),
+				"cache_read_tokens":        resp.Usage.CacheReadTokens,
+				"cache_creation_tokens":    resp.Usage.CacheCreationTokens,
+				"cache_creation_1h_tokens": resp.Usage.CacheCreation1hTokens,
+				"output_tokens":            resp.Usage.CompletionTokens,
+			}}, "")
 		}
 	}
 	return resp, err

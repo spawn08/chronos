@@ -51,6 +51,15 @@ type Message struct {
 	// a later tool round (for example encrypted Responses API reasoning items).
 	// The agent passes it back unchanged and never serializes or displays it.
 	ProviderState any `json:"-"`
+	// TurnScoped marks a pinned system message that depends on the current
+	// user message (for example recalled memories). Session chat folds it
+	// into that user message, so it becomes fixed history instead of a
+	// system prefix that changes every turn and defeats prompt caching.
+	TurnScoped bool `json:"-"`
+	// Uncached marks a trailing message that changes on every model call
+	// (for example the current task plan). Providers with explicit prompt
+	// caching place it after the last cache breakpoint.
+	Uncached bool `json:"-"`
 }
 
 // AddImageURL adds an image URL content part to the message.

@@ -66,13 +66,14 @@ func toolLoopControllerFor(ctx context.Context, agentID string) ToolLoopControll
 type toolLoop struct {
 	agent      *Agent
 	controller ToolLoopController
+	pending    PendingInput
 	limit      int
 	iteration  int
 	session    *sessionRecorder
 }
 
 func (a *Agent) newToolLoop(ctx context.Context, session *sessionRecorder) *toolLoop {
-	return &toolLoop{agent: a, controller: toolLoopControllerFor(ctx, a.ID), limit: a.toolLoopLimit(), session: session}
+	return &toolLoop{agent: a, controller: toolLoopControllerFor(ctx, a.ID), pending: pendingInputFor(ctx, a.ID), limit: a.toolLoopLimit(), session: session}
 }
 
 // beforeRound enforces the fixed iteration cap unless a controller owns
@@ -86,13 +87,35 @@ func (l *toolLoop) beforeRound() error {
 }
 
 // afterRound records the executed round (messages[before:]), consults the
-// controller, then compacts the session when it nears the context window.
-// It returns the working messages to send next, which differ from messages
-// only after compaction, and a non-nil action when the loop must stop.
+// controller, appends any pending user input when the loop continues, then
+// compacts the session when it nears the context window. It returns the
+// working messages to send next and a non-nil action when the loop must stop.
 func (l *toolLoop) afterRound(ctx context.Context, messages []model.Message, before int, resp *model.ChatResponse) ([]model.Message, *ToolLoopAction, error) {
 	if l.session != nil {
 		if err := l.session.recordRound(ctx, messages[before:]); err != nil {
 			return messages, nil, err
+		}
+	}
+	var action ToolLoopAction
+	var controllerErr error
+	if l.controller != nil {
+		action, controllerErr = l.controller.AfterToolRound(ctx, ToolRound{
+			AgentID:   l.agent.ID,
+			Iteration: l.iteration,
+			ToolCalls: append([]model.ToolCall(nil), resp.ToolCalls...),
+			Usage:     resp.Usage,
+		})
+	}
+	// Input is drained only when the loop continues, so the next model call
+	// always answers it; on a stop it stays pending for the client.
+	if controllerErr == nil && !action.Stop {
+		if msg, ok := pendingUserMessage(ctx, l.pending); ok {
+			messages = append(messages, msg)
+			if l.session != nil {
+				if err := l.session.append(ctx, msg); err != nil {
+					return messages, nil, fmt.Errorf("persist pending input: %w", err)
+				}
+			}
 		}
 	}
 	if journal := toolRoundJournalFromContext(ctx); journal != nil {
@@ -101,19 +124,11 @@ func (l *toolLoop) afterRound(ctx context.Context, messages []model.Message, bef
 			return messages, nil, fmt.Errorf("checkpoint tool round: %w", err)
 		}
 	}
-	if l.controller != nil {
-		action, err := l.controller.AfterToolRound(ctx, ToolRound{
-			AgentID:   l.agent.ID,
-			Iteration: l.iteration,
-			ToolCalls: append([]model.ToolCall(nil), resp.ToolCalls...),
-			Usage:     resp.Usage,
-		})
-		if err != nil {
-			return messages, nil, fmt.Errorf("agent %q tool loop: %w", l.agent.ID, err)
-		}
-		if action.Stop {
-			return messages, &action, nil
-		}
+	if controllerErr != nil {
+		return messages, nil, fmt.Errorf("agent %q tool loop: %w", l.agent.ID, controllerErr)
+	}
+	if action.Stop {
+		return messages, &action, nil
 	}
 	if l.session != nil {
 		rebuilt, err := l.session.compactIfNeeded(ctx)

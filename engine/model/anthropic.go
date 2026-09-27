@@ -95,8 +95,15 @@ func (a *Anthropic) buildRequestBody(req *ChatRequest, stream bool) map[string]a
 	}
 
 	var systemParts []string
+	var uncached []string
 	messages := make([]map[string]any, 0, len(req.Messages))
 	for i := range req.Messages {
+		if req.Messages[i].Uncached {
+			if req.Messages[i].Content != "" {
+				uncached = append(uncached, req.Messages[i].Content)
+			}
+			continue
+		}
 		if req.Messages[i].Role == RoleSystem {
 			if req.Messages[i].Content != "" {
 				systemParts = append(systemParts, req.Messages[i].Content)
@@ -194,6 +201,7 @@ func (a *Anthropic) buildRequestBody(req *ChatRequest, stream bool) map[string]a
 			cacheLastContentBlock(msgs[len(msgs)-1])
 		}
 	}
+	appendUncachedTail(body, uncached)
 	return body
 }
 

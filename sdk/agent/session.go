@@ -436,16 +436,17 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
+	// Build the system context (prompt, instructions, memories, knowledge)
+	// before persisting the user message, which carries its turn context.
+	systemMsgs, turnMessage := splitTurnContext(a.buildSystemContext(ctx, userMessage), userMessage)
+
 	// Append user message
-	userMsg := model.Message{Role: model.RoleUser, Content: userMessage}
+	userMsg := model.Message{Role: model.RoleUser, Content: turnMessage}
 	cs.Messages = append(cs.Messages, userMsg)
 	seqNum := nextSessionEventSequence(events)
 	if persistErr := persistMessage(ctx, a.Storage, sessionID, seqNum, userMsg); persistErr != nil {
 		return nil, fmt.Errorf("persist user message: %w", persistErr)
 	}
-
-	// Build the system context (prompt, instructions, memories, knowledge)
-	systemMsgs := a.buildSystemContext(ctx, userMessage)
 
 	// Resolve context limit. Use the real BPE tokenizer (WC-A-004 / PLAN.md
 	// P1-009) so the compaction trigger and budget reflect actual token counts,
@@ -675,7 +676,8 @@ func (a *Agent) ChatStreamWithSession(ctx context.Context, sessionID, userMessag
 	cs.AgentID = a.ID
 	cs.mu.Lock()
 
-	userMsg := model.Message{Role: model.RoleUser, Content: userMessage}
+	systemMsgs, turnMessage := splitTurnContext(a.buildSystemContext(ctx, userMessage), userMessage)
+	userMsg := model.Message{Role: model.RoleUser, Content: turnMessage}
 	cs.Messages = append(cs.Messages, userMsg)
 	seqNum := nextSessionEventSequence(events)
 	if err := persistMessage(ctx, a.Storage, sessionID, seqNum, userMsg); err != nil {
@@ -683,8 +685,6 @@ func (a *Agent) ChatStreamWithSession(ctx context.Context, sessionID, userMessag
 		release()
 		return nil, fmt.Errorf("persist user message: %w", err)
 	}
-
-	systemMsgs := a.buildSystemContext(ctx, userMessage)
 	counter := model.NewTokenCounter(provider.Model())
 	contextLimit := a.resolveContextLimitFor(provider)
 	systemTokens := counter.CountTokens(systemMsgs)
@@ -777,6 +777,29 @@ func (a *Agent) ChatStreamWithSession(ctx context.Context, sessionID, userMessag
 		}
 	}()
 	return out, nil
+}
+
+// splitTurnContext removes turn-scoped pins from systemMsgs and folds them
+// into the user message. Context that depends on the current message then
+// becomes part of this turn's history, identical on every later request,
+// instead of a system prefix that changes each turn: with prefix-based
+// prompt caching that change would rewrite the whole cached conversation.
+func splitTurnContext(systemMsgs []model.Message, userMessage string) ([]model.Message, string) {
+	kept := make([]model.Message, 0, len(systemMsgs))
+	var turn []string
+	for _, m := range systemMsgs {
+		if m.TurnScoped {
+			if strings.TrimSpace(m.Content) != "" {
+				turn = append(turn, m.Content)
+			}
+			continue
+		}
+		kept = append(kept, m)
+	}
+	if len(turn) == 0 {
+		return kept, userMessage
+	}
+	return kept, "<turn_context>\n" + strings.Join(turn, "\n\n") + "\n</turn_context>\n\n" + userMessage
 }
 
 // buildSystemContext constructs the system-level messages (prompt, instructions,

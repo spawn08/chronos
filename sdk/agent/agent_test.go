@@ -981,6 +981,30 @@ func TestChat_TracesModelCall(t *testing.T) {
 	}
 }
 
+func TestChat_TraceRecordsCacheUsage(t *testing.T) {
+	store := newTestStorage()
+	provider := &testProvider{response: &model.ChatResponse{Content: "traced", Usage: model.Usage{
+		PromptTokens: 12, CacheReadTokens: 900, CacheCreationTokens: 40, CompletionTokens: 7,
+	}}}
+	agent := newTestAgent("test", provider)
+	agent.Tracer = chronostrace.NewCollector(store)
+	if _, err := agent.Chat(context.Background(), "trace me"); err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	for _, span := range store.traces {
+		if span.Kind != "model_call" {
+			continue
+		}
+		out, _ := span.Output.(map[string]any)
+		usage, _ := out["usage"].(map[string]int)
+		if usage["input_tokens"] != 12 || usage["cache_read_tokens"] != 900 || usage["cache_creation_tokens"] != 40 || usage["output_tokens"] != 7 {
+			t.Fatalf("model_call span output = %#v, want per-call usage", span.Output)
+		}
+		return
+	}
+	t.Fatal("no model_call span")
+}
+
 func TestChat_TracesModelError(t *testing.T) {
 	store := newTestStorage()
 	provider := &testProvider{err: errors.New("model down")}

@@ -1,5 +1,7 @@
 package model
 
+import "strings"
+
 // ephemeralCache is Anthropic's default 5-minute prompt-cache checkpoint.
 func ephemeralCache() map[string]any {
 	return map[string]any{"type": "ephemeral"}
@@ -36,4 +38,27 @@ func cacheLastContentBlock(msg map[string]any) {
 			return
 		}
 	}
+}
+
+// appendUncachedTail adds per-call context (Message.Uncached) after the last
+// cache breakpoint, as trailing text of the final user message: the cached
+// prefix ends before it, so the next request, whose tail differs, still
+// matches that prefix. A user message is added when the last one is not.
+func appendUncachedTail(body map[string]any, tail []string) {
+	if len(tail) == 0 {
+		return
+	}
+	block := map[string]any{"type": "text", "text": strings.Join(tail, "\n\n")}
+	msgs, _ := body["messages"].([]map[string]any)
+	if n := len(msgs); n > 0 && msgs[n-1]["role"] == RoleUser {
+		switch content := msgs[n-1]["content"].(type) {
+		case string:
+			msgs[n-1]["content"] = []map[string]any{{"type": "text", "text": content}, block}
+			return
+		case []map[string]any:
+			msgs[n-1]["content"] = append(content, block)
+			return
+		}
+	}
+	body["messages"] = append(msgs, map[string]any{"role": RoleUser, "content": []map[string]any{block}})
 }
