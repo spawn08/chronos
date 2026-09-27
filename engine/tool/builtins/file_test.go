@@ -320,3 +320,42 @@ func TestFileWriteRejectsSymlinkOutsideRequestWorkspace(t *testing.T) {
 		t.Fatalf("outside file was created: %v", err)
 	}
 }
+
+func TestFileWriteToolEditMode(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.txt")
+	if err := os.WriteFile(path, []byte("alpha beta alpha\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	write := NewFileWriteTool(dir).Handler
+	ctx := context.Background()
+
+	for _, tc := range []struct {
+		name string
+		args map[string]any
+	}{
+		{"ambiguous match", map[string]any{"path": "a.txt", "old_content": "alpha", "new_content": "x"}},
+		{"missing match", map[string]any{"path": "a.txt", "old_content": "gamma", "new_content": "x"}},
+		{"empty old_content", map[string]any{"path": "a.txt", "old_content": "", "new_content": "x"}},
+		{"missing new_content", map[string]any{"path": "a.txt", "old_content": "beta"}},
+		{"missing file", map[string]any{"path": "nope.txt", "old_content": "a", "new_content": "b"}},
+		{"neither content nor edit", map[string]any{"path": "a.txt"}},
+	} {
+		if _, err := write(ctx, tc.args); err == nil {
+			t.Fatalf("%s: expected error", tc.name)
+		}
+	}
+	if data, _ := os.ReadFile(path); string(data) != "alpha beta alpha\n" {
+		t.Fatalf("failed edits changed the file: %q", data)
+	}
+
+	if _, err := write(ctx, map[string]any{"path": "a.txt", "old_content": "beta", "new_content": "BETA"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := write(ctx, map[string]any{"path": "a.txt", "old_content": "alpha", "new_content": "A", "replace_all": true}); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(path); string(data) != "A BETA A\n" {
+		t.Fatalf("edited content = %q", data)
+	}
+}

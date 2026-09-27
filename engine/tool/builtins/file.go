@@ -48,8 +48,10 @@ func NewFileReadTool(basePath string) *tool.Definition {
 // NewFileWriteTool creates a tool that writes content to a file.
 func NewFileWriteTool(basePath string) *tool.Definition {
 	return &tool.Definition{
-		Name:        "file_write",
-		Description: "Write content to a file at the given path, creating directories as needed.",
+		Name: "file_write",
+		Description: "Create or modify a file. To edit an existing file, pass old_content (exact text currently in the file, " +
+			"including whitespace, unique unless replace_all is true) and new_content; prefer this for changes so each call stays small. " +
+			"To create a file or replace it entirely, pass content instead. Directories are created as needed.",
 		Permission:  tool.PermRequireApproval,
 		Effects:     []tool.Effect{tool.EffectScratchWrite, tool.EffectDeliveryWrite},
 		ResolveEffects: func(ctx context.Context, _ map[string]any) ([]tool.Effect, error) {
@@ -67,20 +69,38 @@ func NewFileWriteTool(basePath string) *tool.Definition {
 				},
 				"content": map[string]any{
 					"type":        "string",
-					"description": "Content to write",
+					"description": "Full file content; creates or overwrites the file. Omit when using old_content/new_content.",
+				},
+				"old_content": map[string]any{
+					"type":        "string",
+					"description": "Exact existing text to replace in the file.",
+				},
+				"new_content": map[string]any{
+					"type":        "string",
+					"description": "Replacement text for old_content (may be empty to delete it).",
+				},
+				"replace_all": map[string]any{
+					"type":        "boolean",
+					"description": "Replace every occurrence of old_content instead of requiring exactly one.",
 				},
 			},
-			"required": []string{"path", "content"},
+			"required": []string{"path"},
 		},
 		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			p, _ := args["path"].(string)
-			content, _ := args["content"].(string)
 			if p == "" {
 				return nil, fmt.Errorf("file_write: 'path' argument is required")
 			}
 			resolved, err := resolveWorkspacePath(ctx, basePath, p)
 			if err != nil {
 				return nil, fmt.Errorf("file_write: %w", err)
+			}
+			if _, editing := args["old_content"]; editing {
+				return editFile(resolved, args)
+			}
+			content, ok := args["content"].(string)
+			if !ok {
+				return nil, fmt.Errorf("file_write: pass 'content' to write the whole file, or 'old_content' and 'new_content' to edit it")
 			}
 			if err := os.MkdirAll(filepath.Dir(resolved), 0o755); err != nil {
 				return nil, fmt.Errorf("file_write: creating dirs: %w", err)
@@ -91,6 +111,51 @@ func NewFileWriteTool(basePath string) *tool.Definition {
 			return map[string]any{"path": resolved, "bytes_written": len(content)}, nil
 		},
 	}
+}
+
+// editFile replaces old_content with new_content in an existing file. The
+// match must be unique unless replace_all is set, so an ambiguous edit fails
+// instead of changing the wrong occurrence.
+func editFile(resolved string, args map[string]any) (any, error) {
+	oldContent, _ := args["old_content"].(string)
+	newContent, hasNew := args["new_content"].(string)
+	replaceAll, _ := args["replace_all"].(bool)
+	if oldContent == "" {
+		return nil, fmt.Errorf("file_write: 'old_content' must be non-empty; pass 'content' to create or overwrite a file")
+	}
+	if !hasNew {
+		return nil, fmt.Errorf("file_write: 'new_content' is required with 'old_content'")
+	}
+	if oldContent == newContent {
+		return nil, fmt.Errorf("file_write: 'old_content' and 'new_content' are identical; nothing to change")
+	}
+	data, err := os.ReadFile(resolved)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("file_write: %s does not exist; pass 'content' to create it", resolved)
+		}
+		return nil, fmt.Errorf("file_write: %w", err)
+	}
+	current := string(data)
+	count := strings.Count(current, oldContent)
+	switch {
+	case count == 0:
+		return nil, fmt.Errorf("file_write: old_content not found in %s; read the file again and copy the exact current text, including whitespace", resolved)
+	case count > 1 && !replaceAll:
+		return nil, fmt.Errorf("file_write: old_content matches %d places in %s; include more surrounding lines to make it unique, or set replace_all", count, resolved)
+	}
+	updated := strings.Replace(current, oldContent, newContent, 1)
+	if replaceAll {
+		updated = strings.ReplaceAll(current, oldContent, newContent)
+	}
+	if err := os.WriteFile(resolved, []byte(updated), 0o644); err != nil {
+		return nil, fmt.Errorf("file_write: %w", err)
+	}
+	replaced := 1
+	if replaceAll {
+		replaced = count
+	}
+	return map[string]any{"path": resolved, "bytes_written": len(updated), "replacements": replaced}, nil
 }
 
 // NewFileListTool creates a tool that lists files in a directory.
