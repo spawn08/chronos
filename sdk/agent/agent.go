@@ -961,11 +961,15 @@ func (a *Agent) streamOnce(ctx context.Context, provider model.Provider, req *mo
 		}
 
 		agg := make(chan *model.ChatResponse, 64)
+		progress := &toolInputProgress{agent: a, now: time.Now}
 		go func() {
 			defer close(agg)
 			for cr := range ch {
 				if cr == nil {
 					continue
+				}
+				if cr.Err == nil && len(cr.ToolCalls) > 0 {
+					progress.observe(ctx, cr.ToolCalls)
 				}
 				// Forward provider-approved reasoning separately when explicitly
 				// requested. It is never mixed into final answer content.

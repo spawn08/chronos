@@ -39,6 +39,9 @@ type httpClient struct {
 	transport    *http.Transport
 	baseURL      string
 	headers      map[string]string
+	// streamIdleTimeout fails a streaming response that sends no bytes for
+	// this long; <= 0 disables the check.
+	streamIdleTimeout time.Duration
 
 	maxRetries  int
 	breaker     *circuitBreaker
@@ -113,6 +116,7 @@ func newHTTPClient(baseURL string, timeoutSec int, headers map[string]string, op
 		backoffMax:   defaultBackoffMax,
 		sleep:        sleepWithContext,
 	}
+	h.streamIdleTimeout = defaultStreamIdleTimeout
 	for _, opt := range opts {
 		opt(h)
 	}
@@ -133,9 +137,14 @@ func (h *httpClient) post(ctx context.Context, path string, body any) (*http.Res
 
 // postStream issues a POST intended for a streaming (SSE) response. It uses the
 // streaming client (no overall timeout) so the connection survives for the
-// duration of the stream.
+// duration of the stream; the body fails after streamIdleTimeout of silence.
 func (h *httpClient) postStream(ctx context.Context, path string, body any) (*http.Response, error) {
-	return h.doWithRetry(ctx, h.streamClient, path, body)
+	resp, err := h.doWithRetry(ctx, h.streamClient, path, body)
+	if err != nil {
+		return nil, err
+	}
+	resp.Body = newIdleTimeoutBody(resp.Body, h.streamIdleTimeout)
+	return resp, nil
 }
 
 func (h *httpClient) doWithRetry(ctx context.Context, client *http.Client, path string, body any) (*http.Response, error) {

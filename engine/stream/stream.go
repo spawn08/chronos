@@ -27,6 +27,11 @@ const (
 	EventCustom         = "custom"
 )
 
+// EventToolInput reports a tool call whose arguments are still streaming from
+// the model (data: agent, id, tool, bytes). It precedes EventToolCall, which is
+// published only once the call is complete and about to run.
+const EventToolInput = "tool_input"
+
 // Default Broker configuration values.
 const (
 	defaultMaxSubscribers = 1024
