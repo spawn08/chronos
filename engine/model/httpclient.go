@@ -167,7 +167,7 @@ func (h *httpClient) doWithRetry(ctx context.Context, client *http.Client, path 
 			// Network/transport failure: retry unless the context is done or
 			// retries are exhausted.
 			if attempt < attempts-1 && ctx.Err() == nil {
-				if werr := h.waitBackoff(ctx, attempt, 0); werr != nil {
+				if werr := h.waitBackoff(ctx, attempt, 0, 0, doErr); werr != nil {
 					h.recordBreaker(false)
 					return nil, fmt.Errorf("http request: %w", werr)
 				}
@@ -180,7 +180,7 @@ func (h *httpClient) doWithRetry(ctx context.Context, client *http.Client, path 
 		if isRetryableStatus(resp.StatusCode) && attempt < attempts-1 {
 			retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
 			drainAndClose(resp.Body)
-			if werr := h.waitBackoff(ctx, attempt, retryAfter); werr != nil {
+			if werr := h.waitBackoff(ctx, attempt, retryAfter, resp.StatusCode, nil); werr != nil {
 				h.recordBreaker(false)
 				return nil, fmt.Errorf("http request: %w", werr)
 			}
@@ -219,12 +219,13 @@ func (h *httpClient) recordBreaker(success bool) {
 }
 
 // waitBackoff waits before the next retry, honoring a server-provided
-// Retry-After delay when present.
-func (h *httpClient) waitBackoff(ctx context.Context, attempt int, retryAfter time.Duration) error {
+// Retry-After delay when present, and reports the retry to any observer.
+func (h *httpClient) waitBackoff(ctx context.Context, attempt int, retryAfter time.Duration, statusCode int, cause error) error {
 	delay := retryAfter
 	if delay <= 0 {
 		delay = h.backoffDelay(attempt)
 	}
+	NotifyRetry(ctx, RetryInfo{Attempt: attempt + 1, Delay: delay, StatusCode: statusCode, Err: cause})
 	sleep := h.sleep
 	if sleep == nil {
 		sleep = sleepWithContext

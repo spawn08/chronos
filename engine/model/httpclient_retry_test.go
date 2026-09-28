@@ -177,3 +177,34 @@ func TestHTTPClient_ContextCancelStopsRetry(t *testing.T) {
 		return
 	}
 }
+
+func TestHTTPClient_RetryObserverSeesEachRetry(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if atomic.AddInt32(&calls, 1) < 3 {
+			w.Header().Set("Retry-After", "2")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	var seen []RetryInfo
+	ctx := WithRetryObserver(context.Background(), func(info RetryInfo) { seen = append(seen, info) })
+	h := newHTTPClient(srv.URL, 5, nil, withMaxRetries(3), withSleepFn((&sleepRecorder{}).fn))
+	resp, err := h.post(ctx, "/x", map[string]string{})
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
+	drainAndClose(resp.Body)
+	if len(seen) != 2 {
+		t.Fatalf("observer saw %d retries, want 2", len(seen))
+	}
+	for i, info := range seen {
+		if info.Attempt != i+1 || info.StatusCode != http.StatusTooManyRequests || info.Delay != 2*time.Second {
+			t.Fatalf("retry %d = %+v", i, info)
+		}
+	}
+}

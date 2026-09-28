@@ -776,6 +776,11 @@ func retryModelRequest(ctx context.Context, call func() (*model.ChatResponse, er
 		if delay > 2*time.Second {
 			return resp, err
 		}
+		info := model.RetryInfo{Attempt: attempt + 1, Delay: delay, Err: err}
+		if apiErr != nil {
+			info.StatusCode = apiErr.StatusCode
+		}
+		model.NotifyRetry(ctx, info)
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
