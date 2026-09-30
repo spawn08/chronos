@@ -119,12 +119,26 @@ func (b *Bot) handleUpdate(ctx context.Context, chatID, userID int64, text strin
 	}
 }
 
-// SendMessage sends a text message to a Telegram chat.
+// SendMessage sends a text message to a Telegram chat. It is sent as
+// Markdown; if Telegram rejects the formatting (model output with tables,
+// stray "*", "_", or "|" commonly breaks Telegram's legacy Markdown parser
+// with "can't parse entities"), it is resent as plain text so the reply is
+// delivered instead of silently dropped.
 func (b *Bot) SendMessage(ctx context.Context, chatID int64, text string) error {
+	err := b.sendMessage(ctx, chatID, text, "Markdown")
+	if err != nil && strings.Contains(strings.ToLower(err.Error()), "can't parse entities") {
+		return b.sendMessage(ctx, chatID, text, "")
+	}
+	return err
+}
+
+func (b *Bot) sendMessage(ctx context.Context, chatID int64, text, parseMode string) error {
 	body := map[string]any{
-		"chat_id":    chatID,
-		"text":       text,
-		"parse_mode": "Markdown",
+		"chat_id": chatID,
+		"text":    text,
+	}
+	if parseMode != "" {
+		body["parse_mode"] = parseMode
 	}
 	data, _ := json.Marshal(body)
 

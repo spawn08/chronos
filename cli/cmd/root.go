@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/spawn08/chronos/cli/render"
 	"github.com/spawn08/chronos/cli/repl"
 	"github.com/spawn08/chronos/engine/graph"
 	"github.com/spawn08/chronos/engine/model"
@@ -872,7 +873,7 @@ func runAgent() error {
 	if resp.Reasoning != "" && a.ReasoningConfig.Summary {
 		fmt.Fprintf(os.Stderr, "[reasoning summary]\n%s\n[/reasoning summary]\n", resp.Reasoning)
 	}
-	fmt.Println(resp.Content)
+	fmt.Println(render.Markdown(resp.Content, render.ForFile(os.Stdout)))
 	if resp.Usage.PromptTokens > 0 || resp.Usage.CompletionTokens > 0 {
 		fmt.Printf("\n[tokens: %d prompt + %d completion]\n", resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
 	}
@@ -898,8 +899,10 @@ func runAgentStream(a *agent.Agent, message string) error {
 	}
 	var usage model.Usage
 	reasoningStarted := false
+	out := render.Stdout() // raw passthrough when stdout is not a terminal
 	for chunk := range ch {
 		if chunk.Err != nil {
+			_ = out.Flush()
 			return fmt.Errorf("chat: %w", chunk.Err)
 		}
 		if chunk.Delta {
@@ -910,11 +913,12 @@ func runAgentStream(a *agent.Agent, message string) error {
 				}
 				fmt.Fprint(os.Stderr, chunk.Reasoning)
 			}
-			fmt.Print(chunk.Content)
+			_, _ = out.WriteString(chunk.Content)
 			continue
 		}
 		usage = chunk.Usage
 	}
+	_ = out.Flush()
 	if reasoningStarted {
 		fmt.Fprintln(os.Stderr, "\n[/reasoning summary]")
 	}

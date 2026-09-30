@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync/atomic"
 )
 
 // OpenAI implements Provider for OpenAI chat completion endpoints.
@@ -14,6 +15,9 @@ import (
 type OpenAI struct {
 	config ProviderConfig
 	http   *httpClient
+	// maxCompletionTokens is set once the API rejects "max_tokens" for this
+	// model, so later requests send "max_completion_tokens" directly.
+	maxCompletionTokens atomic.Bool
 }
 
 // NewOpenAI creates a new OpenAI provider with the given API key.
@@ -50,16 +54,29 @@ func (o *OpenAI) Model() string { return o.config.Model }
 
 func (o *OpenAI) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
 	body := buildOpenAIRequestBody(req, o.config.Model, false)
+	if o.maxCompletionTokens.Load() {
+		useMaxCompletionTokens(body)
+	}
 
-	resp, err := o.http.post(ctx, "/chat/completions", body)
-	if err != nil {
-		return nil, fmt.Errorf("openai chat: %w", err)
+	var resp *http.Response
+	for {
+		var err error
+		resp, err = o.http.post(ctx, "/chat/completions", body)
+		if err != nil {
+			return nil, fmt.Errorf("openai chat: %w", err)
+		}
+		if resp.StatusCode == http.StatusOK {
+			break
+		}
+		apiErr := newAPIError(resp)
+		drainAndClose(resp.Body)
+		if maxTokensParamRejected(apiErr.StatusCode, apiErr.Body) && useMaxCompletionTokens(body) {
+			o.maxCompletionTokens.Store(true)
+			continue
+		}
+		return nil, fmt.Errorf("openai chat: %w", apiErr)
 	}
 	defer drainAndClose(resp.Body)
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("openai chat: %w", newAPIError(resp))
-	}
 
 	var oaiResp openAIChatResponse
 	if err := json.NewDecoder(resp.Body).Decode(&oaiResp); err != nil {
@@ -74,15 +91,26 @@ func (o *OpenAI) StreamChat(ctx context.Context, req *ChatRequest) (<-chan *Chat
 	// Request token usage on the terminal stream chunk so streamed calls report
 	// usage the same way unary calls do.
 	body["stream_options"] = map[string]any{"include_usage": true}
-
-	resp, err := o.http.postStream(ctx, "/chat/completions", body)
-	if err != nil {
-		return nil, fmt.Errorf("openai stream: %w", err)
+	if o.maxCompletionTokens.Load() {
+		useMaxCompletionTokens(body)
 	}
 
-	if resp.StatusCode != http.StatusOK {
+	var resp *http.Response
+	for {
+		var err error
+		resp, err = o.http.postStream(ctx, "/chat/completions", body)
+		if err != nil {
+			return nil, fmt.Errorf("openai stream: %w", err)
+		}
+		if resp.StatusCode == http.StatusOK {
+			break
+		}
 		apiErr := newAPIError(resp)
 		resp.Body.Close()
+		if maxTokensParamRejected(apiErr.StatusCode, apiErr.Body) && useMaxCompletionTokens(body) {
+			o.maxCompletionTokens.Store(true)
+			continue
+		}
 		return nil, fmt.Errorf("openai stream: %w", apiErr)
 	}
 
@@ -170,6 +198,31 @@ func buildOpenAIRequestBody(req *ChatRequest, defaultModel string, stream bool) 
 		body["stream"] = true
 	}
 	return body
+}
+
+// maxTokensParamRejected reports whether an API error says the target model
+// rejects the legacy "max_tokens" parameter in favour of
+// "max_completion_tokens" (OpenAI reasoning and newer GPT models, including
+// Azure deployments of them).
+func maxTokensParamRejected(status int, body string) bool {
+	if status != http.StatusBadRequest {
+		return false
+	}
+	lower := strings.ToLower(body)
+	return strings.Contains(lower, "max_tokens") && strings.Contains(lower, "max_completion_tokens")
+}
+
+// useMaxCompletionTokens rewrites body to send the output-token cap as
+// "max_completion_tokens". It reports whether the body changed, so callers can
+// retry at most once per request.
+func useMaxCompletionTokens(body map[string]any) bool {
+	v, ok := body["max_tokens"]
+	if !ok {
+		return false
+	}
+	delete(body, "max_tokens")
+	body["max_completion_tokens"] = v
+	return true
 }
 
 // convertOpenAIResponse maps the raw API response to a ChatResponse.

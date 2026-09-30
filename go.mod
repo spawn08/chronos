@@ -16,6 +16,8 @@ require (
 	github.com/tetratelabs/wazero v1.12.0
 	github.com/tiktoken-go/tokenizer v0.7.0
 	go.mongodb.org/mongo-driver v1.17.9
+	golang.org/x/term v0.45.0
+	golang.org/x/text v0.40.0
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.34.9
 	k8s.io/apimachinery v0.34.9
@@ -85,8 +87,6 @@ require (
 	golang.org/x/oauth2 v0.27.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/term v0.45.0 // indirect
-	golang.org/x/text v0.40.0 // indirect
 	golang.org/x/time v0.9.0 // indirect
 	golang.org/x/tools v0.47.0 // indirect
 	google.golang.org/protobuf v1.36.5 // indirect

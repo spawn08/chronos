@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync/atomic"
 )
 
 // AzureOpenAI implements Provider for Azure-hosted OpenAI models. Standard
@@ -17,6 +18,11 @@ type AzureOpenAI struct {
 	deployment string
 	apiVersion string
 	http       *httpClient
+	// maxCompletionTokens is set once the deployment rejects "max_tokens"
+	// (newer OpenAI models), so later requests send "max_completion_tokens"
+	// directly. Deployment names are arbitrary, so this is learned from the
+	// API error rather than inferred from the name.
+	maxCompletionTokens atomic.Bool
 }
 
 // AzureConfig extends ProviderConfig with Azure-specific fields.
@@ -99,16 +105,28 @@ func (a *AzureOpenAI) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse
 	if !a.usesV1API() {
 		delete(body, "model") // classic surface uses the deployment name in the URL
 	}
-
-	resp, err := a.http.post(ctx, a.chatPath(), body)
-	if err != nil {
-		return nil, fmt.Errorf("azure openai chat: %w", err)
+	if a.maxCompletionTokens.Load() {
+		useMaxCompletionTokens(body)
 	}
-	if resp.StatusCode != http.StatusOK {
+
+	var resp *http.Response
+	for {
+		var err error
+		resp, err = a.http.post(ctx, a.chatPath(), body)
+		if err != nil {
+			return nil, fmt.Errorf("azure openai chat: %w", err)
+		}
+		if resp.StatusCode == http.StatusOK {
+			break
+		}
 		errMsg := readErrorBody(resp)
 		drainAndClose(resp.Body)
 		if azureReasoningToolConflict(resp.StatusCode, errMsg, req) {
 			return a.responsesChat(ctx, req)
+		}
+		if maxTokensParamRejected(resp.StatusCode, errMsg) && useMaxCompletionTokens(body) {
+			a.maxCompletionTokens.Store(true)
+			continue
 		}
 		return nil, fmt.Errorf("azure openai chat: %s", errMsg)
 	}
@@ -153,6 +171,9 @@ func (a *AzureOpenAI) StreamChat(ctx context.Context, req *ChatRequest) (<-chan 
 	if !a.usesV1API() {
 		delete(body, "model") // classic surface uses the deployment name in the URL
 	}
+	if a.maxCompletionTokens.Load() {
+		useMaxCompletionTokens(body)
+	}
 	if responsesMode {
 		path = a.responsesPath()
 		body = buildResponsesRequestBody(req, a.deployment, true)
@@ -174,6 +195,10 @@ func (a *AzureOpenAI) StreamChat(ctx context.Context, req *ChatRequest) (<-chan 
 			responsesMode = true
 			path = a.responsesPath()
 			body = buildResponsesRequestBody(req, a.deployment, true)
+			continue
+		}
+		if !responsesMode && maxTokensParamRejected(resp.StatusCode, errMsg) && useMaxCompletionTokens(body) {
+			a.maxCompletionTokens.Store(true)
 			continue
 		}
 		return nil, fmt.Errorf("azure openai stream: %s", errMsg)
