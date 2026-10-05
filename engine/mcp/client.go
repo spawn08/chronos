@@ -43,6 +43,9 @@ type Transport string
 const (
 	TransportStdio Transport = "stdio"
 	TransportSSE   Transport = "sse"
+	// TransportStreamableHTTP is MCP streamable HTTP (2025-03-26). "http" is
+	// accepted as an alias and normalized by NewClient.
+	TransportStreamableHTTP Transport = "streamable-http"
 )
 
 // deadlineReader is satisfied by readers whose underlying file descriptor
@@ -59,6 +62,11 @@ type ServerConfig struct {
 	Command   string    `json:"command,omitempty" yaml:"command,omitempty"`
 	Args      []string  `json:"args,omitempty" yaml:"args,omitempty"`
 	URL       string    `json:"url,omitempty" yaml:"url,omitempty"`
+	// Headers are static request headers for the HTTP transports (for
+	// example Authorization). ${VAR} and ${VAR:-default} are expanded from
+	// the environment when the client is created. Values are never printed
+	// by ServerConfig.String.
+	Headers map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
 	// Permission overrides the default per-tool permission applied when this
 	// server's tools are registered. Empty keeps the safe default
 	// ("require_approval"); "allow" auto-approves read-only trusted servers so
@@ -144,6 +152,9 @@ type Client struct {
 	pendingMu   sync.Mutex
 	endpointURL string
 	pending     map[int64]chan jsonrpcResponse
+	// Streamable HTTP session state (guarded by pendingMu).
+	sessionID       string
+	protocolVersion string
 }
 
 // ServerInfo holds the server's initialization response.
@@ -160,6 +171,9 @@ type ServerInfo struct {
 func NewClient(cfg ServerConfig) (*Client, error) {
 	if cfg.Transport == "" {
 		cfg.Transport = TransportStdio
+	}
+	if cfg.Transport == "http" {
+		cfg.Transport = TransportStreamableHTTP
 	}
 	c := &Client{config: cfg}
 	switch cfg.Transport {
@@ -182,8 +196,15 @@ func NewClient(cfg ServerConfig) (*Client, error) {
 				TLSHandshakeTimeout: 10 * time.Second,
 			},
 		}
+	case TransportStreamableHTTP:
+		if cfg.URL == "" {
+			return nil, fmt.Errorf("mcp: url is required for streamable-http transport (config %q)", cfg.Name)
+		}
+		if err := c.initStreamableHTTP(); err != nil {
+			return nil, err
+		}
 	default:
-		return nil, fmt.Errorf("mcp: unknown transport %q (supported: stdio, sse)", cfg.Transport)
+		return nil, fmt.Errorf("mcp: unknown transport %q (supported: stdio, sse, streamable-http)", cfg.Transport)
 	}
 
 	return c, nil
@@ -193,8 +214,11 @@ func NewClient(cfg ServerConfig) (*Client, error) {
 // For stdio it starts the subprocess; for SSE it opens the event stream and
 // waits for the endpoint event before handshaking.
 func (c *Client) Connect(ctx context.Context) error {
-	if c.config.Transport == TransportSSE {
+	switch c.config.Transport {
+	case TransportSSE:
 		return c.connectSSE(ctx)
+	case TransportStreamableHTTP:
+		return c.connectStreamableHTTP(ctx)
 	}
 
 	c.mu.Lock()
@@ -204,6 +228,7 @@ func (c *Client) Connect(ctx context.Context) error {
 	// per-call ctx must not kill the shared process: use exec.Command (not
 	// CommandContext) here.
 	cmd := exec.Command(c.config.Command, c.config.Args...)
+	configureProcessGroup(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return fmt.Errorf("mcp: stdin pipe: %w", err)
@@ -377,8 +402,12 @@ func (c *Client) Config() ServerConfig {
 // it can tear down a client even while a call is stuck in a read. Close is
 // idempotent and safe to call multiple times.
 func (c *Client) Close() error {
-	if c.config.Transport == TransportSSE {
+	switch c.config.Transport {
+	case TransportSSE:
 		c.closeSSE()
+		return nil
+	case TransportStreamableHTTP:
+		c.closeHTTP()
 		return nil
 	}
 	c.closeProcess()
@@ -403,7 +432,7 @@ func (c *Client) closeProcess() {
 	if c.cmd != nil && c.cmd.Process != nil {
 		// SIGKILL is uncatchable, so even a hung server is reaped and Wait
 		// returns promptly once the OS tears the process down.
-		_ = c.cmd.Process.Kill()
+		killProcessGroup(c.cmd)
 		_ = c.cmd.Wait()
 	}
 }
@@ -413,8 +442,11 @@ func (c *Client) closeProcess() {
 // response inline; for SSE it POSTs the request and awaits the correlated
 // response delivered over the event stream.
 func (c *Client) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
-	if c.config.Transport == TransportSSE {
+	switch c.config.Transport {
+	case TransportSSE:
 		return c.callSSE(ctx, method, params)
+	case TransportStreamableHTTP:
+		return c.callHTTP(ctx, method, params)
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -558,8 +590,11 @@ func readMessage(r *bufio.Reader, limit int) ([]byte, error) {
 }
 
 func (c *Client) notify(method string, params any) error {
-	if c.config.Transport == TransportSSE {
+	switch c.config.Transport {
+	case TransportSSE:
 		return c.notifySSE(method, params)
+	case TransportStreamableHTTP:
+		return c.notifyHTTP(method, params)
 	}
 	req := struct {
 		JSONRPC string `json:"jsonrpc"`
