@@ -140,3 +140,64 @@ func TestAggregateStreamReasoning(t *testing.T) {
 		t.Fatalf("response = %#v", resp)
 	}
 }
+
+func TestAnthropicAdaptiveThinkingRequest(t *testing.T) {
+	for _, model := range []string{"claude-sonnet-5-5", "claude-opus-5-5", "claude-opus-4-6", "us.anthropic.claude-sonnet-4-6", "claude-fable-5-1"} {
+		provider := NewAnthropicWithConfig(ProviderConfig{Model: model})
+		body := provider.buildRequestBody(&ChatRequest{
+			Messages:  []Message{{Role: RoleUser, Content: "solve"}},
+			Reasoning: &ReasoningConfig{Enabled: true, Effort: "high", BudgetTokens: 2048},
+		}, false)
+		thinking, ok := body["thinking"].(map[string]any)
+		if !ok || thinking["type"] != "adaptive" || thinking["budget_tokens"] != nil {
+			t.Fatalf("%s: thinking = %#v, want adaptive without budget", model, body["thinking"])
+		}
+		output, ok := body["output_config"].(map[string]any)
+		if !ok || output["effort"] != "high" {
+			t.Fatalf("%s: output_config = %#v, want effort high", model, body["output_config"])
+		}
+		if body["max_tokens"] != 4096 {
+			t.Fatalf("%s: max_tokens = %v, want the default 4096", model, body["max_tokens"])
+		}
+	}
+}
+
+func TestAnthropicAdaptiveThinkingWithoutEffortOmitsOutputConfig(t *testing.T) {
+	provider := NewAnthropicWithConfig(ProviderConfig{Model: "claude-opus-5-5"})
+	body := provider.buildRequestBody(&ChatRequest{
+		Messages:  []Message{{Role: RoleUser, Content: "solve"}},
+		Reasoning: &ReasoningConfig{Enabled: true},
+	}, false)
+	if thinking, _ := body["thinking"].(map[string]any); thinking["type"] != "adaptive" {
+		t.Fatalf("thinking = %#v, want adaptive", body["thinking"])
+	}
+	if body["output_config"] != nil {
+		t.Fatalf("output_config = %#v, want none", body["output_config"])
+	}
+}
+
+func TestAnthropicAdaptiveThinkingModels(t *testing.T) {
+	cases := map[string]bool{
+		"claude-sonnet-5-5":          true,
+		"claude-sonnet-5":            true,
+		"claude-opus-4-8":            true,
+		"claude-opus-4-6":            true,
+		"claude-sonnet-4-6":          true,
+		"anthropic.claude-opus-5-5":  true,
+		"claude-fable-5":             true,
+		"claude-mythos-5-1":          true,
+		"claude-sonnet-4-5-20250929": false,
+		"claude-opus-4-5-20251101":   false,
+		"claude-sonnet-4-20250514":   false,
+		"claude-haiku-4-5-20251001":  false,
+		"claude-haiku-4-5":           false,
+		"claude-3-5-sonnet-20241022": false,
+		"claude-test":                false,
+		"my-azure-deployment":        false,
+	}
+	for model, want := range cases {
+		if got := anthropicAdaptiveThinking(model); got != want {
+			t.Errorf("anthropicAdaptiveThinking(%q) = %v, want %v", model, got, want)
+		}
+	}
+}

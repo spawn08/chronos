@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -173,10 +175,19 @@ func (a *Anthropic) buildRequestBody(req *ChatRequest, stream bool) map[string]a
 		body["stop_sequences"] = req.Stop
 	}
 	if req.Reasoning != nil && req.Reasoning.Enabled {
-		budget := anthropicThinkingBudget(req.Reasoning)
-		body["thinking"] = map[string]any{"type": "enabled", "budget_tokens": budget}
-		if maxTokens, _ := body["max_tokens"].(int); maxTokens <= budget {
-			body["max_tokens"] = budget + 4096
+		if anthropicAdaptiveThinking(modelID) {
+			// Claude 4.6 and later reject (4.7+) or deprecate (4.6) a fixed
+			// thinking budget; depth is set with output_config.effort.
+			body["thinking"] = map[string]any{"type": "adaptive"}
+			if effort := anthropicEffort(req.Reasoning.Effort); effort != "" {
+				body["output_config"] = map[string]any{"effort": effort}
+			}
+		} else {
+			budget := anthropicThinkingBudget(req.Reasoning)
+			body["thinking"] = map[string]any{"type": "enabled", "budget_tokens": budget}
+			if maxTokens, _ := body["max_tokens"].(int); maxTokens <= budget {
+				body["max_tokens"] = budget + 4096
+			}
 		}
 	}
 	if len(req.Tools) > 0 {
@@ -203,6 +214,42 @@ func (a *Anthropic) buildRequestBody(req *ChatRequest, stream bool) map[string]a
 	}
 	appendUncachedTail(body, uncached)
 	return body
+}
+
+// anthropicModelVersion matches the family and version in a Claude model id,
+// with or without a platform prefix (anthropic., us.anthropic.) or a date
+// suffix: claude-opus-4-6, claude-sonnet-5-5, claude-sonnet-4-5-20250929.
+var anthropicModelVersion = regexp.MustCompile(`claude-(opus|sonnet|haiku|fable|mythos)-(\d+)(?:[-.](\d{1,2}))?(?:\D|$)`)
+
+// anthropicAdaptiveThinking reports whether a model takes adaptive thinking
+// instead of a thinking budget: Fable and Mythos, and Opus/Sonnet 4.6 and
+// later. Haiku, older models and ids that are not recognized (custom
+// deployment names) keep the budget form.
+func anthropicAdaptiveThinking(modelID string) bool {
+	m := anthropicModelVersion.FindStringSubmatch(strings.ToLower(modelID))
+	if m == nil {
+		return false
+	}
+	switch m[1] {
+	case "fable", "mythos":
+		return true
+	case "haiku":
+		return false
+	}
+	major, _ := strconv.Atoi(m[2])
+	minor, _ := strconv.Atoi(m[3])
+	return major > 4 || (major == 4 && minor >= 6)
+}
+
+// anthropicEffort maps a reasoning effort to an output_config.effort value.
+// An empty or unknown effort leaves the model default.
+func anthropicEffort(effort string) string {
+	switch e := strings.ToLower(strings.TrimSpace(effort)); e {
+	case "low", "medium", "high", "xhigh", "max":
+		return e
+	default:
+		return ""
+	}
 }
 
 func anthropicThinkingBudget(cfg *ReasoningConfig) int {
