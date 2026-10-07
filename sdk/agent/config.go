@@ -90,6 +90,9 @@ type ModelConfig struct {
 	BaseURL    string `yaml:"base_url,omitempty"`
 	OrgID      string `yaml:"org_id,omitempty"`
 	TimeoutSec int    `yaml:"timeout_sec,omitempty"`
+	// PromptCacheTTL is the static-prefix cache lifetime ("1h" or empty for
+	// the provider default). CHRONOS_PROMPT_CACHE_TTL supplies it when unset.
+	PromptCacheTTL string `yaml:"prompt_cache_ttl,omitempty"`
 
 	// Azure-specific
 	Endpoint   string `yaml:"endpoint,omitempty"`
@@ -723,7 +726,8 @@ func buildProvider(cfg ModelConfig) (model.Provider, error) {
 		}
 		return model.NewAnthropicWithConfig(model.ProviderConfig{
 			APIKey: firstNonEmpty(apiKey, os.Getenv("ANTHROPIC_API_KEY")), Model: modelID, BaseURL: cfg.BaseURL,
-			TimeoutSec: cfg.TimeoutSec,
+			TimeoutSec:     cfg.TimeoutSec,
+			PromptCacheTTL: firstNonEmpty(cfg.PromptCacheTTL, os.Getenv("CHRONOS_PROMPT_CACHE_TTL")),
 		}), nil
 
 	case "gemini", "google":

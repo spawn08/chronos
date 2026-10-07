@@ -154,13 +154,20 @@ func (a *Anthropic) buildRequestBody(req *ChatRequest, stream bool) map[string]a
 			blocks := []map[string]any{{
 				"type":          "text",
 				"text":          systemParts[0],
-				"cache_control": ephemeralCache(),
+				"cache_control": prefixCache(a.config.PromptCacheTTL),
 			}}
 			if len(systemParts) > 1 {
-				blocks = append(blocks, map[string]any{
+				rest := map[string]any{
 					"type": "text",
 					"text": strings.Join(systemParts[1:], "\n\n"),
-				})
+				}
+				if a.config.PromptCacheTTL == "1h" {
+					// The pinned system context (project docs, skill
+					// catalog) is stable within a session: give it its own
+					// long-lived checkpoint so a resumed session reads it.
+					rest["cache_control"] = prefixCache(a.config.PromptCacheTTL)
+				}
+				blocks = append(blocks, rest)
 			}
 			body["system"] = blocks
 		}
@@ -200,7 +207,7 @@ func (a *Anthropic) buildRequestBody(req *ChatRequest, stream bool) map[string]a
 			}
 		}
 		if promptCacheEnabled(req) {
-			attachEphemeralCache(tools[len(tools)-1])
+			tools[len(tools)-1]["cache_control"] = prefixCache(a.config.PromptCacheTTL)
 		}
 		body["tools"] = tools
 	}

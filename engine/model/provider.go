@@ -264,4 +264,10 @@ type ProviderConfig struct {
 	TimeoutSec    int    `json:"timeout_sec,omitempty"`
 	OrgID         string `json:"org_id,omitempty"`
 	ContextWindow int    `json:"context_window,omitempty"` // override default context window size for the model
+	// PromptCacheTTL sets the cache lifetime of the static prompt prefix
+	// (tool definitions and system prompt) on providers with explicit cache
+	// breakpoints. "" keeps the provider default (5 minutes on Anthropic);
+	// "1h" keeps the prefix cached across idle gaps of up to an hour. The
+	// growing conversation tail always uses the default lifetime.
+	PromptCacheTTL string `json:"prompt_cache_ttl,omitempty"`
 }

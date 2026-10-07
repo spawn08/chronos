@@ -47,3 +47,50 @@ func TestAnthropic_UncachedTailAfterAssistantAddsUserMessage(t *testing.T) {
 		t.Fatalf("system = %#v, want none", body["system"])
 	}
 }
+
+func TestAnthropic_PrefixCacheTTLAppliesToToolsAndSystemOnly(t *testing.T) {
+	p := NewAnthropicWithConfig(ProviderConfig{APIKey: "test", PromptCacheTTL: "1h"})
+	body := p.buildRequestBody(&ChatRequest{
+		Tools: []ToolDefinition{{Type: "function", Function: FunctionDef{Name: "shell", Parameters: map[string]any{"type": "object"}}}},
+		Messages: []Message{
+			{Role: RoleSystem, Content: "static prompt"},
+			{Role: RoleSystem, Content: "pinned project docs"},
+			{Role: RoleUser, Content: "do it"},
+		},
+	}, false)
+
+	tools, _ := body["tools"].([]map[string]any)
+	if cc, _ := tools[0]["cache_control"].(map[string]any); cc["ttl"] != "1h" {
+		t.Fatalf("tool cache_control = %#v, want ttl 1h", tools[0]["cache_control"])
+	}
+	system, _ := body["system"].([]map[string]any)
+	if len(system) != 2 {
+		t.Fatalf("system = %#v, want two blocks", body["system"])
+	}
+	for i, block := range system {
+		if cc, _ := block["cache_control"].(map[string]any); cc["ttl"] != "1h" {
+			t.Fatalf("system[%d] cache_control = %#v, want ttl 1h", i, block["cache_control"])
+		}
+	}
+	msgs, _ := body["messages"].([]map[string]any)
+	last, _ := msgs[len(msgs)-1]["content"].([]map[string]any)
+	if cc, _ := last[0]["cache_control"].(map[string]any); cc == nil || cc["ttl"] != nil {
+		t.Fatalf("message cache_control = %#v, want the default 5-minute checkpoint", last[0]["cache_control"])
+	}
+}
+
+func TestAnthropic_DefaultPrefixCacheKeepsThreeBreakpoints(t *testing.T) {
+	p := NewAnthropic("test")
+	body := p.buildRequestBody(&ChatRequest{Messages: []Message{
+		{Role: RoleSystem, Content: "static prompt"},
+		{Role: RoleSystem, Content: "pinned project docs"},
+		{Role: RoleUser, Content: "do it"},
+	}}, false)
+	system, _ := body["system"].([]map[string]any)
+	if cc, _ := system[0]["cache_control"].(map[string]any); cc == nil || cc["ttl"] != nil {
+		t.Fatalf("system[0] cache_control = %#v, want default checkpoint", system[0]["cache_control"])
+	}
+	if system[1]["cache_control"] != nil {
+		t.Fatalf("system[1] cache_control = %#v, want none without a TTL", system[1]["cache_control"])
+	}
+}

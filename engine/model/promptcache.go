@@ -7,6 +7,17 @@ func ephemeralCache() map[string]any {
 	return map[string]any{"type": "ephemeral"}
 }
 
+// prefixCache is the checkpoint for the static prompt prefix. ttl "1h"
+// requests Anthropic's one-hour cache; any other value keeps the default.
+// A one-hour entry must precede every five-minute entry in the request,
+// which holds because tools and system render before messages.
+func prefixCache(ttl string) map[string]any {
+	if ttl == "1h" {
+		return map[string]any{"type": "ephemeral", "ttl": "1h"}
+	}
+	return ephemeralCache()
+}
+
 func promptCacheEnabled(req *ChatRequest) bool {
 	return req != nil && !req.DisablePromptCache
 }
