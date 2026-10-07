@@ -93,6 +93,9 @@ type ModelConfig struct {
 	// PromptCacheTTL is the static-prefix cache lifetime ("1h" or empty for
 	// the provider default). CHRONOS_PROMPT_CACHE_TTL supplies it when unset.
 	PromptCacheTTL string `yaml:"prompt_cache_ttl,omitempty"`
+	// PromptCacheTailTTL is the conversation-tail cache lifetime ("1h" or
+	// empty). CHRONOS_PROMPT_CACHE_TAIL_TTL supplies it when unset.
+	PromptCacheTailTTL string `yaml:"prompt_cache_tail_ttl,omitempty"`
 
 	// Azure-specific
 	Endpoint   string `yaml:"endpoint,omitempty"`
@@ -726,8 +729,9 @@ func buildProvider(cfg ModelConfig) (model.Provider, error) {
 		}
 		return model.NewAnthropicWithConfig(model.ProviderConfig{
 			APIKey: firstNonEmpty(apiKey, os.Getenv("ANTHROPIC_API_KEY")), Model: modelID, BaseURL: cfg.BaseURL,
-			TimeoutSec:     cfg.TimeoutSec,
-			PromptCacheTTL: firstNonEmpty(cfg.PromptCacheTTL, os.Getenv("CHRONOS_PROMPT_CACHE_TTL")),
+			TimeoutSec:         cfg.TimeoutSec,
+			PromptCacheTTL:     firstNonEmpty(cfg.PromptCacheTTL, os.Getenv("CHRONOS_PROMPT_CACHE_TTL")),
+			PromptCacheTailTTL: firstNonEmpty(cfg.PromptCacheTailTTL, os.Getenv("CHRONOS_PROMPT_CACHE_TAIL_TTL")),
 		}), nil
 
 	case "gemini", "google":

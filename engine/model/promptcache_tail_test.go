@@ -94,3 +94,31 @@ func TestAnthropic_DefaultPrefixCacheKeepsThreeBreakpoints(t *testing.T) {
 		t.Fatalf("system[1] cache_control = %#v, want none without a TTL", system[1]["cache_control"])
 	}
 }
+
+func TestAnthropic_TailCacheTTL(t *testing.T) {
+	tailTTL := func(cfg ProviderConfig) any {
+		t.Helper()
+		cfg.APIKey = "test"
+		body := NewAnthropicWithConfig(cfg).buildRequestBody(&ChatRequest{Messages: []Message{
+			{Role: RoleSystem, Content: "static prompt"},
+			{Role: RoleUser, Content: "do it"},
+		}}, false)
+		msgs, _ := body["messages"].([]map[string]any)
+		last, _ := msgs[len(msgs)-1]["content"].([]map[string]any)
+		cc, _ := last[len(last)-1]["cache_control"].(map[string]any)
+		if cc == nil {
+			t.Fatalf("last message has no cache breakpoint: %#v", msgs)
+		}
+		return cc["ttl"]
+	}
+	if got := tailTTL(ProviderConfig{PromptCacheTTL: "1h", PromptCacheTailTTL: "1h"}); got != "1h" {
+		t.Errorf("tail ttl = %v, want 1h", got)
+	}
+	if got := tailTTL(ProviderConfig{PromptCacheTTL: "1h"}); got != nil {
+		t.Errorf("tail ttl without the tail setting = %v, want default", got)
+	}
+	// A one-hour tail after a five-minute prefix is rejected by the API.
+	if got := tailTTL(ProviderConfig{PromptCacheTailTTL: "1h"}); got != nil {
+		t.Errorf("tail ttl with a default prefix = %v, want default", got)
+	}
+}

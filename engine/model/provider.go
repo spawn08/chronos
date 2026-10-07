@@ -268,6 +268,13 @@ type ProviderConfig struct {
 	// (tool definitions and system prompt) on providers with explicit cache
 	// breakpoints. "" keeps the provider default (5 minutes on Anthropic);
 	// "1h" keeps the prefix cached across idle gaps of up to an hour. The
-	// growing conversation tail always uses the default lifetime.
+	// growing conversation tail uses PromptCacheTailTTL.
 	PromptCacheTTL string `json:"prompt_cache_ttl,omitempty"`
+	// PromptCacheTailTTL sets the cache lifetime of the conversation tail
+	// (the breakpoint on the last message). "1h" keeps a whole session cached
+	// across idle gaps of up to an hour, so a resumed session reads its
+	// transcript instead of writing it again; each turn's new tokens then cost
+	// the one-hour write price instead of the five-minute one. It applies only
+	// when PromptCacheTTL is also "1h". "" keeps the provider default.
+	PromptCacheTailTTL string `json:"prompt_cache_tail_ttl,omitempty"`
 }

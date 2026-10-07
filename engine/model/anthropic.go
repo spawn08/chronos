@@ -216,7 +216,7 @@ func (a *Anthropic) buildRequestBody(req *ChatRequest, stream bool) map[string]a
 	}
 	if promptCacheEnabled(req) {
 		if msgs, ok := body["messages"].([]map[string]any); ok && len(msgs) > 0 {
-			cacheLastContentBlock(msgs[len(msgs)-1])
+			cacheLastContentBlock(msgs[len(msgs)-1], tailCache(a.config.PromptCacheTTL, a.config.PromptCacheTailTTL))
 		}
 	}
 	appendUncachedTail(body, uncached)
