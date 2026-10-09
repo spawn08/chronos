@@ -86,3 +86,15 @@ func TestAnthropicRefusalMapsToContentFilter(t *testing.T) {
 		t.Fatalf("refusal = %q, want %q", cr.StopReason, StopReasonFilter)
 	}
 }
+
+// Bedrock and Vertex forms of a Claude ID resolve to the first-party window.
+func TestKnownContextLimitPlatformModelIDs(t *testing.T) {
+	for _, id := range []string{"anthropic.claude-sonnet-5-5", "us.anthropic.claude-opus-4-6-v1", "global.anthropic.claude-opus-4-6-v1:0", "claude-opus-4-6@20260101"} {
+		if limit, ok := KnownContextLimit(id); !ok || limit != 1000000 {
+			t.Errorf("KnownContextLimit(%q) = (%d, %v), want 1M", id, limit, ok)
+		}
+	}
+	if _, ok := KnownContextLimit("anthropic.titan-text"); ok {
+		t.Error("an unknown Bedrock model resolved to a window")
+	}
+}

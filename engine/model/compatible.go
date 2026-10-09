@@ -99,7 +99,11 @@ func (c *OpenAICompatible) applyPromptCache(body map[string]any, req *ChatReques
 	if c.providerName != "openrouter" || req == nil || req.DisablePromptCache {
 		return
 	}
-	if strings.Contains(strings.ToLower(c.config.Model), "claude") {
+	modelID := req.Model
+	if modelID == "" {
+		modelID = c.config.Model
+	}
+	if strings.Contains(strings.ToLower(modelID), "claude") {
 		body["cache_control"] = map[string]any{"type": "ephemeral"}
 	}
 }

@@ -2,6 +2,8 @@ package model
 
 import (
 	"fmt"
+	"regexp"
+	"strings"
 	"sync/atomic"
 
 	"github.com/tiktoken-go/tokenizer"
@@ -157,8 +159,26 @@ func KnownContextLimit(modelName string) (int, bool) {
 			return limit, true
 		}
 	}
-	limit, ok := modelContextLimits[modelName]
+	if limit, ok := modelContextLimits[modelName]; ok {
+		return limit, true
+	}
+	limit, ok := modelContextLimits[platformModelID(modelName)]
 	return limit, ok
+}
+
+// Platform forms of a Claude model ID: Bedrock's "anthropic." vendor prefix
+// with an optional inference-profile region ("us.", "global."), a Bedrock
+// "-vN[:M]" version suffix, and Vertex's "@date" snapshot.
+var (
+	platformVendorPrefix = regexp.MustCompile(`^(?:[a-z]{2,6}\.)?anthropic\.`)
+	platformVersion      = regexp.MustCompile(`(?:-v\d+(?::\d+)?|@\d{8})$`)
+)
+
+// platformModelID reduces a Bedrock or Vertex Claude ID to the first-party ID
+// the window table uses, e.g. "us.anthropic.claude-opus-4-6-v1" to
+// "claude-opus-4-6".
+func platformModelID(modelName string) string {
+	return platformVersion.ReplaceAllString(platformVendorPrefix.ReplaceAllString(strings.ToLower(modelName), ""), "")
 }
 
 // ContextLimit returns the maximum context window (in tokens) for a model.

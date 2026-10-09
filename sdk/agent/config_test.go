@@ -171,8 +171,10 @@ agents:
 	if b.Model.Model != "claude-sonnet-4-6" {
 		t.Errorf("agent-b should override model, got %q", b.Model.Model)
 	}
-	if b.Model.APIKey != "default-key" {
-		t.Errorf("agent-b should inherit api_key, got %q", b.Model.APIKey)
+	// An OpenAI key must not travel to another provider; agent-b falls back
+	// to its own provider's credential (ANTHROPIC_API_KEY).
+	if b.Model.APIKey != "" {
+		t.Errorf("agent-b inherited another provider's api_key %q", b.Model.APIKey)
 	}
 }
 

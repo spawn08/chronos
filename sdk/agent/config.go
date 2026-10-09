@@ -1277,34 +1277,35 @@ func ApplyDefaults(cfg, defaults *AgentConfig) {
 	if cfg.Model.Provider == "" {
 		cfg.Model.Provider = defaults.Model.Provider
 	}
-	if cfg.Model.Model == "" {
-		cfg.Model.Model = defaults.Model.Model
-	}
-	if cfg.Model.APIKey == "" {
-		cfg.Model.APIKey = defaults.Model.APIKey
-	}
-	if cfg.Model.BaseURL == "" {
-		cfg.Model.BaseURL = defaults.Model.BaseURL
-	}
-	if cfg.Model.Endpoint == "" {
-		cfg.Model.Endpoint = defaults.Model.Endpoint
-	}
-	if cfg.Model.Deployment == "" {
-		cfg.Model.Deployment = defaults.Model.Deployment
-	}
-	if cfg.Model.APIVersion == "" {
-		cfg.Model.APIVersion = defaults.Model.APIVersion
-	}
-	if cfg.Model.OrgID == "" {
-		cfg.Model.OrgID = defaults.Model.OrgID
-	}
 	if cfg.Model.TimeoutSec == 0 {
 		cfg.Model.TimeoutSec = defaults.Model.TimeoutSec
 	}
-	// Region and cache lifetimes are provider-specific (an Anthropic "1h"
-	// means nothing to, or may be rejected by, another provider), so inherit
-	// them only within the same provider.
-	if cfg.Model.Provider == defaults.Model.Provider {
+	// Everything else is provider-specific: a model ID, credential, endpoint,
+	// region, or cache lifetime of one provider is wrong for another, and
+	// inheriting a key would send one provider's secret to another. Agents
+	// that name no provider inherit the default one above, so they keep it.
+	if strings.EqualFold(cfg.Model.Provider, defaults.Model.Provider) {
+		if cfg.Model.Model == "" {
+			cfg.Model.Model = defaults.Model.Model
+		}
+		if cfg.Model.APIKey == "" {
+			cfg.Model.APIKey = defaults.Model.APIKey
+		}
+		if cfg.Model.BaseURL == "" {
+			cfg.Model.BaseURL = defaults.Model.BaseURL
+		}
+		if cfg.Model.Endpoint == "" {
+			cfg.Model.Endpoint = defaults.Model.Endpoint
+		}
+		if cfg.Model.Deployment == "" {
+			cfg.Model.Deployment = defaults.Model.Deployment
+		}
+		if cfg.Model.APIVersion == "" {
+			cfg.Model.APIVersion = defaults.Model.APIVersion
+		}
+		if cfg.Model.OrgID == "" {
+			cfg.Model.OrgID = defaults.Model.OrgID
+		}
 		if cfg.Model.Region == "" {
 			cfg.Model.Region = defaults.Model.Region
 		}
