@@ -34,7 +34,7 @@ provider's model list for the authoritative, up-to-date IDs and snapshots.
 | Groq / Together / Fireworks | Hosted open models (Llama, Qwen, DeepSeek, …) | provider-specific |
 | DeepSeek | DeepSeek-V3, DeepSeek-R1 (reasoning) | `deepseek-chat` |
 | Cohere (Go SDK only) | Command R+, Command R, Command | `command-r-plus` |
-| AWS Bedrock (Go SDK only) | Claude, Titan, Llama, and other Bedrock-hosted models | `anthropic.claude-3-sonnet-20240229-v1:0` |
+| AWS Bedrock (`bedrock`) | Claude on the Bedrock Messages endpoint (`bedrock-mantle`) | `anthropic.claude-sonnet-5-5` |
 
 :::note
 Anthropic model IDs above are exact. OpenAI and Gemini IDs track the mid-2026
@@ -165,17 +165,33 @@ p := model.NewOpenAICompatibleWithConfig("vertex", model.ProviderConfig{
 ### AWS Bedrock
 
 ```go
-p := model.NewBedrock(region, accessKey, secretKey, "anthropic.claude-3-5-sonnet-20241022-v2:0")
+p := model.NewBedrock(region, accessKey, secretKey, "anthropic.claude-sonnet-5-5")
 
 // With config
 p := model.NewBedrockWithConfig(region, model.ProviderConfig{
     APIKey: accessKey,
-    Model:  "anthropic.claude-3-5-sonnet-20241022-v2:0",
+    Model:  "anthropic.claude-sonnet-5-5",
 }, secretKey)
 ```
 
-`Bedrock` is also Go-SDK-only — it is not one of the values accepted by the
-`provider:` field in `.chronos/agents.yaml` (see [YAML Configuration](#yaml-configuration)).
+`Bedrock` calls Claude through Amazon Bedrock's Messages endpoint,
+`https://bedrock-mantle.{region}.api.aws/anthropic/v1/messages`, with the same
+request, streaming, prompt caching, and tool handling as the `anthropic`
+provider. Model IDs carry the `anthropic.` prefix. Authentication, in order:
+SigV4 with the given access and secret key; else a bearer token (the API key,
+or `AWS_BEARER_TOKEN_BEDROCK`) sent as `x-api-key`; else SigV4 with the default
+AWS credential chain (environment, shared config, SSO, assumed roles, ECS,
+IMDS). The region comes from the argument, then `AWS_REGION`, then
+`AWS_DEFAULT_REGION`, then `us-east-1`.
+
+In YAML, use `provider: bedrock` with an optional `region:`:
+
+```yaml
+model:
+  provider: bedrock
+  model: anthropic.claude-sonnet-5-5
+  region: us-east-1
+```
 
 ### OpenAI-Compatible
 
@@ -299,12 +315,11 @@ agents:
       api_key: ${OPENAI_API_KEY}
 ```
 
-Supported YAML provider values: `openai`, `anthropic`, `gemini` (or `google`), `mistral`, `ollama`, `azure`, `groq`, `together`, `deepseek`, `openrouter`, `fireworks`, `perplexity`, `anyscale`, `compatible` (or `custom`).
+Supported YAML provider values: `openai`, `anthropic`, `bedrock`, `gemini` (or `google`), `mistral`, `ollama`, `azure`, `groq`, `together`, `deepseek`, `openrouter`, `fireworks`, `perplexity`, `anyscale`, `compatible` (or `custom`).
 
 :::note Go-SDK-only providers
-`Cohere` and `AWS Bedrock` are **not** in this enum — they can only be constructed
-directly in Go (`model.NewCohere`, `model.NewBedrock`), not selected via
-`provider:` in `.chronos/agents.yaml`. Embeddings providers (OpenAI, Ollama,
+`Cohere` is **not** in this enum — it can only be constructed directly in Go
+(`model.NewCohere`), not selected via `provider:` in `.chronos/agents.yaml`. Embeddings providers (OpenAI, Ollama,
 Azure, Google, Cohere) are Go-SDK-only entirely; there is no YAML config surface
 for embeddings.
 :::

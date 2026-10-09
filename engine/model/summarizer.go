@@ -11,6 +11,10 @@ import (
 type SummarizationConfig struct {
 	Threshold           float64 // fraction of context window that triggers summarization (default 0.8)
 	PreserveRecentTurns int     // number of recent user/assistant pairs to keep verbatim
+	// MaxPreservedTokens caps the verbatim tail; 0 keeps PreserveRecentTurns
+	// whatever its size. A tail that alone exceeds the trigger would make
+	// every later round compact again, rewriting the cached prompt each time.
+	MaxPreservedTokens int
 }
 
 // SummarizationResult holds the output of a summarization pass.
@@ -46,6 +50,12 @@ func (s *Summarizer) NeedsSummarization(systemTokens int, history []Message, con
 	return total > int(float64(contextLimit)*s.config.Threshold)
 }
 
+// TriggerTokens is the prompt size (system + history) above which
+// NeedsSummarization reports true for contextLimit.
+func (s *Summarizer) TriggerTokens(contextLimit int) int {
+	return int(float64(contextLimit) * s.config.Threshold)
+}
+
 // Summarize compresses older messages into a running summary. If an existing
 // summary is provided, it is incorporated into the new summary.
 func (s *Summarizer) Summarize(ctx context.Context, existingSummary string, messages []Message) (SummarizationResult, error) {
@@ -72,6 +82,20 @@ func (s *Summarizer) Summarize(ctx context.Context, existingSummary string, mess
 			Summary:           existingSummary,
 			PreservedMessages: messages,
 		}, nil
+	}
+	// Deep cut: drop the oldest kept messages, whole tool rounds at a time,
+	// until the tail fits its budget. The newest round always stays.
+	if limit := s.config.MaxPreservedTokens; limit > 0 {
+		for split < len(messages)-1 && s.counter.CountTokens(messages[split:]) > limit {
+			next := split + 1
+			for next < len(messages) && messages[next].Role == RoleTool {
+				next++
+			}
+			if next >= len(messages) {
+				break
+			}
+			split = next
+		}
 	}
 	toSummarize := messages[:split]
 	toKeep := messages[split:]
@@ -100,6 +124,11 @@ func (s *Summarizer) Summarize(ctx context.Context, existingSummary string, mess
 		return SummarizationResult{}, fmt.Errorf("summarize: %w", err)
 	}
 
+	// The kept tail was produced with the summarized turns before it, so its
+	// thinking blocks no longer verify behind the summary.
+	if AnthropicThinkingBoundToConversation(s.provider.Model()) {
+		toKeep = StripAnthropicThinking(toKeep)
+	}
 	return SummarizationResult{
 		Summary:           resp.Content,
 		PreservedMessages: toKeep,

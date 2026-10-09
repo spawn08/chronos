@@ -180,3 +180,34 @@ func TestReadStoredResult_NonStringValue(t *testing.T) {
 		t.Error("expected non-empty result")
 	}
 }
+
+// Dropping old turns edits the history later thinking was produced against:
+// bound models lose that thinking, others keep it, and an untrimmed request
+// is never touched.
+func TestEnforceRequestBudgetStripsBoundThinkingOnlyWhenTrimmed(t *testing.T) {
+	thinking := []map[string]any{{"type": "thinking", "thinking": "", "signature": "sig"}}
+	counter := model.NewTokenCounter("gpt-4")
+	var messages []model.Message
+	for i := 0; i < 10; i++ {
+		messages = append(messages,
+			model.Message{Role: model.RoleUser, Content: strings.Repeat("question ", 200)},
+			model.Message{Role: model.RoleAssistant, Content: "answer", ProviderState: thinking})
+	}
+	kept := func(msgs []model.Message) bool {
+		for _, m := range msgs {
+			if m.ProviderState != nil {
+				return true
+			}
+		}
+		return false
+	}
+	if got := enforceRequestBudget("claude-opus-5-5", counter, messages, 0, 1000); len(got) == len(messages) || kept(got) {
+		t.Fatalf("bound model after trim: %d of %d messages, thinking kept=%v", len(got), len(messages), kept(got))
+	}
+	if got := enforceRequestBudget("claude-opus-4-8", counter, messages, 0, 1000); !kept(got) {
+		t.Fatal("unbound model lost its thinking")
+	}
+	if got := enforceRequestBudget("claude-opus-5-5", counter, messages, 0, 1_000_000); !kept(got) {
+		t.Fatal("untrimmed request lost its thinking")
+	}
+}

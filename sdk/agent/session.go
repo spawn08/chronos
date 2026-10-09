@@ -452,14 +452,11 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 	// P1-009) so the compaction trigger and budget reflect actual token counts,
 	// not the 4-chars-per-token heuristic.
 	counter := model.NewTokenCounter(provider.Model())
-	contextLimit := a.resolveContextLimitFor(provider)
+	contextLimit := a.resolveContextLimitFor(ctx, provider)
 	systemTokens := counter.CountTokens(systemMsgs)
 
 	// Check if summarization is needed
-	summarizer := model.NewSummarizer(summarizerProvider{agent: a, provider: provider}, counter, model.SummarizationConfig{
-		Threshold:           a.ContextCfg.SummarizeThreshold,
-		PreserveRecentTurns: a.ContextCfg.PreserveRecentTurns,
-	})
+	summarizer := a.newAutoSummarizer(provider, counter, contextLimit)
 
 	if summarizer.NeedsSummarization(systemTokens, cs.Messages, contextLimit) {
 		_ = a.Hooks.Before(ctx, &hooks.Event{
@@ -515,15 +512,16 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 	// is trimmed; the full history remains in the ledger (cs.Messages). If the
 	// protected prefix alone exceeds the window (e.g. oversized pins) nothing more
 	// can be dropped — keep pins compact.
-	messages = enforceContextBudget(counter, messages, protectedPrefix, contextLimit)
+	messages = enforceRequestBudget(provider.Model(), counter, messages, protectedPrefix, contextLimit)
 
 	// Check input guardrails
 	if result := a.Guardrails.CheckInput(ctx, userMessage); result != nil {
 		return nil, fmt.Errorf("input guardrail failed: %s", result.Reason)
 	}
 
-	req := &model.ChatRequest{Messages: messages}
-	if a.ReasoningConfig.Enabled {
+	req := &model.ChatRequest{Messages: messages, CacheKey: a.promptCacheKey(ctx)}
+	// Effort applies even without native thinking (see ReasoningConfig).
+	if a.ReasoningConfig.Enabled || a.ReasoningConfig.Effort != "" {
 		reasoning := a.ReasoningConfig
 		req.Reasoning = &reasoning
 	}
@@ -574,7 +572,7 @@ func (a *Agent) ChatWithSession(ctx context.Context, sessionID, userMessage stri
 
 	// Handle tool calls across multiple rounds, threading the accumulated
 	// message history and passing the tool definitions on every follow-up.
-	recorder := a.newSessionRecorder(sessionID, cs, seqNum, systemMsgs, systemTokens, counter, contextLimit, summarizer)
+	recorder := a.newSessionRecorder(sessionID, cs, seqNum, systemMsgs, systemTokens, counter, provider.Model(), contextLimit, summarizer)
 	loop := a.newToolLoop(ctx, recorder)
 	var paused *ToolLoopAction
 	for resp.StopReason == model.StopReasonToolCall && len(resp.ToolCalls) > 0 {
@@ -686,12 +684,9 @@ func (a *Agent) ChatStreamWithSession(ctx context.Context, sessionID, userMessag
 		return nil, fmt.Errorf("persist user message: %w", err)
 	}
 	counter := model.NewTokenCounter(provider.Model())
-	contextLimit := a.resolveContextLimitFor(provider)
+	contextLimit := a.resolveContextLimitFor(ctx, provider)
 	systemTokens := counter.CountTokens(systemMsgs)
-	summarizer := model.NewSummarizer(summarizerProvider{agent: a, provider: provider}, counter, model.SummarizationConfig{
-		Threshold:           a.ContextCfg.SummarizeThreshold,
-		PreserveRecentTurns: a.ContextCfg.PreserveRecentTurns,
-	})
+	summarizer := a.newAutoSummarizer(provider, counter, contextLimit)
 	if summarizer.NeedsSummarization(systemTokens, cs.Messages, contextLimit) {
 		_ = a.Hooks.Before(ctx, &hooks.Event{
 			Type: hooks.EventContextOverflow,
@@ -736,7 +731,7 @@ func (a *Agent) ChatStreamWithSession(ctx context.Context, sessionID, userMessag
 		protectedPrefix++
 	}
 	messages = append(messages, cs.Messages...)
-	messages = enforceContextBudget(counter, messages, protectedPrefix, contextLimit)
+	messages = enforceRequestBudget(provider.Model(), counter, messages, protectedPrefix, contextLimit)
 
 	if result := a.Guardrails.CheckInput(ctx, userMessage); result != nil {
 		cs.mu.Unlock()
@@ -744,8 +739,9 @@ func (a *Agent) ChatStreamWithSession(ctx context.Context, sessionID, userMessag
 		return nil, fmt.Errorf("input guardrail failed: %s", result.Reason)
 	}
 
-	req := &model.ChatRequest{Messages: messages}
-	if a.ReasoningConfig.Enabled {
+	req := &model.ChatRequest{Messages: messages, CacheKey: a.promptCacheKey(ctx)}
+	// Effort applies even without native thinking (see ReasoningConfig).
+	if a.ReasoningConfig.Enabled || a.ReasoningConfig.Effort != "" {
 		reasoning := a.ReasoningConfig
 		req.Reasoning = &reasoning
 	}
@@ -761,7 +757,7 @@ func (a *Agent) ChatStreamWithSession(ctx context.Context, sessionID, userMessag
 		})
 	}
 
-	recorder := a.newSessionRecorder(sessionID, cs, seqNum, systemMsgs, systemTokens, counter, contextLimit, summarizer)
+	recorder := a.newSessionRecorder(sessionID, cs, seqNum, systemMsgs, systemTokens, counter, provider.Model(), contextLimit, summarizer)
 	out := make(chan *model.ChatResponse, 64)
 	go func() {
 		defer close(out)
@@ -834,12 +830,31 @@ func (a *Agent) buildSystemContext(ctx context.Context, userQuery string) []mode
 
 // resolveContextLimit determines the effective context window size for the model.
 func (a *Agent) resolveContextLimit() int {
-	return a.resolveContextLimitFor(a.Model)
+	return a.resolveContextLimitFor(context.Background(), a.Model)
 }
 
-func (a *Agent) resolveContextLimitFor(provider model.Provider) int {
-	if a.ContextCfg.MaxContextTokens > 0 {
-		return a.ContextCfg.MaxContextTokens
+// newAutoSummarizer builds the summarizer for automatic compaction. The kept
+// tail is capped at half the trigger, so one compaction lands well below it
+// and the next is far off.
+func (a *Agent) newAutoSummarizer(provider model.Provider, counter model.TokenCounter, contextLimit int) *model.Summarizer {
+	cfg := model.SummarizationConfig{
+		Threshold:           a.ContextCfg.SummarizeThreshold,
+		PreserveRecentTurns: a.ContextCfg.PreserveRecentTurns,
 	}
-	return model.ContextLimit(provider.Model(), 0)
+	trigger := model.NewSummarizer(nil, counter, cfg).TriggerTokens(contextLimit)
+	cfg.MaxPreservedTokens = trigger / 2
+	return model.NewSummarizer(summarizerProvider{agent: a, provider: provider}, counter, cfg)
+}
+
+func (a *Agent) resolveContextLimitFor(ctx context.Context, provider model.Provider) int {
+	limit := a.ContextCfg.MaxContextTokens
+	if limit <= 0 {
+		limit = model.ContextLimit(provider.Model(), 0)
+	}
+	// A deployment can serve less than the configured or catalog window
+	// (a local server's context setting); budget to what it serves.
+	if served, ok := model.ServedContextLimit(ctx, provider); ok && served < limit {
+		limit = served
+	}
+	return limit
 }

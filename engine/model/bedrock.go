@@ -1,224 +1,193 @@
 package model
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
-	"strings"
+	"os"
+	"sync"
+	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 )
 
-// Bedrock implements Provider for AWS Bedrock's InvokeModel API.
-// Supports Claude, Titan, Llama, and other models hosted on Bedrock.
+const (
+	bedrockDefaultModel  = "anthropic.claude-sonnet-5-5"
+	bedrockDefaultRegion = "us-east-1"
+	// bedrockSigningName is the SigV4 service name of the Mantle endpoint.
+	bedrockSigningName = "bedrock-mantle"
+)
+
+// Bedrock implements Provider for Claude in Amazon Bedrock through the Bedrock
+// Mantle Messages endpoint (https://bedrock-mantle.{region}.api.aws/anthropic).
+// That endpoint takes the first-party Messages request body and streams the
+// same SSE events, so Bedrock reuses the Anthropic provider for request
+// building, prompt caching, thinking and stream parsing; only the endpoint and
+// authentication differ. Model IDs carry an "anthropic." prefix, for example
+// "anthropic.claude-sonnet-5-5".
 type Bedrock struct {
-	config ProviderConfig
+	*Anthropic
 	region string
-	http   *httpClient
+	// sigv4 is the request signer; nil when a bearer token authenticates.
+	sigv4 *bedrockSigV4
 }
 
 // NewBedrock creates a Bedrock provider.
-// region is the AWS region (e.g., "us-east-1").
-// accessKey and secretKey are AWS credentials.
-// modelID is the Bedrock model identifier (e.g., "anthropic.claude-3-sonnet-20240229-v1:0").
+// region is the AWS region (e.g., "us-east-1"); empty falls back to AWS_REGION,
+// AWS_DEFAULT_REGION, then us-east-1.
+// accessKey and secretKey are static AWS credentials for SigV4 signing. When
+// either is empty, a bearer token from AWS_BEARER_TOKEN_BEDROCK is used if set,
+// otherwise the standard AWS credential chain signs requests.
+// modelID is the Bedrock model identifier (e.g., "anthropic.claude-sonnet-5-5").
 func NewBedrock(region, accessKey, secretKey, modelID string) *Bedrock {
-	baseURL := fmt.Sprintf("https://bedrock-runtime.%s.amazonaws.com", region)
-	return NewBedrockWithConfig(region, ProviderConfig{
-		APIKey:  accessKey,
-		BaseURL: baseURL,
-		Model:   modelID,
-	}, secretKey)
+	cfg := ProviderConfig{Model: modelID}
+	if accessKey == "" || secretKey == "" {
+		return NewBedrockWithConfig(region, cfg, "")
+	}
+	cfg.APIKey = accessKey
+	return NewBedrockWithConfig(region, cfg, secretKey)
 }
 
 // NewBedrockWithConfig creates a Bedrock provider with full configuration.
+// With a non-empty secretKey, cfg.APIKey is the AWS access key ID and requests
+// are SigV4-signed with those static credentials (or the default AWS
+// credential chain when cfg.APIKey is empty). With an empty secretKey,
+// cfg.APIKey is a Bedrock API key sent as a bearer token, falling back to
+// AWS_BEARER_TOKEN_BEDROCK and then to SigV4 with the default credential
+// chain. cfg.BaseURL overrides the regional endpoint (tests, VPC endpoints).
 func NewBedrockWithConfig(region string, cfg ProviderConfig, secretKey string) *Bedrock {
-	if cfg.BaseURL == "" {
-		cfg.BaseURL = fmt.Sprintf("https://bedrock-runtime.%s.amazonaws.com", region)
+	region = bedrockRegion(region)
+	if secretKey != "" {
+		accessKey := cfg.APIKey
+		cfg.APIKey = ""
+		if accessKey == "" {
+			return newBedrock(region, cfg, newBedrockDefaultCredentials(region))
+		}
+		return newBedrock(region, cfg, credentials.NewStaticCredentialsProvider(accessKey, secretKey, ""))
 	}
-	if cfg.Model == "" {
-		cfg.Model = "anthropic.claude-3-sonnet-20240229-v1:0"
+	if cfg.APIKey == "" {
+		cfg.APIKey = os.Getenv("AWS_BEARER_TOKEN_BEDROCK")
 	}
-	headers := map[string]string{
-		"Content-Type": "application/json",
-	}
-	// Note: In production, use AWS SigV4 signing. This simplified version
-	// uses bearer token auth for Bedrock endpoints behind API Gateway.
 	if cfg.APIKey != "" {
-		headers["Authorization"] = "Bearer " + cfg.APIKey
+		return newBedrock(region, cfg, nil)
 	}
-	return &Bedrock{
-		config: cfg,
-		region: region,
-		http:   newHTTPClient(cfg.BaseURL, cfg.TimeoutSec, headers, withMaxRetries(cfg.MaxRetries)),
-	}
+	return newBedrock(region, cfg, newBedrockDefaultCredentials(region))
 }
 
-func (b *Bedrock) Name() string  { return "bedrock" }
-func (b *Bedrock) Model() string { return b.config.Model }
+// newBedrock builds the provider. A nil creds authenticates with cfg.APIKey as
+// a bearer token; otherwise every request attempt is SigV4-signed with creds.
+func newBedrock(region string, cfg ProviderConfig, creds aws.CredentialsProvider) *Bedrock {
+	if cfg.BaseURL == "" {
+		cfg.BaseURL = fmt.Sprintf("https://bedrock-mantle.%s.api.aws/anthropic", region)
+	}
+	if cfg.Model == "" {
+		cfg.Model = bedrockDefaultModel
+	}
+	headers := map[string]string{"anthropic-version": "2023-06-01"}
+	b := &Bedrock{region: region}
+	var opts []httpOption
+	if creds == nil {
+		headers["x-api-key"] = cfg.APIKey
+	} else {
+		cfg.APIKey = ""
+		b.sigv4 = &bedrockSigV4{creds: creds, signer: v4.NewSigner(), region: region, now: time.Now}
+		opts = append(opts, withRequestSigner(b.sigv4.sign))
+	}
+	b.Anthropic = newAnthropicProvider(cfg, headers, opts...)
+	return b
+}
+
+// bedrockRegion resolves the endpoint region: the explicit value, then
+// AWS_REGION, then AWS_DEFAULT_REGION, then us-east-1.
+func bedrockRegion(region string) string {
+	for _, r := range []string{region, os.Getenv("AWS_REGION"), os.Getenv("AWS_DEFAULT_REGION")} {
+		if r != "" {
+			return r
+		}
+	}
+	return bedrockDefaultRegion
+}
+
+func (b *Bedrock) Name() string { return "bedrock" }
 
 func (b *Bedrock) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
-	body := b.buildRequestBody(req)
-	path := fmt.Sprintf("/model/%s/invoke", b.config.Model)
-
-	resp, err := b.http.post(ctx, path, body)
+	resp, err := b.Anthropic.Chat(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("bedrock chat: %w", err)
+		return nil, fmt.Errorf("bedrock: %w", err)
 	}
-	defer drainAndClose(resp.Body)
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("bedrock chat: %s", readErrorBody(resp))
-	}
-
-	var raw bedrockResponse
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
-		return nil, fmt.Errorf("bedrock chat decode: %w", err)
-	}
-	return b.convertResponse(&raw), nil
+	return resp, nil
 }
 
 func (b *Bedrock) StreamChat(ctx context.Context, req *ChatRequest) (<-chan *ChatResponse, error) {
-	body := b.buildRequestBody(req)
-	path := fmt.Sprintf("/model/%s/invoke-with-response-stream", b.config.Model)
-
-	resp, err := b.http.post(ctx, path, body)
+	ch, err := b.Anthropic.StreamChat(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("bedrock stream: %w", err)
+		return nil, fmt.Errorf("bedrock: %w", err)
 	}
-
-	if resp.StatusCode != http.StatusOK {
-		errMsg := readErrorBody(resp)
-		resp.Body.Close()
-		return nil, fmt.Errorf("bedrock stream: %s", errMsg)
-	}
-
-	ch := make(chan *ChatResponse, 64)
-	go func() {
-		defer resp.Body.Close()
-		defer close(ch)
-
-		scanner := bufio.NewScanner(resp.Body)
-		for scanner.Scan() {
-			line := scanner.Text()
-			if !strings.HasPrefix(line, "data: ") {
-				continue
-			}
-			data := strings.TrimPrefix(line, "data: ")
-			if data == "[DONE]" {
-				break
-			}
-			var event bedrockStreamEvent
-			if err := json.Unmarshal([]byte(data), &event); err != nil {
-				continue
-			}
-			if event.Delta.Text != "" {
-				ch <- &ChatResponse{
-					Content: event.Delta.Text,
-					Role:    RoleAssistant,
-					Delta:   true,
-				}
-			}
-		}
-	}()
-
 	return ch, nil
 }
 
-func (b *Bedrock) buildRequestBody(req *ChatRequest) map[string]any {
-	messages := make([]map[string]any, 0, len(req.Messages))
-	var systemPrompt string
-
-	for i := range req.Messages {
-		if req.Messages[i].Role == RoleSystem {
-			systemPrompt = req.Messages[i].Content
-			continue
-		}
-		messages = append(messages, map[string]any{
-			"role":    req.Messages[i].Role,
-			"content": req.Messages[i].Content,
-		})
-	}
-
-	body := map[string]any{
-		"anthropic_version": "bedrock-2023-05-31",
-		"messages":          messages,
-		"max_tokens":        req.MaxTokens,
-	}
-	if systemPrompt != "" {
-		body["system"] = systemPrompt
-	}
-	if req.Temperature > 0 {
-		body["temperature"] = req.Temperature
-	}
-	if req.MaxTokens <= 0 {
-		body["max_tokens"] = 4096
-	}
-
-	if len(req.Tools) > 0 {
-		tools := make([]map[string]any, len(req.Tools))
-		for i, t := range req.Tools {
-			tools[i] = map[string]any{
-				"name":         t.Function.Name,
-				"description":  t.Function.Description,
-				"input_schema": t.Function.Parameters,
-			}
-		}
-		body["tools"] = tools
-	}
-
-	return body
+// bedrockSigV4 signs Mantle requests with AWS Signature Version 4.
+type bedrockSigV4 struct {
+	creds  aws.CredentialsProvider
+	signer *v4.Signer
+	region string
+	// now supplies the signing time; injectable for tests.
+	now func() time.Time
 }
 
-type bedrockResponse struct {
-	ID      string `json:"id"`
-	Content []struct {
-		Type  string `json:"type"`
-		Text  string `json:"text,omitempty"`
-		ID    string `json:"id,omitempty"`
-		Name  string `json:"name,omitempty"`
-		Input any    `json:"input,omitempty"`
-	} `json:"content"`
-	StopReason string `json:"stop_reason"`
-	// Bedrock returns the Anthropic Messages usage shape.
-	Usage anthropicUsage `json:"usage"`
-}
-
-type bedrockStreamEvent struct {
-	Delta struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	} `json:"delta"`
-}
-
-func (b *Bedrock) convertResponse(raw *bedrockResponse) *ChatResponse {
-	resp := &ChatResponse{
-		ID:    raw.ID,
-		Role:  RoleAssistant,
-		Usage: usageFromAnthropic(raw.Usage),
+// sign authenticates req with credentials resolved at send time, so expiring
+// credentials refresh and each retry gets a fresh timestamp. The payload hash
+// covers the exact body bytes sent.
+func (s *bedrockSigV4) sign(req *http.Request, body []byte) error {
+	ctx := req.Context()
+	creds, err := s.creds.Retrieve(ctx)
+	if err != nil {
+		return fmt.Errorf("bedrock credentials: %w", err)
 	}
+	req.Header.Del("x-api-key")
+	sum := sha256.Sum256(body)
+	if err := s.signer.SignHTTP(ctx, creds, req, hex.EncodeToString(sum[:]), bedrockSigningName, s.region, s.now()); err != nil {
+		return fmt.Errorf("bedrock sigv4: %w", err)
+	}
+	return nil
+}
 
-	for _, c := range raw.Content {
-		switch c.Type {
-		case "text":
-			resp.Content += c.Text
-		case "tool_use":
-			args, _ := json.Marshal(c.Input)
-			resp.ToolCalls = append(resp.ToolCalls, ToolCall{
-				ID:        c.ID,
-				Name:      c.Name,
-				Arguments: string(args),
-			})
+// newBedrockDefaultCredentials returns the standard AWS credential chain (env,
+// shared config and SSO, assumed roles, ECS, IMDS), loaded on first use so
+// construction does no I/O, and cached until the credentials expire.
+func newBedrockDefaultCredentials(region string) aws.CredentialsProvider {
+	return aws.NewCredentialsCache(&bedrockDefaultCredentials{region: region})
+}
+
+// bedrockDefaultCredentials loads the AWS default config lazily. A failed load
+// is not remembered, so a later request retries it.
+type bedrockDefaultCredentials struct {
+	region string
+	mu     sync.Mutex
+	chain  aws.CredentialsProvider
+}
+
+func (d *bedrockDefaultCredentials) Retrieve(ctx context.Context) (aws.Credentials, error) {
+	d.mu.Lock()
+	if d.chain == nil {
+		cfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(d.region))
+		if err != nil {
+			d.mu.Unlock()
+			return aws.Credentials{}, fmt.Errorf("load aws config: %w", err)
 		}
+		if cfg.Credentials == nil {
+			d.mu.Unlock()
+			return aws.Credentials{}, errors.New("load aws config: no credential provider")
+		}
+		d.chain = cfg.Credentials
 	}
-
-	switch raw.StopReason {
-	case "end_turn":
-		resp.StopReason = StopReasonEnd
-	case "max_tokens":
-		resp.StopReason = StopReasonMaxTokens
-	case "tool_use":
-		resp.StopReason = StopReasonToolCall
-	}
-
-	return resp
+	chain := d.chain
+	d.mu.Unlock()
+	return chain.Retrieve(ctx)
 }

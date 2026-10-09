@@ -38,6 +38,10 @@ func tailCache(prefixTTL, tailTTL string) map[string]any {
 func cacheLastContentBlock(msg map[string]any, checkpoint map[string]any) {
 	switch content := msg["content"].(type) {
 	case string:
+		if content == "" {
+			// Anthropic rejects an empty text block, cached or not.
+			return
+		}
 		msg["content"] = []map[string]any{{
 			"type":          "text",
 			"text":          content,
@@ -50,6 +54,22 @@ func cacheLastContentBlock(msg map[string]any, checkpoint map[string]any) {
 				continue
 			}
 			content[i]["cache_control"] = checkpoint
+			return
+		}
+	}
+}
+
+// cachePreviousTail marks where the previous request of a tool loop ended:
+// the message before the last assistant turn. Anthropic looks back at most
+// 20 positions from a checkpoint for an earlier cache entry, so a round that
+// appends more would miss the prior entry and rewrite the whole conversation.
+// An exact checkpoint there always matches it.
+func cachePreviousTail(msgs []map[string]any, checkpoint map[string]any) {
+	for i := len(msgs) - 1; i > 0; i-- {
+		if msgs[i]["role"] == RoleAssistant {
+			if i-1 < len(msgs)-1 {
+				cacheLastContentBlock(msgs[i-1], checkpoint)
+			}
 			return
 		}
 	}

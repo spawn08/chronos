@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 
@@ -198,6 +199,30 @@ func ReadStoredResult(ctx context.Context, store storage.Storage, sessionID, key
 		return string(data), nil
 	}
 	return val, nil
+}
+
+// promptCacheKey identifies this agent's conversation for providers that
+// route prompt caches by key. It is a hash, so no tenant or session ID
+// leaves the process.
+func (a *Agent) promptCacheKey(ctx context.Context) string {
+	sessionID := storage.SessionFromContext(ctx)
+	if sessionID == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(storage.TenantFromContext(ctx) + "\x00" + sessionID + "\x00" + a.ID))
+	return "chronos-" + hex.EncodeToString(sum[:12])
+}
+
+// enforceRequestBudget applies enforceContextBudget to a request for
+// modelID. Dropping earlier turns changes the history every later thinking
+// block was produced against, so models that bind thinking to the
+// conversation must not replay it after a drop.
+func enforceRequestBudget(modelID string, counter model.TokenCounter, messages []model.Message, protectedPrefix, contextLimit int) []model.Message {
+	trimmed := enforceContextBudget(counter, messages, protectedPrefix, contextLimit)
+	if len(trimmed) != len(messages) && model.AnthropicThinkingBoundToConversation(modelID) {
+		return model.StripAnthropicThinking(trimmed)
+	}
+	return trimmed
 }
 
 // enforceContextBudget drops the oldest conversation messages until the request

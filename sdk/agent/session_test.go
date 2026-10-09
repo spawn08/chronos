@@ -280,10 +280,12 @@ func TestSessionChatPassesNativeReasoningWithTools(t *testing.T) {
 					}
 					request = provider.(*testProvider).lastReq
 				}
-				if len(request.Tools) != 1 || (request.Reasoning != nil) != enabled {
+				// The effort travels without native thinking; Enabled decides
+				// whether the provider turns thinking on.
+				if len(request.Tools) != 1 || request.Reasoning == nil || request.Reasoning.Enabled != enabled {
 					t.Fatalf("session request tools/reasoning = %+v / %+v", request.Tools, request.Reasoning)
 				}
-				if enabled && request.Reasoning.Effort != "high" {
+				if request.Reasoning.Effort != "high" {
 					t.Fatalf("reasoning effort = %q, want high", request.Reasoning.Effort)
 				}
 			})
@@ -577,7 +579,9 @@ func TestSessionCheckpoint_AutomaticParity(t *testing.T) {
 				}
 			}
 			call(a, "current user")
-			want := []model.Message{{Role: model.RoleAssistant, Content: "recent assistant"}, {Role: model.RoleUser, Content: "current user"}, {Role: model.RoleAssistant, Content: "reply"}}
+			// The near-zero threshold also caps the kept tail (half the
+			// trigger), so only the newest message survives the cut.
+			want := []model.Message{{Role: model.RoleUser, Content: "current user"}, {Role: model.RoleAssistant, Content: "reply"}}
 			cs := chatSessionFromEvents(store.events[sid])
 			if !reflect.DeepEqual(cs.Messages, want) || cs.Summary != "summary-1" {
 				t.Fatalf("replay = %#v, summary %q", cs.Messages, cs.Summary)

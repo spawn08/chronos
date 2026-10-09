@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -49,7 +50,21 @@ type httpClient struct {
 	backoffMax  time.Duration
 	// sleep waits for d or until ctx is done; injectable for tests.
 	sleep func(ctx context.Context, d time.Duration) error
+	// signer, when set, authenticates each attempt after headers are set.
+	signer requestSigner
 }
+
+// requestSigner authenticates an outgoing request in place. body is the exact
+// payload being sent. It runs on every attempt, so retries carry a fresh
+// signature and timestamp.
+type requestSigner func(req *http.Request, body []byte) error
+
+// signError marks a request that could not be signed. It is not an upstream
+// failure, so it is neither retried nor counted by the circuit breaker.
+type signError struct{ err error }
+
+func (e *signError) Error() string { return "sign request: " + e.err.Error() }
+func (e *signError) Unwrap() error { return e.err }
 
 // httpOption customizes an httpClient at construction time.
 type httpOption func(*httpClient)
@@ -78,6 +93,12 @@ func withSleepFn(fn func(ctx context.Context, d time.Duration) error) httpOption
 			h.sleep = fn
 		}
 	}
+}
+
+// withRequestSigner installs a per-attempt request signer (for example AWS
+// SigV4). nil leaves requests unsigned.
+func withRequestSigner(fn requestSigner) httpOption {
+	return func(h *httpClient) { h.signer = fn }
 }
 
 func newHTTPClient(baseURL string, timeoutSec int, headers map[string]string, opts ...httpOption) *httpClient {
@@ -163,6 +184,10 @@ func (h *httpClient) doWithRetry(ctx context.Context, client *http.Client, path 
 	}
 	for attempt := 0; ; attempt++ {
 		resp, doErr := h.doOnce(ctx, client, path, payload)
+		var signErr *signError
+		if errors.As(doErr, &signErr) {
+			return nil, fmt.Errorf("http request: %w", doErr)
+		}
 		if doErr != nil {
 			// Network/transport failure: retry unless the context is done or
 			// retries are exhausted.
@@ -203,6 +228,11 @@ func (h *httpClient) doOnce(ctx context.Context, client *http.Client, path strin
 	req.Header.Set("Content-Type", "application/json")
 	for k, v := range h.headers {
 		req.Header.Set(k, v)
+	}
+	if h.signer != nil {
+		if err := h.signer(req, payload); err != nil {
+			return nil, &signError{err: err}
+		}
 	}
 	return client.Do(req)
 }

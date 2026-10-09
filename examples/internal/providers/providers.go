@@ -120,7 +120,7 @@ func bedrock() (model.Provider, bool) {
 		return nil, false
 	}
 	return model.NewBedrock(region, ak, sk,
-		envOr("BEDROCK_MODEL_ID", "anthropic.claude-3-5-sonnet-20241022-v2:0")), true
+		envOr("BEDROCK_MODEL_ID", "anthropic.claude-sonnet-5-5")), true
 }
 
 func envOr(k, def string) string {

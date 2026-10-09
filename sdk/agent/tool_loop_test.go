@@ -244,7 +244,9 @@ type compactingProvider struct {
 	mu        sync.Mutex
 	rounds    int
 	summaries int
+	summary   string // defaults to "summary of earlier work"
 	requests  [][]model.Message
+	cacheKeys []string
 }
 
 func (p *compactingProvider) Chat(_ context.Context, req *model.ChatRequest) (*model.ChatResponse, error) {
@@ -252,9 +254,14 @@ func (p *compactingProvider) Chat(_ context.Context, req *model.ChatRequest) (*m
 	defer p.mu.Unlock()
 	if len(req.Messages) > 0 && strings.Contains(req.Messages[0].Content, "conversation summarizer") {
 		p.summaries++
-		return &model.ChatResponse{Content: "summary of earlier work", StopReason: model.StopReasonEnd}, nil
+		summary := p.summary
+		if summary == "" {
+			summary = "summary of earlier work"
+		}
+		return &model.ChatResponse{Content: summary, StopReason: model.StopReasonEnd}, nil
 	}
 	p.requests = append(p.requests, append([]model.Message(nil), req.Messages...))
+	p.cacheKeys = append(p.cacheKeys, req.CacheKey)
 	if p.rounds == 0 {
 		return &model.ChatResponse{Content: "finished", StopReason: model.StopReasonEnd}, nil
 	}
@@ -310,4 +317,80 @@ func TestSessionCompactsInsideLongTurnAndKeepsCurrentTask(t *testing.T) {
 		}
 	}
 	t.Fatalf("restored session lost the current task: %+v", cs.Messages)
+}
+
+func runCompactingTurn(t *testing.T, prov *compactingProvider, systemPrompt, output string, cfg ContextConfig) {
+	t.Helper()
+	a, err := New("worker", "Worker").WithModel(prov).WithSystemPrompt(systemPrompt).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.Tools.Register(&tool.Definition{Name: "search", Permission: tool.PermAllow, Handler: func(context.Context, map[string]any) (any, error) {
+		return output, nil
+	}})
+	a.Storage = newTestStorage()
+	cfg.PersistToolRounds = true
+	a.ContextCfg = cfg
+	ctx := WithToolLoopController(context.Background(), a.ID, &stopAfterController{})
+	if _, err := a.ChatWithSession(ctx, "s1", "THE TASK"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A kept tail of PreserveRecentTurns that alone exceeds the trigger would
+// compact again every few rounds; the deep cut keeps compactions far apart.
+func TestSessionDeepCutSpacesInTurnCompactions(t *testing.T) {
+	prov := &compactingProvider{rounds: 40}
+	runCompactingTurn(t, prov, "", strings.Repeat("tool output ", 40), ContextConfig{MaxContextTokens: 4000, SummarizeThreshold: 0.25, PreserveRecentTurns: 10})
+	if prov.summaries == 0 || prov.summaries > 8 {
+		t.Fatalf("summarized %d times over 40 rounds, want 1..8", prov.summaries)
+	}
+}
+
+// System context that alone exceeds the trigger survives every compaction;
+// without real growth, another pass would only rewrite the summary, and the
+// cached prompt after it, every few small rounds.
+func TestSessionDoesNotRecompactWithoutGrowth(t *testing.T) {
+	prov := &compactingProvider{rounds: 30}
+	runCompactingTurn(t, prov, strings.Repeat("standing rule ", 600), "ok", ContextConfig{MaxContextTokens: 4000, SummarizeThreshold: 0.25, PreserveRecentTurns: 1})
+	if prov.summaries == 0 || prov.summaries > 4 {
+		t.Fatalf("summarized %d times over 30 small rounds, want 1..4", prov.summaries)
+	}
+}
+
+// Every round of a session carries the same opaque cache key, distinct per
+// agent and session, so key-routed provider caches see one conversation.
+func TestSessionRequestsCarryStableCacheKey(t *testing.T) {
+	keys := func(sessionID, agentID string) []string {
+		prov := &compactingProvider{rounds: 3}
+		a, err := New(agentID, "Worker").WithModel(prov).Build()
+		if err != nil {
+			t.Fatal(err)
+		}
+		a.Tools.Register(&tool.Definition{Name: "search", Permission: tool.PermAllow, Handler: func(context.Context, map[string]any) (any, error) {
+			return "ok", nil
+		}})
+		a.Storage = newTestStorage()
+		a.ContextCfg = ContextConfig{PersistToolRounds: true}
+		ctx := WithToolLoopController(context.Background(), a.ID, &stopAfterController{})
+		if _, err := a.ChatWithSession(ctx, sessionID, "THE TASK"); err != nil {
+			t.Fatal(err)
+		}
+		return prov.cacheKeys
+	}
+	first := keys("s1", "worker")
+	if len(first) < 2 || first[0] == "" {
+		t.Fatalf("cache keys = %q, want one per round", first)
+	}
+	for _, key := range first {
+		if key != first[0] {
+			t.Fatalf("cache keys changed within a session: %q", first)
+		}
+	}
+	if other := keys("s2", "worker"); other[0] == first[0] {
+		t.Fatal("different sessions share a cache key")
+	}
+	if other := keys("s1", "reviewer"); other[0] == first[0] {
+		t.Fatal("different agents share a cache key")
+	}
 }

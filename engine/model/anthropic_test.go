@@ -480,6 +480,20 @@ func TestNewAnthropicWithConfig_DefaultsApplied(t *testing.T) {
 	}
 }
 
+func TestAnthropic_PromptCacheBreakpointsWithoutSystemCacheLastTool(t *testing.T) {
+	body := NewAnthropic("test").buildRequestBody(&ChatRequest{
+		Messages: []Message{{Role: RoleUser, Content: "hello"}},
+		Tools: []ToolDefinition{
+			{Type: "function", Function: FunctionDef{Name: "alpha", Parameters: map[string]any{"type": "object"}}},
+			{Type: "function", Function: FunctionDef{Name: "beta", Parameters: map[string]any{"type": "object"}}},
+		},
+	}, false)
+	tools := body["tools"].([]map[string]any)
+	if tools[0]["cache_control"] != nil || tools[1]["cache_control"] == nil {
+		t.Fatalf("tools = %#v, want cache_control on the last tool only", tools)
+	}
+}
+
 func TestAnthropic_PromptCacheBreakpoints(t *testing.T) {
 	p := NewAnthropic("test")
 	body := p.buildRequestBody(&ChatRequest{
@@ -494,12 +508,16 @@ func TestAnthropic_PromptCacheBreakpoints(t *testing.T) {
 		},
 	}, false)
 
+	// The system checkpoints cover the tools, which render before them.
 	tools := body["tools"].([]map[string]any)
-	if tools[0]["cache_control"] != nil {
-		t.Fatal("only the last tool should carry cache_control")
+	for i, tool := range tools {
+		if tool["cache_control"] != nil {
+			t.Fatalf("tools[%d] carries cache_control; system checkpoints already cover tools", i)
+		}
 	}
-	if tools[1]["cache_control"] == nil {
-		t.Fatal("expected cache_control on the last tool")
+	system := body["system"].([]map[string]any)
+	if system[0]["cache_control"] == nil || system[1]["cache_control"] == nil {
+		t.Fatalf("system = %#v, want checkpoints on the static prompt and the pinned context", system)
 	}
 
 	msgs := body["messages"].([]map[string]any)

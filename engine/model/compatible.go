@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 )
 
 // OpenAICompatible implements Provider for any OpenAI-compatible API endpoint.
@@ -48,6 +49,7 @@ func (c *OpenAICompatible) Model() string { return c.config.Model }
 
 func (c *OpenAICompatible) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
 	body := buildOpenAIRequestBody(req, c.config.Model, false)
+	c.applyPromptCache(body, req)
 
 	resp, err := c.http.post(ctx, "/chat/completions", body)
 	if err != nil {
@@ -68,6 +70,7 @@ func (c *OpenAICompatible) Chat(ctx context.Context, req *ChatRequest) (*ChatRes
 
 func (c *OpenAICompatible) StreamChat(ctx context.Context, req *ChatRequest) (<-chan *ChatResponse, error) {
 	body := buildOpenAIRequestBody(req, c.config.Model, true)
+	c.applyPromptCache(body, req)
 
 	resp, err := c.http.post(ctx, "/chat/completions", body)
 	if err != nil {
@@ -87,6 +90,18 @@ func (c *OpenAICompatible) StreamChat(ctx context.Context, req *ChatRequest) (<-
 		readOpenAISSEStream(ctx, resp, ch)
 	}()
 	return ch, nil
+}
+
+// applyPromptCache turns on OpenRouter's automatic prompt caching for Claude
+// models, which, unlike OpenAI, DeepSeek, and Gemini there, cache only when
+// asked: a top-level cache_control whose breakpoint follows the conversation.
+func (c *OpenAICompatible) applyPromptCache(body map[string]any, req *ChatRequest) {
+	if c.providerName != "openrouter" || req == nil || req.DisablePromptCache {
+		return
+	}
+	if strings.Contains(strings.ToLower(c.config.Model), "claude") {
+		body["cache_control"] = map[string]any{"type": "ephemeral"}
+	}
 }
 
 // Convenience constructors for popular OpenAI-compatible providers.

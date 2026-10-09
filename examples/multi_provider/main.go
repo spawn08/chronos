@@ -132,7 +132,7 @@ func buildProviders() map[string]model.Provider {
 		os.Getenv("AWS_ACCESS_KEY_ID"),
 		os.Getenv("AWS_SECRET_ACCESS_KEY"); region != "" && ak != "" && sk != "" {
 		providers["Bedrock"] = model.NewBedrock(region, ak, sk,
-			envOr("BEDROCK_MODEL_ID", "anthropic.claude-3-5-sonnet-20241022-v2:0"))
+			envOr("BEDROCK_MODEL_ID", "anthropic.claude-sonnet-5-5"))
 	}
 
 	// Any OpenAI-compatible endpoint — Together, Groq, DeepSeek, vLLM, LiteLLM…

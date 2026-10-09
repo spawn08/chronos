@@ -54,6 +54,7 @@ func (o *OpenAI) Model() string { return o.config.Model }
 
 func (o *OpenAI) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
 	body := buildOpenAIRequestBody(req, o.config.Model, false)
+	setOpenAIPromptCacheKey(body, req)
 	if o.maxCompletionTokens.Load() {
 		useMaxCompletionTokens(body)
 	}
@@ -88,6 +89,7 @@ func (o *OpenAI) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, err
 
 func (o *OpenAI) StreamChat(ctx context.Context, req *ChatRequest) (<-chan *ChatResponse, error) {
 	body := buildOpenAIRequestBody(req, o.config.Model, true)
+	setOpenAIPromptCacheKey(body, req)
 	// Request token usage on the terminal stream chunk so streamed calls report
 	// usage the same way unary calls do.
 	body["stream_options"] = map[string]any{"include_usage": true}
@@ -198,6 +200,16 @@ func buildOpenAIRequestBody(req *ChatRequest, defaultModel string, stream bool) 
 		body["stream"] = true
 	}
 	return body
+}
+
+// setOpenAIPromptCacheKey routes one conversation's requests to the same
+// prompt cache (OpenAI prompt_cache_key; GPT-5.6 and later route on their own
+// and ignore it). Only the OpenAI provider sends it: OpenAI-compatible
+// servers may reject unknown parameters.
+func setOpenAIPromptCacheKey(body map[string]any, req *ChatRequest) {
+	if req != nil && req.CacheKey != "" && !req.DisablePromptCache {
+		body["prompt_cache_key"] = req.CacheKey
+	}
 }
 
 // maxTokensParamRejected reports whether an API error says the target model

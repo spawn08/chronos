@@ -498,8 +498,10 @@ func (a *Agent) buildChatRequest(ctx context.Context, userMessage string) (*mode
 
 	req := &model.ChatRequest{
 		Messages: messages,
+		CacheKey: a.promptCacheKey(ctx),
 	}
-	if a.ReasoningConfig.Enabled {
+	// Effort applies even without native thinking (see ReasoningConfig).
+	if a.ReasoningConfig.Enabled || a.ReasoningConfig.Effort != "" {
 		reasoning := a.ReasoningConfig
 		req.Reasoning = &reasoning
 	}
@@ -891,7 +893,7 @@ func (a *Agent) streamLoop(ctx context.Context, provider model.Provider, req *mo
 		if paused != nil {
 			return a.finishPausedStream(ctx, out, paused, totalUsage, resp.Usage.WindowTokens()), messages, nil
 		}
-		followReq := &model.ChatRequest{Messages: messages, Tools: req.Tools, Reasoning: req.Reasoning}
+		followReq := &model.ChatRequest{Messages: messages, Tools: req.Tools, Reasoning: req.Reasoning, CacheKey: req.CacheKey}
 		resp, err = a.streamOnce(ctx, provider, followReq, out)
 		messages = followReq.Messages
 		if err != nil {
@@ -1071,7 +1073,7 @@ func (a *Agent) handleToolCalls(ctx context.Context, loop *toolLoop, messages []
 
 	// Pass the tool definitions on the follow-up call so the model can request
 	// more tools on the next round.
-	followReq := &model.ChatRequest{Messages: messages, Tools: req.Tools, Reasoning: req.Reasoning}
+	followReq := &model.ChatRequest{Messages: messages, Tools: req.Tools, Reasoning: req.Reasoning, CacheKey: req.CacheKey}
 	provider := a.modelProvider(ctx)
 	followUp, err := a.modelCall(ctx, provider, followReq, false, func() (*model.ChatResponse, error) {
 		return provider.Chat(ctx, followReq)

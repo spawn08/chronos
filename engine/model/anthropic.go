@@ -38,9 +38,18 @@ func NewAnthropicWithConfig(cfg ProviderConfig) *Anthropic {
 		"x-api-key":         cfg.APIKey,
 		"anthropic-version": "2023-06-01",
 	}
+	return newAnthropicProvider(cfg, headers)
+}
+
+// newAnthropicProvider builds a Messages API client from a resolved cfg (no
+// defaults applied) with the given request headers and extra HTTP options.
+// Platforms serving the same API with their own endpoint and authentication
+// (Bedrock) reuse it so request building and stream parsing stay shared.
+func newAnthropicProvider(cfg ProviderConfig, headers map[string]string, opts ...httpOption) *Anthropic {
+	opts = append([]httpOption{withMaxRetries(cfg.MaxRetries)}, opts...)
 	return &Anthropic{
 		config: cfg,
-		http:   newHTTPClient(cfg.BaseURL, cfg.TimeoutSec, headers, withMaxRetries(cfg.MaxRetries)),
+		http:   newHTTPClient(cfg.BaseURL, cfg.TimeoutSec, headers, opts...),
 	}
 }
 
@@ -161,12 +170,12 @@ func (a *Anthropic) buildRequestBody(req *ChatRequest, stream bool) map[string]a
 					"type": "text",
 					"text": strings.Join(systemParts[1:], "\n\n"),
 				}
-				if a.config.PromptCacheTTL == "1h" {
-					// The pinned system context (project docs, skill
-					// catalog) is stable within a session: give it its own
-					// long-lived checkpoint so a resumed session reads it.
-					rest["cache_control"] = prefixCache(a.config.PromptCacheTTL)
-				}
+				// Its own checkpoint keeps the pinned system context
+				// (project docs, skill catalog) cached when the conversation
+				// after it changes. It also carries context that changes
+				// (session summary, memory), so it takes the conversation
+				// TTL: a one-hour write costs 2x input, not 1.25x.
+				rest["cache_control"] = tailCache(a.config.PromptCacheTTL, a.config.PromptCacheTailTTL)
 				blocks = append(blocks, rest)
 			}
 			body["system"] = blocks
@@ -186,7 +195,7 @@ func (a *Anthropic) buildRequestBody(req *ChatRequest, stream bool) map[string]a
 			// Claude 4.6 and later reject (4.7+) or deprecate (4.6) a fixed
 			// thinking budget; depth is set with output_config.effort.
 			body["thinking"] = map[string]any{"type": "adaptive"}
-			if effort := anthropicEffort(req.Reasoning.Effort); effort != "" {
+			if effort := anthropicModelEffort(modelID, req.Reasoning.Effort); effort != "" {
 				body["output_config"] = map[string]any{"effort": effort}
 			}
 		} else {
@@ -195,6 +204,13 @@ func (a *Anthropic) buildRequestBody(req *ChatRequest, stream bool) map[string]a
 			if maxTokens, _ := body["max_tokens"].(int); maxTokens <= budget {
 				body["max_tokens"] = budget + 4096
 			}
+		}
+	}
+	if req.Reasoning != nil && !req.Reasoning.Enabled {
+		// Effort also bounds output and tool-call verbosity without thinking,
+		// and is the only depth control on models whose thinking is always on.
+		if effort := anthropicModelEffort(modelID, req.Reasoning.Effort); effort != "" {
+			body["output_config"] = map[string]any{"effort": effort}
 		}
 	}
 	if len(req.Tools) > 0 {
@@ -206,7 +222,9 @@ func (a *Anthropic) buildRequestBody(req *ChatRequest, stream bool) map[string]a
 				"input_schema": t.Function.Parameters,
 			}
 		}
-		if promptCacheEnabled(req) {
+		// Tools render before system, so a system checkpoint already covers
+		// them; spend this one of Anthropic's four only when there is none.
+		if promptCacheEnabled(req) && len(systemParts) == 0 {
 			tools[len(tools)-1]["cache_control"] = prefixCache(a.config.PromptCacheTTL)
 		}
 		body["tools"] = tools
@@ -216,7 +234,9 @@ func (a *Anthropic) buildRequestBody(req *ChatRequest, stream bool) map[string]a
 	}
 	if promptCacheEnabled(req) {
 		if msgs, ok := body["messages"].([]map[string]any); ok && len(msgs) > 0 {
-			cacheLastContentBlock(msgs[len(msgs)-1], tailCache(a.config.PromptCacheTTL, a.config.PromptCacheTailTTL))
+			tail := tailCache(a.config.PromptCacheTTL, a.config.PromptCacheTailTTL)
+			cacheLastContentBlock(msgs[len(msgs)-1], tail)
+			cachePreviousTail(msgs, tail)
 		}
 	}
 	appendUncachedTail(body, uncached)
@@ -237,15 +257,46 @@ func anthropicAdaptiveThinking(modelID string) bool {
 	if m == nil {
 		return false
 	}
+	major, _ := strconv.Atoi(m[2])
+	minor, _ := strconv.Atoi(m[3])
 	switch m[1] {
 	case "fable", "mythos":
 		return true
 	case "haiku":
-		return false
+		// Haiku 4.5 still takes budget_tokens; Haiku 5.5 rejects it.
+		return major >= 5
+	}
+	return major > 4 || (major == 4 && minor >= 6)
+}
+
+// anthropicModelEffort returns the effort to send for modelID, clamped to the
+// levels it accepts, or "" when the model rejects output_config.effort
+// (Sonnet 4.5, Haiku 4.5, older) or the effort is unset.
+func anthropicModelEffort(modelID, effort string) string {
+	effort = anthropicEffort(effort)
+	if effort == "" {
+		return ""
+	}
+	m := anthropicModelVersion.FindStringSubmatch(strings.ToLower(modelID))
+	if m == nil {
+		return ""
 	}
 	major, _ := strconv.Atoi(m[2])
 	minor, _ := strconv.Atoi(m[3])
-	return major > 4 || (major == 4 && minor >= 6)
+	switch {
+	case m[1] == "opus" && major == 4 && minor == 5:
+		// Opus 4.5 accepts low, medium, and high only.
+		if effort == "xhigh" || effort == "max" {
+			return "high"
+		}
+		return effort
+	case !anthropicAdaptiveThinking(modelID):
+		return ""
+	case major == 4 && minor == 6 && effort == "xhigh":
+		// xhigh arrived with Opus 4.7.
+		return "high"
+	}
+	return effort
 }
 
 // anthropicEffort maps a reasoning effort to an output_config.effort value.
@@ -403,6 +454,9 @@ func (a *Anthropic) convertResponse(raw *anthropicResponse) *ChatResponse {
 		cr.StopReason = StopReasonMaxTokens
 	case "tool_use":
 		cr.StopReason = StopReasonToolCall
+	case "refusal":
+		// A safety classifier declined; the content may be empty or partial.
+		cr.StopReason = StopReasonFilter
 	default:
 		cr.StopReason = StopReasonEnd
 	}
@@ -573,6 +627,8 @@ func mapAnthropicStopReason(reason string) StopReason {
 		return StopReasonMaxTokens
 	case "tool_use":
 		return StopReasonToolCall
+	case "refusal":
+		return StopReasonFilter
 	default:
 		return StopReasonEnd
 	}

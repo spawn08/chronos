@@ -25,20 +25,24 @@ type sessionRecorder struct {
 	systemMsgs   []model.Message
 	systemTokens int
 	counter      model.TokenCounter
+	modelID      string
 	contextLimit int
 	summarizer   *model.Summarizer
 	// compactedLen is len(cs.Messages) after the last in-turn compaction.
 	compactedLen int
+	// compactedTokens is the prompt size after the last in-turn compaction
+	// attempt; 0 before any.
+	compactedTokens int
 }
 
 // newSessionRecorder starts recording after the current user message, which
 // is the last element of cs.Messages, and any turn-start summary; seq is the
 // last sequence already written.
-func (a *Agent) newSessionRecorder(sessionID string, cs *ChatSession, seq int64, systemMsgs []model.Message, systemTokens int, counter model.TokenCounter, contextLimit int, summarizer *model.Summarizer) *sessionRecorder {
+func (a *Agent) newSessionRecorder(sessionID string, cs *ChatSession, seq int64, systemMsgs []model.Message, systemTokens int, counter model.TokenCounter, modelID string, contextLimit int, summarizer *model.Summarizer) *sessionRecorder {
 	return &sessionRecorder{
 		agent: a, sessionID: sessionID, cs: cs, seq: seq,
 		turnStart: len(cs.Messages) - 1, persist: a.ContextCfg.PersistToolRounds,
-		systemMsgs: systemMsgs, systemTokens: systemTokens, counter: counter,
+		systemMsgs: systemMsgs, systemTokens: systemTokens, counter: counter, modelID: modelID,
 		contextLimit: contextLimit, summarizer: summarizer, compactedLen: len(cs.Messages),
 	}
 }
@@ -46,6 +50,15 @@ func (a *Agent) newSessionRecorder(sessionID string, cs *ChatSession, seq int64,
 // minCompactionGrowth avoids a summarizer call on every round when the
 // preserved tail alone stays above the compaction threshold.
 const minCompactionGrowth = 4
+
+// After a compaction, the prompt must grow by 1/minCompactionGrowthDivisor of
+// the trigger size before the next one.
+const minCompactionGrowthDivisor = 4
+
+// promptTokens is the system context plus the running summary and history.
+func (r *sessionRecorder) promptTokens() int {
+	return r.systemTokens + r.counter.CountString(r.cs.Summary) + r.counter.CountTokens(r.cs.Messages)
+}
 
 // recordRound appends a completed round to the conversation and ledger.
 func (r *sessionRecorder) recordRound(ctx context.Context, round []model.Message) error {
@@ -83,6 +96,12 @@ func (r *sessionRecorder) compactIfNeeded(ctx context.Context) ([]model.Message,
 	if !r.summarizer.NeedsSummarization(r.systemTokens, r.cs.Messages, r.contextLimit) {
 		return nil, nil
 	}
+	// The preserved tail alone can stay above the trigger (large tool
+	// output); without real growth another pass would only rewrite the
+	// summary, and with it the cached prompt, every few rounds.
+	if r.compactedTokens > 0 && r.promptTokens() < r.compactedTokens+r.summarizer.TriggerTokens(r.contextLimit)/minCompactionGrowthDivisor {
+		return nil, nil
+	}
 	task := r.cs.Messages[r.turnStart]
 	prior := r.cs.Messages[:r.turnStart]
 	rounds := r.cs.Messages[r.turnStart+1:]
@@ -96,10 +115,12 @@ func (r *sessionRecorder) compactIfNeeded(ctx context.Context) ([]model.Message,
 			return nil, ctxErr
 		}
 		r.compactedLen = len(r.cs.Messages)
+		r.compactedTokens = r.promptTokens()
 		return nil, nil
 	}
 	if result.SummarizedCount == 0 {
 		r.compactedLen = len(r.cs.Messages)
+		r.compactedTokens = r.promptTokens()
 		return nil, nil
 	}
 	preserved := make([]model.Message, 0, len(result.PreservedMessages)+1)
@@ -122,6 +143,7 @@ func (r *sessionRecorder) compactIfNeeded(ctx context.Context) ([]model.Message,
 	r.cs.Messages = preserved
 	r.turnStart = turnStart
 	r.compactedLen = len(preserved)
+	r.compactedTokens = r.promptTokens()
 	_ = r.agent.Hooks.After(ctx, &hooks.Event{
 		Type: hooks.EventSummarization,
 		Name: r.sessionID,
@@ -148,7 +170,7 @@ func (r *sessionRecorder) requestMessages() []model.Message {
 		protectedPrefix++
 	}
 	messages = append(messages, r.cs.Messages...)
-	return enforceContextBudget(r.counter, messages, protectedPrefix, r.contextLimit)
+	return enforceRequestBudget(r.modelID, r.counter, messages, protectedPrefix, r.contextLimit)
 }
 
 // repairToolPairs keeps only complete tool rounds: an assistant message with

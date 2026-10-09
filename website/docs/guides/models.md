@@ -34,7 +34,7 @@ type Provider interface {
 | Ollama | `model.NewOllama(host, model)` | Local models (e.g., `http://localhost:11434`, `llama3.2`) |
 | Azure | `model.NewAzureOpenAI(endpoint, key, deployment)` | Azure OpenAI |
 | Cohere | `model.NewCohere(apiKey, modelID)` | Command R+, Command R, Command. **Go-SDK-only** — not in the YAML `provider:` enum |
-| Bedrock | `model.NewBedrock(region, accessKey, secretKey, modelID)` | AWS Bedrock (Claude, Llama, Titan, …). **Go-SDK-only** — not in the YAML `provider:` enum |
+| Bedrock | `model.NewBedrock(region, accessKey, secretKey, modelID)` | Claude on Amazon Bedrock's Messages endpoint. YAML: `provider: bedrock` with optional `region:` |
 | Vertex AI | `model.NewOpenAICompatibleWithConfig("vertex", cfg)` | Google Cloud Vertex AI via OpenAI-compatible endpoint |
 | Compatible | `model.NewOpenAICompatible(name, url, key, model)` | Any OpenAI-compatible API |
 
@@ -76,7 +76,7 @@ func newVertexProvider() model.Provider {
 
 ### AWS Bedrock
 
-`Bedrock` is Go-SDK-only; there is no `bedrock` value in the YAML `provider:` enum.
+`Bedrock` is also available in YAML as `provider: bedrock` (optional `region:`); it authenticates with SigV4 or a Bedrock bearer token (`AWS_BEARER_TOKEN_BEDROCK`).
 
 ```go
 import (
@@ -90,7 +90,7 @@ func newBedrockProvider() model.Provider {
         os.Getenv("AWS_REGION"),
         os.Getenv("AWS_ACCESS_KEY_ID"),
         os.Getenv("AWS_SECRET_ACCESS_KEY"),
-        "anthropic.claude-3-5-sonnet-20241022-v2:0",
+        "anthropic.claude-sonnet-5-5",
     )
 }
 ```

@@ -84,7 +84,7 @@ type AgentConfig struct {
 
 // ModelConfig describes which model provider and settings to use.
 type ModelConfig struct {
-	Provider   string `yaml:"provider"`          // openai, anthropic, gemini, mistral, ollama, azure, groq, together, deepseek, openrouter, fireworks, perplexity, anyscale, compatible
+	Provider   string `yaml:"provider"`          // openai, anthropic, bedrock, gemini, mistral, ollama, azure, groq, together, deepseek, openrouter, fireworks, perplexity, anyscale, compatible
 	Model      string `yaml:"model,omitempty"`   // model ID, e.g. "gpt-4o", "claude-sonnet-4-6"
 	APIKey     string `yaml:"api_key,omitempty"` // literal or ${ENV_VAR}
 	BaseURL    string `yaml:"base_url,omitempty"`
@@ -101,6 +101,10 @@ type ModelConfig struct {
 	Endpoint   string `yaml:"endpoint,omitempty"`
 	Deployment string `yaml:"deployment,omitempty"`
 	APIVersion string `yaml:"api_version,omitempty"`
+
+	// Bedrock-specific: AWS region of the endpoint. AWS_REGION, then
+	// AWS_DEFAULT_REGION, supply it when unset.
+	Region string `yaml:"region,omitempty"`
 }
 
 // StorageConfig describes the backing store.
@@ -734,6 +738,19 @@ func buildProvider(cfg ModelConfig) (model.Provider, error) {
 			PromptCacheTailTTL: firstNonEmpty(cfg.PromptCacheTailTTL, os.Getenv("CHRONOS_PROMPT_CACHE_TAIL_TTL")),
 		}), nil
 
+	case "bedrock":
+		// Claude in Amazon Bedrock. api_key (or AWS_BEARER_TOKEN_BEDROCK) is a
+		// Bedrock API key; without one, requests are SigV4-signed with the AWS
+		// credential chain. Model IDs carry the "anthropic." prefix. Cache TTLs
+		// come only from YAML: the CHRONOS_PROMPT_CACHE_* env vars target the
+		// first-party API.
+		return model.NewBedrockWithConfig(cfg.Region, model.ProviderConfig{
+			APIKey: apiKey, Model: modelID, BaseURL: cfg.BaseURL,
+			TimeoutSec:         cfg.TimeoutSec,
+			PromptCacheTTL:     cfg.PromptCacheTTL,
+			PromptCacheTailTTL: cfg.PromptCacheTailTTL,
+		}, ""), nil
+
 	case "gemini", "google":
 		if modelID == "" {
 			modelID = "gemini-2.0-flash"
@@ -816,7 +833,7 @@ func buildProvider(cfg ModelConfig) (model.Provider, error) {
 		}), nil
 
 	default:
-		return nil, fmt.Errorf("unknown provider %q (supported: openai, anthropic, gemini, mistral, ollama, azure, groq, together, deepseek, openrouter, fireworks, perplexity, anyscale, compatible)", cfg.Provider)
+		return nil, fmt.Errorf("unknown provider %q (supported: openai, anthropic, bedrock, gemini, mistral, ollama, azure, groq, together, deepseek, openrouter, fireworks, perplexity, anyscale, compatible)", cfg.Provider)
 	}
 }
 
@@ -1167,6 +1184,7 @@ func expandModelEnv(m *ModelConfig) {
 	m.Deployment = expandEnv(m.Deployment)
 	m.APIVersion = expandEnv(m.APIVersion)
 	m.OrgID = expandEnv(m.OrgID)
+	m.Region = expandEnv(m.Region)
 }
 
 func expandEnv(s string) string {
@@ -1282,6 +1300,20 @@ func ApplyDefaults(cfg, defaults *AgentConfig) {
 	}
 	if cfg.Model.TimeoutSec == 0 {
 		cfg.Model.TimeoutSec = defaults.Model.TimeoutSec
+	}
+	// Region and cache lifetimes are provider-specific (an Anthropic "1h"
+	// means nothing to, or may be rejected by, another provider), so inherit
+	// them only within the same provider.
+	if cfg.Model.Provider == defaults.Model.Provider {
+		if cfg.Model.Region == "" {
+			cfg.Model.Region = defaults.Model.Region
+		}
+		if cfg.Model.PromptCacheTTL == "" {
+			cfg.Model.PromptCacheTTL = defaults.Model.PromptCacheTTL
+		}
+		if cfg.Model.PromptCacheTailTTL == "" {
+			cfg.Model.PromptCacheTailTTL = defaults.Model.PromptCacheTailTTL
+		}
 	}
 	if cfg.Storage.Backend == "" {
 		cfg.Storage.Backend = defaults.Storage.Backend

@@ -123,8 +123,11 @@ type FunctionDef struct {
 // Providers ignore fields they cannot represent rather than leaking a
 // provider-specific request shape into the agent SDK.
 type ReasoningConfig struct {
-	Enabled      bool   `json:"enabled" yaml:"enabled"`
-	Effort       string `json:"effort,omitempty" yaml:"effort,omitempty"` // low, medium, high
+	Enabled bool `json:"enabled" yaml:"enabled"`
+	// Effort is low, medium, high, xhigh, or max. Anthropic applies it as
+	// output_config.effort even when Enabled is false; other providers use it
+	// only with native reasoning on.
+	Effort       string `json:"effort,omitempty" yaml:"effort,omitempty"`
 	BudgetTokens int    `json:"budget_tokens,omitempty" yaml:"budget_tokens,omitempty"`
 	Summary      bool   `json:"summary,omitempty" yaml:"summary,omitempty"`
 }
@@ -172,6 +175,30 @@ type ChatRequest struct {
 	// message). Caching is on by default so repeated prefixes bill at the
 	// provider's cache-read discount.
 	DisablePromptCache bool `json:"disable_prompt_cache,omitempty"`
+	// CacheKey is a stable, opaque per-conversation key. Providers that route
+	// requests to prompt caches by key (OpenAI prompt_cache_key) send it so
+	// one conversation's calls land on the same cache; others ignore it.
+	CacheKey string `json:"-"`
+}
+
+// ContextWindowReporter is implemented by providers that know the context
+// window their deployment actually serves, which can be far smaller than the
+// model's catalog window (a local server's configured context, for example).
+// Callers budget requests to the smaller of the two; a request over the
+// served window is silently truncated by some servers rather than rejected.
+type ContextWindowReporter interface {
+	ContextWindow(ctx context.Context) (int, bool)
+}
+
+// ServedContextLimit returns the window p reports for its deployment, if it
+// reports one.
+func ServedContextLimit(ctx context.Context, p Provider) (int, bool) {
+	reporter, ok := p.(ContextWindowReporter)
+	if !ok {
+		return 0, false
+	}
+	limit, ok := reporter.ContextWindow(ctx)
+	return limit, ok && limit > 0
 }
 
 // jsonSchemaFromMetadata extracts the JSON Schema stashed in
