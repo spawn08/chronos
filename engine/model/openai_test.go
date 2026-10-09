@@ -134,6 +134,32 @@ func TestOpenAI_Chat_ParsesCachedTokens(t *testing.T) {
 	}
 }
 
+func TestOpenRouter_Chat_ParsesCacheWriteTokens(t *testing.T) {
+	srv := buildOpenAIServer(t, 200, `{
+		"id":"gen-cache",
+		"choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"ok"}}],
+		"usage":{"prompt_tokens":10400,"completion_tokens":8,"prompt_tokens_details":{"cached_tokens":6000,"cache_write_tokens":4000}}
+	}`)
+	defer srv.Close()
+
+	p := NewOpenAICompatible("openrouter", srv.URL, "test", "anthropic/claude-sonnet-4.5")
+	resp, err := p.Chat(t.Context(), &ChatRequest{
+		Messages: []Message{{Role: RoleUser, Content: "Hi"}},
+	})
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if resp.Usage.CacheReadTokens != 6000 || resp.Usage.CacheCreationTokens != 4000 {
+		t.Fatalf("usage = %+v", resp.Usage)
+	}
+	if resp.Usage.UncachedPromptTokens() != 400 {
+		t.Fatalf("uncached = %d, want 400", resp.Usage.UncachedPromptTokens())
+	}
+	if resp.Usage.PromptWindowTokens() != 10400 {
+		t.Fatalf("prompt window = %d, want 10400", resp.Usage.PromptWindowTokens())
+	}
+}
+
 func TestOpenAI_Chat_EmptyChoices(t *testing.T) {
 	srv := buildOpenAIServer(t, 200, `{"id":"chatcmpl-789","choices":[],"usage":{}}`)
 	defer srv.Close()

@@ -40,11 +40,12 @@ func (u *Usage) Add(src Usage) {
 }
 
 // UncachedPromptTokens is the portion of the prompt billed at full input
-// price. When the provider declares CacheReadInPrompt, cache hits are removed
-// from PromptTokens; otherwise PromptTokens is already uncached input.
+// price. When the provider declares CacheReadInPrompt, cache hits and writes
+// are removed from PromptTokens; otherwise PromptTokens is already uncached
+// input.
 func (u Usage) UncachedPromptTokens() int {
 	if u.CacheReadInPrompt {
-		return max(u.PromptTokens-u.CacheReadTokens, 0)
+		return max(u.PromptTokens-u.CacheReadTokens-u.CacheCreationTokens, 0)
 	}
 	return u.PromptTokens
 }

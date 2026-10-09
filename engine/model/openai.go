@@ -385,15 +385,20 @@ type openAIUsage struct {
 	CompletionTokens    int `json:"completion_tokens"`
 	PromptTokensDetails struct {
 		CachedTokens int `json:"cached_tokens"`
+		// CacheWriteTokens is OpenRouter's cache-write count (Anthropic and
+		// Gemini models there); OpenAI itself does not report writes.
+		CacheWriteTokens int `json:"cache_write_tokens"`
 	} `json:"prompt_tokens_details"`
 }
 
 func usageFromOpenAI(u openAIUsage) Usage {
 	return Usage{
-		PromptTokens:     u.PromptTokens,
-		CompletionTokens: u.CompletionTokens,
-		CacheReadTokens:  u.PromptTokensDetails.CachedTokens,
-		// prompt_tokens includes prompt_tokens_details.cached_tokens.
+		PromptTokens:        u.PromptTokens,
+		CompletionTokens:    u.CompletionTokens,
+		CacheReadTokens:     u.PromptTokensDetails.CachedTokens,
+		CacheCreationTokens: u.PromptTokensDetails.CacheWriteTokens,
+		// prompt_tokens includes prompt_tokens_details.cached_tokens and
+		// cache_write_tokens.
 		CacheReadInPrompt: true,
 	}
 }
