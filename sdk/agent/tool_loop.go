@@ -31,6 +31,14 @@ type ToolLoopAction struct {
 	Steer string
 }
 
+// HarnessNotePrefix starts every steer the tool loop adds to the
+// conversation, and HarnessNoteName names a user-role message that holds
+// only harness notes. Both let readers tell such text from the user's own.
+const (
+	HarnessNotePrefix = "[harness note] "
+	HarnessNoteName   = "harness"
+)
+
 // ToolLoopController replaces the fixed MaxIterations cap for one chat call.
 // It is consulted at each round boundary, after tool results are appended
 // (and persisted, for session chat) and before the follow-up model call, so a
@@ -116,11 +124,13 @@ func (l *toolLoop) afterRound(ctx context.Context, messages []model.Message, bef
 	if controllerErr == nil && !action.Stop {
 		msg, ok := pendingUserMessage(ctx, l.pending)
 		if steer := strings.TrimSpace(action.Steer); steer != "" {
-			note := "[harness note] " + steer
+			note := HarnessNotePrefix + steer
 			if ok {
 				msg.Content += "\n\n" + note
 			} else {
-				msg, ok = model.Message{Role: model.RoleUser, Content: note}, true
+				// Name marks a message the user did not type, so readers of
+				// the conversation (recalled requests, summaries) can skip it.
+				msg, ok = model.Message{Role: model.RoleUser, Name: HarnessNoteName, Content: note}, true
 			}
 		}
 		if ok {

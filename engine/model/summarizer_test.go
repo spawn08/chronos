@@ -294,3 +294,35 @@ func TestSummaryBudget(t *testing.T) {
 		}
 	}
 }
+
+func TestSummarizerBudgetCaps(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     SummarizationConfig
+		history int
+		want    int
+	}{
+		{"uncapped large history", SummarizationConfig{}, 1_000_000, summaryMaxTokens},
+		{"small window caps at 1/20", SummarizationConfig{ContextLimit: 32000}, 1_000_000, 1600},
+		{"model output limit", SummarizationConfig{MaxOutputTokens: KnownOutputLimit("claude-3-5-sonnet-20241022")}, 1_000_000, 8192},
+		{"floor", SummarizationConfig{ContextLimit: 1000}, 0, summaryFloorTokens},
+	}
+	for _, tt := range tests {
+		s := NewSummarizer(nil, NewEstimatingCounter(), tt.cfg)
+		if got := s.budget(tt.history); got != tt.want {
+			t.Errorf("%s: budget = %d, want %d", tt.name, got, tt.want)
+		}
+	}
+	if KnownOutputLimit("claude-sonnet-5-5") != 0 || KnownOutputLimit("claude-3-haiku-20240307") != 4096 {
+		t.Error("KnownOutputLimit mismatch")
+	}
+}
+
+func TestSummarize_EmptySummaryIsAnError(t *testing.T) {
+	p := &scriptedSummarizerProvider{responses: []*ChatResponse{{Content: "", StopReason: StopReasonMaxTokens}}}
+	s := NewSummarizer(p, NewEstimatingCounter(), SummarizationConfig{PreserveRecentTurns: 1})
+	msgs := []Message{{Role: RoleUser, Content: "Q1"}, {Role: RoleAssistant, Content: "A1"}, {Role: RoleUser, Content: "Q2"}, {Role: RoleAssistant, Content: "A2"}}
+	if _, err := s.Summarize(context.Background(), "", msgs); err == nil {
+		t.Fatal("an empty summary must not replace history")
+	}
+}

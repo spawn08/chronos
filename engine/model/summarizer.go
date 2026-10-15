@@ -15,6 +15,13 @@ type SummarizationConfig struct {
 	// whatever its size. A tail that alone exceeds the trigger would make
 	// every later round compact again, rewriting the cached prompt each time.
 	MaxPreservedTokens int
+	// ContextLimit, when set, caps the summary budget at a share of the
+	// window, so a summary of a small-window model still frees space and its
+	// request (prompt plus continuations) fits. 0 leaves it uncapped.
+	ContextLimit int
+	// MaxOutputTokens, when set, caps one summary request's output at the
+	// model's limit. 0 leaves the budget's own bounds.
+	MaxOutputTokens int
 }
 
 // SummarizationResult holds the output of a summarization pass.
@@ -112,7 +119,7 @@ func (s *Summarizer) Summarize(ctx context.Context, existingSummary string, mess
 		writeSummaryLine(&b, toSummarize[i])
 	}
 
-	summary, err := s.summarize(ctx, b.String(), summaryBudget(s.counter.CountTokens(toSummarize)))
+	summary, err := s.summarize(ctx, b.String(), s.budget(s.counter.CountTokens(toSummarize)))
 	if err != nil {
 		return SummarizationResult{}, err
 	}
@@ -172,6 +179,26 @@ func summaryBudget(historyTokens int) int {
 	return min(max(historyTokens/10, summaryMinTokens), summaryMaxTokens)
 }
 
+// summaryContextDivisor caps one summary request's output at 1/20 of the
+// context window, so even with every continuation the summary stays a small
+// share of the window it is meant to free.
+const summaryContextDivisor = 20
+
+// summaryFloorTokens is the smallest budget ever requested.
+const summaryFloorTokens = 256
+
+// budget applies the configured window and output caps to summaryBudget.
+func (s *Summarizer) budget(historyTokens int) int {
+	b := summaryBudget(historyTokens)
+	if limit := s.config.ContextLimit; limit > 0 {
+		b = min(b, limit/summaryContextDivisor)
+	}
+	if limit := s.config.MaxOutputTokens; limit > 0 {
+		b = min(b, limit)
+	}
+	return max(b, summaryFloorTokens)
+}
+
 // summarize requests a summary and continues it while the model stops at its
 // output limit, so the newest history is never cut off the end.
 func (s *Summarizer) summarize(ctx context.Context, prompt string, maxTokens int) (string, error) {
@@ -187,6 +214,10 @@ func (s *Summarizer) summarize(ctx context.Context, prompt string, maxTokens int
 		}
 		summary.WriteString(resp.Content)
 		if resp.StopReason != StopReasonMaxTokens || attempt >= summaryContinuations || resp.Content == "" {
+			if strings.TrimSpace(summary.String()) == "" {
+				// An empty summary would replace the history with nothing.
+				return "", fmt.Errorf("summarize: model returned an empty summary (stop reason %q)", resp.StopReason)
+			}
 			return summary.String(), nil
 		}
 		messages = append(messages,
@@ -226,4 +257,21 @@ func truncateSummaryText(text string) string {
 func EstimateTokens(messages []Message) int {
 	c := NewEstimatingCounter()
 	return c.CountTokens(messages)
+}
+
+// KnownOutputLimit returns the per-response output limit for model families
+// whose limit is below the summary budget's maximum, or 0 when the model is
+// unknown or accepts at least summaryMaxTokens. Current Claude, GPT and Gemini
+// models accept far more than a summary needs.
+func KnownOutputLimit(modelName string) int {
+	id := platformModelID(modelName)
+	switch {
+	case strings.Contains(id, "claude-3-5") || strings.Contains(id, "claude-3.5"):
+		return 8192
+	case strings.Contains(id, "claude-3-7") || strings.Contains(id, "claude-3.7"):
+		return 0
+	case strings.Contains(id, "claude-3") || strings.Contains(id, "claude-2") || strings.Contains(id, "claude-instant"):
+		return 4096
+	}
+	return 0
 }

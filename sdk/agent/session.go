@@ -843,6 +843,8 @@ func (a *Agent) newAutoSummarizer(provider model.Provider, counter model.TokenCo
 	}
 	trigger := model.NewSummarizer(nil, counter, cfg).TriggerTokens(contextLimit)
 	cfg.MaxPreservedTokens = trigger / 2
+	cfg.ContextLimit = contextLimit
+	cfg.MaxOutputTokens = model.KnownOutputLimit(provider.Model())
 	return model.NewSummarizer(summarizerProvider{agent: a, provider: provider}, counter, cfg)
 }
 
