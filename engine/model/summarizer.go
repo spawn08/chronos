@@ -258,20 +258,3 @@ func EstimateTokens(messages []Message) int {
 	c := NewEstimatingCounter()
 	return c.CountTokens(messages)
 }
-
-// KnownOutputLimit returns the per-response output limit for model families
-// whose limit is below the summary budget's maximum, or 0 when the model is
-// unknown or accepts at least summaryMaxTokens. Current Claude, GPT and Gemini
-// models accept far more than a summary needs.
-func KnownOutputLimit(modelName string) int {
-	id := platformModelID(modelName)
-	switch {
-	case strings.Contains(id, "claude-3-5") || strings.Contains(id, "claude-3.5"):
-		return 8192
-	case strings.Contains(id, "claude-3-7") || strings.Contains(id, "claude-3.7"):
-		return 0
-	case strings.Contains(id, "claude-3") || strings.Contains(id, "claude-2") || strings.Contains(id, "claude-instant"):
-		return 4096
-	}
-	return 0
-}
