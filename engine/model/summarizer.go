@@ -106,40 +106,58 @@ func (s *Summarizer) Summarize(ctx context.Context, existingSummary string, mess
 		b.WriteString(existingSummary)
 		b.WriteString("\n\nNew messages to incorporate:\n")
 	} else {
-		b.WriteString("Summarize the following conversation concisely, preserving key facts, decisions, and context:\n\n")
+		b.WriteString("Summarize the following conversation for the agent that will continue it:\n\n")
 	}
 	for i := range toSummarize {
 		writeSummaryLine(&b, toSummarize[i])
 	}
 
-	resp, err := s.provider.Chat(ctx, &ChatRequest{
-		Messages: []Message{
-			{Role: RoleSystem, Content: "You are a conversation summarizer. Create a concise summary that preserves all important context, decisions, and facts, including tool actions taken, their outcomes, and work that remains."},
-			{Role: RoleUser, Content: b.String()},
-		},
-		MaxTokens: summaryMaxTokens,
-		Model:     s.provider.Model(),
-	})
+	summary, err := s.summarize(ctx, b.String(), summaryBudget(s.counter.CountTokens(toSummarize)))
 	if err != nil {
-		return SummarizationResult{}, fmt.Errorf("summarize: %w", err)
+		return SummarizationResult{}, err
 	}
 
-	// The kept tail was produced with the summarized turns before it, so its
-	// thinking blocks no longer verify behind the summary.
 	if AnthropicThinkingBoundToConversation(s.provider.Model()) {
 		toKeep = StripAnthropicThinking(toKeep)
 	}
 	return SummarizationResult{
-		Summary:           resp.Content,
+		Summary:           summary,
 		PreservedMessages: toKeep,
 		SummarizedCount:   len(toSummarize),
 	}, nil
 }
 
+// summarySystemPrompt asks for the state an agent needs to continue the task.
+// The sections keep what a free-form summary most often lost: files already
+// understood, approaches already ruled out, and results of checks already run.
+const summarySystemPrompt = `You are a conversation summarizer. You compress an AI coding agent's working history so it can continue the task without redoing work. Write these sections, omitting any that would be empty:
+
+## Goal
+The user's request and acceptance criteria, in the user's words where possible.
+## Decisions
+Decisions made and why.
+## Files
+Each file read or changed: path, what it contains or what changed, and why it matters. Include key line numbers and symbols.
+## Commands and checks
+Commands run that matter, with their outcome (exit code, pass/fail, key numbers).
+## Findings
+Facts established, including results returned by subagents, with file:line where known.
+## Failed approaches
+What was tried and did not work, and why.
+## Open items
+Remaining work and the next step.
+
+Be specific: keep paths, identifiers, numbers and error messages exactly. Do not invent anything.`
+
 const (
-	// summaryMaxTokens bounds the summary output. A summary may stand in for
-	// many tool rounds of a long task, so it needs more room than a chat recap.
-	summaryMaxTokens = 1500
+	// summaryMinTokens and summaryMaxTokens bound the summary output, which
+	// scales with the history it replaces (summaryBudget). A summary may
+	// stand in for many tool rounds of a long task.
+	summaryMinTokens = 4096
+	summaryMaxTokens = 16384
+	// summaryContinuations bounds continuation requests when a summary stops
+	// at its output limit; a truncated summary loses the newest work.
+	summaryContinuations = 2
 	// summaryToolTextLimit bounds each tool argument/result rendered into the
 	// summarization prompt so the prompt itself stays within the window.
 	summaryToolTextLimit = 1000
@@ -148,6 +166,35 @@ const (
 // writeSummaryLine renders one message for the summarization prompt. Tool
 // calls and bounded tool results are included: in agentic turns they carry
 // most of the facts (files changed, commands run, failures seen).
+// summaryBudget is about a tenth of the summarized history, within
+// [summaryMinTokens, summaryMaxTokens].
+func summaryBudget(historyTokens int) int {
+	return min(max(historyTokens/10, summaryMinTokens), summaryMaxTokens)
+}
+
+// summarize requests a summary and continues it while the model stops at its
+// output limit, so the newest history is never cut off the end.
+func (s *Summarizer) summarize(ctx context.Context, prompt string, maxTokens int) (string, error) {
+	messages := []Message{
+		{Role: RoleSystem, Content: summarySystemPrompt},
+		{Role: RoleUser, Content: prompt},
+	}
+	var summary strings.Builder
+	for attempt := 0; ; attempt++ {
+		resp, err := s.provider.Chat(ctx, &ChatRequest{Messages: messages, MaxTokens: maxTokens, Model: s.provider.Model()})
+		if err != nil {
+			return "", fmt.Errorf("summarize: %w", err)
+		}
+		summary.WriteString(resp.Content)
+		if resp.StopReason != StopReasonMaxTokens || attempt >= summaryContinuations || resp.Content == "" {
+			return summary.String(), nil
+		}
+		messages = append(messages,
+			Message{Role: RoleAssistant, Content: resp.Content},
+			Message{Role: RoleUser, Content: "Continue the summary exactly where it stopped. Do not repeat earlier text."})
+	}
+}
+
 func writeSummaryLine(b *strings.Builder, msg Message) {
 	switch {
 	case msg.Role == RoleTool:

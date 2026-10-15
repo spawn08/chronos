@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/spawn08/chronos/engine/model"
 )
@@ -24,6 +25,10 @@ type ToolLoopAction struct {
 	// response with StopReasonPaused and Message as its content.
 	Stop    bool
 	Message string
+	// Steer, when the loop continues, is appended as a harness note before
+	// the next model call (after any pending user input). It is appended, so
+	// it never rewrites the cached prompt, and persisted with the session.
+	Steer string
 }
 
 // ToolLoopController replaces the fixed MaxIterations cap for one chat call.
@@ -109,7 +114,16 @@ func (l *toolLoop) afterRound(ctx context.Context, messages []model.Message, bef
 	// Input is drained only when the loop continues, so the next model call
 	// always answers it; on a stop it stays pending for the client.
 	if controllerErr == nil && !action.Stop {
-		if msg, ok := pendingUserMessage(ctx, l.pending); ok {
+		msg, ok := pendingUserMessage(ctx, l.pending)
+		if steer := strings.TrimSpace(action.Steer); steer != "" {
+			note := "[harness note] " + steer
+			if ok {
+				msg.Content += "\n\n" + note
+			} else {
+				msg, ok = model.Message{Role: model.RoleUser, Content: note}, true
+			}
+		}
+		if ok {
 			messages = append(messages, msg)
 			if l.session != nil {
 				if err := l.session.append(ctx, msg); err != nil {

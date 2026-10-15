@@ -212,3 +212,85 @@ func TestSummarize_NeverSplitsAToolRound(t *testing.T) {
 		t.Fatalf("result = %+v, want the whole tool round preserved", result)
 	}
 }
+
+// scriptedSummarizerProvider returns one response per call and records requests.
+type scriptedSummarizerProvider struct {
+	responses []*ChatResponse
+	requests  []*ChatRequest
+}
+
+func (p *scriptedSummarizerProvider) Chat(_ context.Context, req *ChatRequest) (*ChatResponse, error) {
+	p.requests = append(p.requests, req)
+	if len(p.responses) == 0 {
+		return &ChatResponse{}, nil
+	}
+	resp := p.responses[0]
+	p.responses = p.responses[1:]
+	return resp, nil
+}
+
+func (p *scriptedSummarizerProvider) StreamChat(context.Context, *ChatRequest) (<-chan *ChatResponse, error) {
+	return nil, errors.New("not implemented")
+}
+func (p *scriptedSummarizerProvider) Name() string  { return "scripted" }
+func (p *scriptedSummarizerProvider) Model() string { return "scripted" }
+
+func TestSummarize_ContinuesTruncatedSummary(t *testing.T) {
+	tests := []struct {
+		name      string
+		responses []*ChatResponse
+		want      string
+		wantCalls int
+	}{
+		{"complete in one call", []*ChatResponse{{Content: "## Goal\nall", StopReason: StopReasonEnd}}, "## Goal\nall", 1},
+		{"continued after max_tokens", []*ChatResponse{
+			{Content: "## Goal\nfix ", StopReason: StopReasonMaxTokens},
+			{Content: "the bug", StopReason: StopReasonEnd},
+		}, "## Goal\nfix the bug", 2},
+		{"continuations are bounded", []*ChatResponse{
+			{Content: "a", StopReason: StopReasonMaxTokens},
+			{Content: "b", StopReason: StopReasonMaxTokens},
+			{Content: "c", StopReason: StopReasonMaxTokens},
+			{Content: "d", StopReason: StopReasonEnd},
+		}, "abc", summaryContinuations + 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &scriptedSummarizerProvider{responses: tt.responses}
+			s := NewSummarizer(p, NewEstimatingCounter(), SummarizationConfig{PreserveRecentTurns: 1})
+			msgs := []Message{
+				{Role: RoleUser, Content: "Q1"}, {Role: RoleAssistant, Content: "A1"},
+				{Role: RoleUser, Content: "Q2"}, {Role: RoleAssistant, Content: "A2"},
+			}
+			result, err := s.Summarize(context.Background(), "", msgs)
+			if err != nil {
+				t.Fatalf("Summarize: %v", err)
+			}
+			if result.Summary != tt.want {
+				t.Errorf("summary = %q, want %q", result.Summary, tt.want)
+			}
+			if len(p.requests) != tt.wantCalls {
+				t.Fatalf("calls = %d, want %d", len(p.requests), tt.wantCalls)
+			}
+			if got := p.requests[0].MaxTokens; got < summaryMinTokens {
+				t.Errorf("MaxTokens = %d, want >= %d", got, summaryMinTokens)
+			}
+			if !strings.Contains(p.requests[0].Messages[0].Content, "## Failed approaches") {
+				t.Error("summary prompt lacks the structured template")
+			}
+		})
+	}
+}
+
+func TestSummaryBudget(t *testing.T) {
+	tests := []struct{ history, want int }{
+		{0, summaryMinTokens},
+		{60000, 6000},
+		{1_000_000, summaryMaxTokens},
+	}
+	for _, tt := range tests {
+		if got := summaryBudget(tt.history); got != tt.want {
+			t.Errorf("summaryBudget(%d) = %d, want %d", tt.history, got, tt.want)
+		}
+	}
+}

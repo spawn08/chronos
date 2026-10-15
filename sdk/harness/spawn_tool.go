@@ -50,7 +50,10 @@ const SpawnToolName = "spawn_subagent"
 // "agent") or one described dynamically in the call.
 func NewSpawnSubAgentTool(svc *SubAgentService, runner Runner) *tool.Definition {
 	description := "Delegate a self-contained sub-task to a subagent that works in its own fresh context " +
-		"and returns only its final result, keeping your context small. Provide 'task'. " +
+		"and returns only its final result, keeping your context small. " +
+		"Worth it only for independent work of roughly ten or more tool calls whose raw output you will not need, or for several independent pieces that can run at once (send those calls together in one message). " +
+		"Do not delegate a lookup that one to three searches or reads answer, a single-file edit, or a review of your own change unless the user asked for a review. " +
+		"The subagent sees none of your conversation, so 'task' must be a complete brief: GOAL; CONTEXT (file paths and line ranges you already read, facts already established, approaches already ruled out); SCOPE (files it may change, what is out of bounds); DELIVERABLE; DONE WHEN. " +
 		"Optionally name a pre-registered 'agent', or describe a new one with 'system_prompt' (and optional 'tools')."
 	if catalog := svc.catalog(); len(catalog) > 0 {
 		var b strings.Builder
@@ -77,7 +80,7 @@ func NewSpawnSubAgentTool(svc *SubAgentService, runner Runner) *tool.Definition 
 			"properties": map[string]any{
 				"task": map[string]any{
 					"type":        "string",
-					"description": "The self-contained sub-task for the subagent to complete.",
+					"description": "Complete brief: GOAL, CONTEXT (paths, line ranges and facts already established), SCOPE, DELIVERABLE, DONE WHEN.",
 				},
 				"agent": map[string]any{
 					"type":        "string",

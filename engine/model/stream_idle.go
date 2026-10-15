@@ -10,9 +10,12 @@ import (
 
 // defaultStreamIdleTimeout bounds the silence between bytes of a streaming
 // response. Streams have no overall deadline, so without it a stalled
-// connection would block a turn forever. Providers send keepalive pings and
-// reasoning deltas well within this window.
-const defaultStreamIdleTimeout = 5 * time.Minute
+// connection would block a turn forever. It measures liveness, not duration:
+// providers send keepalive pings every few seconds and reasoning deltas well
+// within this window, so a stream may run for any length of time while bytes
+// keep arriving. Silence this long means a dead connection, and the request
+// is retried; at five minutes a hung read stalled a subagent for 71 minutes.
+const defaultStreamIdleTimeout = 2 * time.Minute
 
 // ErrStreamIdle matches (via errors.Is) the error returned when a streaming
 // response sends nothing for longer than its idle timeout.
