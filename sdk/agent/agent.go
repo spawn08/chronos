@@ -1105,32 +1105,20 @@ func (a *Agent) executeToolCalls(ctx context.Context, messages []model.Message, 
 
 	a.debugLog("handling %d tool calls", len(resp.ToolCalls))
 	results := make([]toolExecution, len(resp.ToolCalls))
-	if a.toolCallsParallelSafe(resp.ToolCalls) {
-		limit := a.MaxConcurrentSubAgents
-		if limit <= 0 {
-			limit = 5
+	// Consecutive parallel-safe calls run concurrently; any other call is a
+	// barrier that runs alone, in order, after everything before it. One
+	// shell or write call in a batch no longer serializes the reads around it,
+	// and an edit followed by a read of the same file still sees the edit.
+	for start := 0; start < len(resp.ToolCalls); {
+		end := start + 1
+		for end < len(resp.ToolCalls) && a.toolCallParallelSafe(resp.ToolCalls[start]) && a.toolCallParallelSafe(resp.ToolCalls[end]) {
+			end++
 		}
-		semaphore := make(chan struct{}, limit)
-		var wg sync.WaitGroup
-		for i, tc := range resp.ToolCalls {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				select {
-				case semaphore <- struct{}{}:
-					defer func() { <-semaphore }()
-				case <-ctx.Done():
-					results[i].err = ctx.Err()
-					return
-				}
-				results[i] = a.executeToolCall(ctx, tc)
-			}()
+		a.runToolCallGroup(ctx, resp.ToolCalls[start:end], results[start:end])
+		if err := firstToolError(results[start:end]); err != nil {
+			break
 		}
-		wg.Wait()
-	} else {
-		for i, tc := range resp.ToolCalls {
-			results[i] = a.executeToolCall(ctx, tc)
-		}
+		start = end
 	}
 	for _, result := range results {
 		if result.err != nil {
@@ -1146,17 +1134,48 @@ type toolExecution struct {
 	err     error
 }
 
-func (a *Agent) toolCallsParallelSafe(calls []model.ToolCall) bool {
-	if len(calls) < 2 {
-		return false
+func (a *Agent) toolCallParallelSafe(call model.ToolCall) bool {
+	definition, ok := a.Tools.Get(call.Name)
+	return ok && definition.ParallelSafe
+}
+
+// runToolCallGroup runs calls (one barrier call, or a run of parallel-safe
+// calls) and stores each result at its own index.
+func (a *Agent) runToolCallGroup(ctx context.Context, calls []model.ToolCall, results []toolExecution) {
+	if len(calls) == 1 {
+		results[0] = a.executeToolCall(ctx, calls[0])
+		return
 	}
-	for _, call := range calls {
-		definition, ok := a.Tools.Get(call.Name)
-		if !ok || !definition.ParallelSafe {
-			return false
+	limit := a.MaxConcurrentSubAgents
+	if limit <= 0 {
+		limit = 5
+	}
+	semaphore := make(chan struct{}, limit)
+	var wg sync.WaitGroup
+	for i, tc := range calls {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			select {
+			case semaphore <- struct{}{}:
+				defer func() { <-semaphore }()
+			case <-ctx.Done():
+				results[i].err = ctx.Err()
+				return
+			}
+			results[i] = a.executeToolCall(ctx, tc)
+		}()
+	}
+	wg.Wait()
+}
+
+func firstToolError(results []toolExecution) error {
+	for _, r := range results {
+		if r.err != nil {
+			return r.err
 		}
 	}
-	return true
+	return nil
 }
 
 func (a *Agent) executeToolCall(ctx context.Context, tc model.ToolCall) toolExecution {

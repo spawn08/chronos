@@ -340,3 +340,75 @@ func TestChat_MaxIterationsExceededError(t *testing.T) {
 		})
 	}
 }
+
+// TestExecuteToolCallsMixedBatchKeepsBarrierOrder: reads around a write run
+// concurrently with each other, the write runs alone after the reads before
+// it, and results keep the model's call order.
+func TestExecuteToolCallsMixedBatchKeepsBarrierOrder(t *testing.T) {
+	a, err := New("mixed", "Mixed").WithModel(&recordingProvider{}).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var events []string
+	record := func(e string) {
+		mu.Lock()
+		events = append(events, e)
+		mu.Unlock()
+	}
+	readStarted := make(chan struct{}, 2)
+	releaseReads := make(chan struct{})
+	a.Tools.Register(&tool.Definition{Name: "read", Permission: tool.PermAllow, ParallelSafe: true,
+		Handler: func(_ context.Context, args map[string]any) (any, error) {
+			id, _ := args["id"].(string)
+			if id == "r1" || id == "r2" {
+				readStarted <- struct{}{}
+				<-releaseReads
+			}
+			record("read:" + id)
+			return id, nil
+		}})
+	a.Tools.Register(&tool.Definition{Name: "write", Permission: tool.PermAllow,
+		Handler: func(context.Context, map[string]any) (any, error) {
+			record("write")
+			return "w", nil
+		}})
+	done := make(chan []model.Message, 1)
+	go func() {
+		msgs, err := a.executeToolCalls(context.Background(), nil, &model.ChatResponse{ToolCalls: []model.ToolCall{
+			{ID: "1", Name: "read", Arguments: `{"id":"r1"}`},
+			{ID: "2", Name: "read", Arguments: `{"id":"r2"}`},
+			{ID: "3", Name: "write", Arguments: `{}`},
+			{ID: "4", Name: "read", Arguments: `{"id":"r3"}`},
+		}})
+		if err != nil {
+			t.Error(err)
+		}
+		done <- msgs
+	}()
+	for i := 0; i < 2; i++ {
+		select {
+		case <-readStarted:
+		case <-time.After(time.Second):
+			close(releaseReads)
+			t.Fatal("parallel-safe reads before a barrier did not run concurrently")
+		}
+	}
+	mu.Lock()
+	if len(events) != 0 {
+		t.Fatalf("write ran before the reads finished: %v", events)
+	}
+	mu.Unlock()
+	close(releaseReads)
+	msgs := <-done
+	if got := events[2:]; got[0] != "write" || got[1] != "read:r3" {
+		t.Fatalf("events = %v, want both reads, then write, then read:r3", events)
+	}
+	var ids []string
+	for _, m := range msgs[1:] {
+		ids = append(ids, m.ToolCallID)
+	}
+	if strings.Join(ids, ",") != "1,2,3,4" {
+		t.Fatalf("result order = %v, want call order", ids)
+	}
+}

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/spawn08/chronos/engine/model"
 )
@@ -24,7 +25,19 @@ type ToolLoopAction struct {
 	// response with StopReasonPaused and Message as its content.
 	Stop    bool
 	Message string
+	// Steer, when the loop continues, is appended as a harness note before
+	// the next model call (after any pending user input). It is appended, so
+	// it never rewrites the cached prompt, and persisted with the session.
+	Steer string
 }
+
+// HarnessNotePrefix starts every steer the tool loop adds to the
+// conversation, and HarnessNoteName names a user-role message that holds
+// only harness notes. Both let readers tell such text from the user's own.
+const (
+	HarnessNotePrefix = "[harness note] "
+	HarnessNoteName   = "harness"
+)
 
 // ToolLoopController replaces the fixed MaxIterations cap for one chat call.
 // It is consulted at each round boundary, after tool results are appended
@@ -109,7 +122,18 @@ func (l *toolLoop) afterRound(ctx context.Context, messages []model.Message, bef
 	// Input is drained only when the loop continues, so the next model call
 	// always answers it; on a stop it stays pending for the client.
 	if controllerErr == nil && !action.Stop {
-		if msg, ok := pendingUserMessage(ctx, l.pending); ok {
+		msg, ok := pendingUserMessage(ctx, l.pending)
+		if steer := strings.TrimSpace(action.Steer); steer != "" {
+			note := HarnessNotePrefix + steer
+			if ok {
+				msg.Content += "\n\n" + note
+			} else {
+				// Name marks a message the user did not type, so readers of
+				// the conversation (recalled requests, summaries) can skip it.
+				msg, ok = model.Message{Role: model.RoleUser, Name: HarnessNoteName, Content: note}, true
+			}
+		}
+		if ok {
 			messages = append(messages, msg)
 			if l.session != nil {
 				if err := l.session.append(ctx, msg); err != nil {
