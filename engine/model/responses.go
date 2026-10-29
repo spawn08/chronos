@@ -108,6 +108,8 @@ func buildResponsesRequestBody(req *ChatRequest, defaultModel string, stream boo
 				"name":        tool.Function.Name,
 				"description": tool.Function.Description,
 				"parameters":  tool.Function.Parameters,
+				// Preserve optional parameters; Responses otherwise normalizes schemas to strict mode.
+				"strict": false,
 			})
 		}
 		body["tools"] = tools
